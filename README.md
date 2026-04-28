@@ -192,13 +192,36 @@ AnchorKey (currently in TestFlight v0.0.11). Specific gotchas baked in:
   .icns regardless of catalog input. Replacing it with a hand-rolled 10-size
   version is the only reliable way to get sharp icons at every system size.
 
-## Branch protection
+## GitHub configuration (one-shot)
 
-Enable on the GitHub repo settings:
+After creating your repo and pushing the first commit, run:
 
-- Require pull request reviews before merging
-- Require status checks to pass: `app (iOS device)`, `app (iOS Simulator)`, `app (macOS)`
-- Include administrators
+```bash
+make setup-github                                  # uses current repo's origin
+# or:
+bin/setup-github.sh indiagrams/myapp               # explicit target
+```
+
+This applies the Indiagrams house-style settings to your repo:
+
+- **Branch protection on `main`**:
+  - Require PR before merging (no direct pushes — even for repo admins)
+  - Require 3 CI checks green: `app (iOS device)`, `app (iOS Simulator)`, `app (macOS)`
+  - Require checks to be up-to-date with `main` before merge (strict mode)
+  - Enforce on admins (no bypass)
+  - Require linear history
+  - Require conversation resolution before merge
+  - Block force-pushes + branch deletion
+- **Repo merge style**: squash-only (no merge commits, no rebase merges)
+- **Auto-delete head branches** after merge
+
+The script is idempotent — safe to re-run when you change settings or the
+PR job names. It uses `gh api` and needs `gh auth status` to show the
+`admin:repo` scope.
+
+If your CI job names diverge from the defaults (e.g. you renamed jobs in
+`.github/workflows/pr.yml`), edit the `checks` array in `bin/setup-github.sh`
+to match — the names must match the job `name:` attribute exactly.
 
 ## License
 

@@ -6,7 +6,7 @@
 # The stub app is named "HelloApp" with bundle id "io.indiagrams.helloapp".
 # Rename for your project: see README.md → "Renaming the stub".
 
-.PHONY: bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun help
+.PHONY: bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github help
 
 help:
 	@echo "Targets:"
@@ -19,6 +19,7 @@ help:
 	@echo "  icons            Regenerate macOS AppIcon.iconset + AppIcon.icns from 1024 source"
 	@echo "  screenshots      Capture App Store screenshots (iOS + macOS) to fastlane/screenshots/"
 	@echo "  release-dryrun   fastlane release tag:v0.0.0 skip_upload:true skip_tag:true"
+	@echo "  setup-github     Apply Indiagrams house-style branch protection to current repo"
 
 bootstrap:
 	brew bundle
@@ -52,3 +53,6 @@ screenshots:
 
 release-dryrun:
 	bundle exec fastlane release tag:v0.0.0 skip_upload:true skip_tag:true
+
+setup-github:
+	bin/setup-github.sh

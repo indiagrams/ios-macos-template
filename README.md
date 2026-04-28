@@ -1,0 +1,205 @@
+# ios-macos-template
+
+Boilerplate for iOS + macOS apps in the Indiagrams house style.
+Distilled from [PrivateClaw](https://github.com/indiagrams/PrivateClaw) and
+[AnchorKey](https://github.com/indiagrams/AnchorKey) — same XcodeGen layout,
+same fastlane release pipeline, same App Store submission tooling.
+
+What you get out of the box:
+
+- **Local checks** — `ci/local-check.sh --fast` runs an unsigned iOS device
+  build (the primary CI signal) on every `git push` via lefthook.
+- **GitHub Actions** — three jobs on every PR: iOS device, iOS Simulator, macOS.
+  Branch protection on `main` blocks direct pushes.
+- **Signed release pipeline** — `fastlane release tag:v0.1.0` builds signed
+  `.ipa` + `.pkg`, uploads both to TestFlight, then pushes the git tag.
+- **App Store submission** — `fastlane ios upload_metadata` + `fastlane mac
+  upload_metadata` + `ci/take-screenshots.sh` + `ci/bump-asc-version.sh`.
+- **Hand-crafted macOS icons** — `ci/gen-macos-icons.swift` generates the full
+  10-size .icns from a 1024 source. The build's postCompileScript overwrites
+  actool's broken 4-size output before code-signing.
+- **Working stub** — `HelloApp` (iOS + macOS) boots, builds green, and
+  drives screenshot capture for App Store submission.
+
+## Quickstart
+
+```bash
+git clone https://github.com/indiagrams/ios-macos-template.git my-app
+cd my-app
+make bootstrap          # brew bundle, lefthook install, xcodegen, bundle install
+make check              # iOS device build (primary signal)
+make check-macos        # macOS build
+open app/HelloApp.xcodeproj
+```
+
+## Renaming the stub
+
+The stub uses these names:
+
+| Token | Value |
+|---|---|
+| App name (scheme + product) | `HelloApp` |
+| Bundle ID | `io.indiagrams.helloapp` |
+| Team ID | `TEAM_ID_PLACEHOLDER` (overridden via `.env.local`) |
+| Project file | `app/HelloApp.xcodeproj` |
+| IPA | `build/HelloApp-{ver}.ipa` |
+| pkg | `build/HelloApp-{ver}.pkg` |
+
+To rename for your project, search-replace these tokens across the repo:
+
+```bash
+# Pick three strings:
+#   APP_NAME    e.g. MyApp        (scheme + product)
+#   BUNDLE_ID   e.g. io.indiagrams.myapp
+#   DISPLAY     e.g. "My App"     (Bundle Display Name)
+
+# 1. Strings in source/config files
+grep -rl "HelloApp" --exclude-dir=.git --exclude="*.png" . \
+  | xargs sed -i '' 's/HelloApp/MyApp/g'
+grep -rl "io.indiagrams.helloapp" --exclude-dir=.git . \
+  | xargs sed -i '' 's/io.indiagrams.helloapp/io.indiagrams.myapp/g'
+
+# 2. File paths
+mv app/iOS/HelloApp.entitlements        app/iOS/MyApp.entitlements
+mv app/macOS/HelloApp.entitlements      app/macOS/MyApp.entitlements
+mv app/Shared/HelloApp.swift            app/Shared/MyApp.swift
+
+# 3. Regenerate Xcode project
+make generate
+```
+
+You'll also want to:
+- Replace `app/iOS/Assets.xcassets/AppIcon.appiconset/Icon-1024.png` with your real 1024×1024 icon.
+- Run `make icons` to regenerate the macOS iconset + `.icns` from the new 1024 source.
+- Fill in `fastlane/metadata/en-US/*.txt` (replace TODO markers).
+- Fill in `fastlane/metadata/review_information/*.txt`.
+- Update `fastlane/metadata/copyright.txt`.
+
+## Setting up signing + ASC
+
+```bash
+cp .env.local.example .env.local
+# Fill in: FASTLANE_TEAM_ID, FASTLANE_APPLE_ID, ASC_API_KEY_*
+```
+
+Required Apple artifacts (one-time setup):
+
+1. **Apple Distribution cert** in your login Keychain (developer.apple.com → Certificates → +).
+2. **Mac Installer Distribution cert** in your login Keychain (for macOS .pkg signing).
+3. **App Store Connect API key** with App Manager role (download the `.p8`,
+   base64-encode into `ASC_API_KEY_BASE64`).
+
+The first time you run `fastlane release`, Xcode auto-creates the iOS + macOS
+provisioning profiles via `-allowProvisioningUpdates`. Subsequent runs reuse them.
+
+## Repo layout
+
+```
+.
+├── .github/workflows/pr.yml         # 3 jobs: iOS device, iOS Sim, macOS
+├── Brewfile                         # xcodegen, fastlane, lefthook, …
+├── Makefile                         # bootstrap | check | generate | icons | screenshots | release-dryrun
+├── lefthook.yml                     # pre-push → ci/local-check.sh --fast
+├── Gemfile                          # fastlane via brew Ruby
+├── ci/
+│   ├── local-check.sh               # unsigned builds (CI parity)
+│   ├── local-release-check.sh       # signed .ipa + .pkg + sandbox re-sign hack
+│   ├── take-screenshots.sh          # iOS + macOS App Store screenshots
+│   ├── extract-mac-screenshots.sh   # extract macOS PNGs from xcresult
+│   ├── bump-asc-version.{rb,sh}     # bump ASC version + attach TestFlight build + re-upload metadata
+│   ├── gen-macos-icons.swift        # 1024 PNG → 10-size .icns + iconset
+│   ├── ExportOptions-iOS.plist      # signed iOS App Store export options
+│   ├── ExportOptions-macOS-AppStore.plist
+│   └── lib/
+│       ├── resolve-dist-cert-sha.sh # cert SHA-1 disambiguation (shared across indiagrams projects)
+│       └── SHA256SUMS               # pinned hashes; CI fails if lib/ drifts
+├── fastlane/
+│   ├── Fastfile                     # release | take_screenshots | upload_screenshots | upload_metadata | submit_for_review
+│   ├── Appfile                      # bundle ID + team
+│   ├── Snapfile / MacSnapfile       # screenshot capture config
+│   └── metadata/                    # App Store listing copy + review info (TODO markers)
+└── app/
+    ├── project.yml                  # XcodeGen — iOS + macOS targets + UITest targets
+    ├── Shared/                      # SwiftUI app code (cross-platform)
+    ├── iOS/                         # iOS-only resources (entitlements, AppIcon)
+    ├── macOS/                       # macOS-only resources (entitlements, AppIcon, .icns)
+    ├── UITests/                     # iOS UITest target (drives fastlane snapshot)
+    └── MacOSUITests/                # macOS UITest target (drives screenshot capture)
+```
+
+## Common workflows
+
+**Develop a feature**
+```bash
+git checkout -b feat/your-feature
+# edit app/Shared/...
+make check                      # iOS device build (~30s)
+git push                        # lefthook runs local-check --fast first
+gh pr create
+```
+
+**Cut a release**
+```bash
+set -a; source .env.local; set +a
+fastlane release tag:v0.1.0
+```
+
+**Submit to App Review (one-shot, sync versions)**
+```bash
+ci/bump-asc-version.sh v0.1.0   # bump ASC version + attach TestFlight build + re-upload metadata
+fastlane ios submit_for_review
+fastlane mac submit_for_review
+```
+
+**Capture App Store screenshots**
+```bash
+make screenshots                # iOS + macOS, output to fastlane/screenshots/en-US/
+fastlane ios upload_screenshots
+fastlane mac upload_screenshots
+```
+
+## Why these specific patterns
+
+These are not invented — they're hard-won from PrivateClaw (1.0 shipped) and
+AnchorKey (currently in TestFlight v0.0.11). Specific gotchas baked in:
+
+- **iOS device build, not Simulator, as primary CI signal** — Simulator green
+  with device red happens often (xcframework slice missing, entitlements
+  pathway, real signing). Catch it on every push.
+- **Cert SHA-1 pinning** (`ci/lib/resolve-dist-cert-sha.sh`) — `Apple
+  Distribution: <name>` is ambiguous when one team has multiple distribution
+  certs (multi-app machines). Pin via `security find-identity` + the cert in
+  the .app's embedded provisioning profile.
+- **macOS app-sandbox re-sign hack** — Xcode's Mac App Store profile strips
+  `com.apple.security.app-sandbox`. TestFlight rejects with ITMS-90296. Fix:
+  expand the .pkg, force-add sandbox to the .app's signature, repack with
+  productbuild + Mac Installer Distribution cert.
+- **PlistBuddy `Set :key bool true` is a silent no-op** — PlistBuddy ignores
+  type hints on Set. Use `Set :key true` for existing keys, `Add :key bool true`
+  for new ones.
+- **`fastlane deliver` silently drops metadata fields** — when given just
+  `metadata_path`, fields like `support_url` / `marketing_url` / `copyright` /
+  `name` / `subtitle` / `privacy_url` are dropped by deliver's loader.
+  Workaround: read every file ourselves and pass explicit hashes (see
+  `do_upload_metadata` in `Fastfile`).
+- **macOS screenshots must go directly into `en-US/` (not `en-US/Mac/`)** —
+  deliver's loader globs `<lang>/*.png` and only expands `iMessage` /
+  `appleTV` subdirectories. Anything in arbitrary subfolders (e.g. `Mac/`)
+  is silently ignored.
+- **fastlane snapshot is iOS-only** — macOS uses xcodebuild test +
+  XCTAttachment + `extract-mac-screenshots.sh` to pull PNGs from the xcresult.
+- **macOS icons need the postCompileScript overwrite** — actool emits a 4-size
+  .icns regardless of catalog input. Replacing it with a hand-rolled 10-size
+  version is the only reliable way to get sharp icons at every system size.
+
+## Branch protection
+
+Enable on the GitHub repo settings:
+
+- Require pull request reviews before merging
+- Require status checks to pass: `app (iOS device)`, `app (iOS Simulator)`, `app (macOS)`
+- Include administrators
+
+## License
+
+Internal Indiagrams template. Not for external distribution.

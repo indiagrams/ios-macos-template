@@ -1,0 +1,11 @@
+# fastlane/Appfile — App Store Connect target identification.
+#
+# Bundle ID matches app/project.yml's iOS app target. Same bundle id is used
+# for the macOS app (Universal Purchase) so deliver picks the right
+# AppStoreVersion via the platform: arg.
+
+app_identifier "io.indiagrams.helloapp"
+
+# Apple ID + Team ID come from .env.local (gitignored).
+apple_id ENV["FASTLANE_APPLE_ID"] if ENV["FASTLANE_APPLE_ID"]
+team_id  ENV["FASTLANE_TEAM_ID"]  if ENV["FASTLANE_TEAM_ID"]

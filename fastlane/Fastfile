@@ -1,0 +1,253 @@
+# fastlane/Fastfile
+#
+# iOS + macOS release pipeline. Modeled on indiagrams/PrivateClaw +
+# indiagrams/AnchorKey production pipelines.
+#
+# Usage:
+#   set -a; source .env.local; set +a; fastlane release tag:v0.1.0
+#
+# Dry run (no upload, no tag push):
+#   fastlane release tag:v0.1.0 skip_upload:true skip_tag:true
+#
+# What `release` does:
+#   1. Build signed iOS .ipa + macOS .pkg via ci/local-release-check.sh
+#   2. Upload iOS .ipa to TestFlight (`pilot`)
+#   3. Upload macOS .pkg to TestFlight (`pilot`)
+#   4. Push the git tag (triggers .github/workflows/release.yml if present)
+#
+# Prerequisites:
+#   - Distribution cert + iOS provisioning profile in login Keychain
+#   - macOS provisioning profile + Mac Installer Distribution cert
+#   - .env.local with ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID, ASC_API_KEY_BASE64,
+#     FASTLANE_TEAM_ID
+#
+# Per-platform metadata + submission lanes:
+#   fastlane ios upload_metadata     # update iOS App Store record
+#   fastlane mac upload_metadata     # update macOS App Store record
+#   fastlane ios upload_screenshots  # iOS screenshots
+#   fastlane mac upload_screenshots  # macOS screenshots
+#   fastlane ios submit_for_review   # submit iOS for App Review
+#   fastlane mac submit_for_review   # submit macOS for App Review
+#
+# Single-command "bump everything for new version":
+#   ci/bump-asc-version.sh v0.1.0    # screenshots + version bump + metadata + screenshots
+
+default_platform(:ios)
+
+# ─── Shared helpers ───────────────────────────────────────────────────────────
+
+APP_IDENTIFIER     = "io.indiagrams.helloapp"
+IOS_SCHEME         = "HelloApp-iOS"
+MACOS_SCHEME       = "HelloApp-macOS"
+IPA_NAME_PATTERN   = "HelloApp-%s.ipa"   # printf with version
+PKG_NAME_PATTERN   = "HelloApp-%s.pkg"
+
+def asc_api_key
+  app_store_connect_api_key(
+    key_id:                ENV["ASC_API_KEY_ID"],
+    issuer_id:             ENV["ASC_API_KEY_ISSUER_ID"],
+    key_content:           ENV["ASC_API_KEY_BASE64"],
+    is_key_content_base64: true
+  )
+end
+
+# Reads every metadata file directly and passes explicit hashes to deliver.
+# Bypasses deliver's load_from_filesystem, which silently drops fields when
+# metadata_path is passed alone (we've reproduced this for support_url,
+# marketing_url, copyright, name, subtitle, privacy_url across multiple
+# fastlane versions).
+#
+# `platform:` should be :ios or :osx (deliver's spelling).
+def do_upload_metadata(platform:)
+  metadata_dir    = File.join(__dir__, "metadata")
+  en_us_dir       = File.join(metadata_dir, "en-US")
+  review_info_dir = File.join(metadata_dir, "review_information")
+
+  review_info = {
+    first_name:    File.read(File.join(review_info_dir, "first_name.txt")).strip,
+    last_name:     File.read(File.join(review_info_dir, "last_name.txt")).strip,
+    email_address: File.read(File.join(review_info_dir, "email_address.txt")).strip,
+    notes:         File.read(File.join(review_info_dir, "notes.txt")).strip,
+  }
+  phone_path = File.join(review_info_dir, "phone_number.txt")
+  if File.exist?(phone_path)
+    phone = File.read(phone_path).strip
+    review_info[:phone_number] = phone unless phone.start_with?("TODO")
+  end
+
+  en_us  = ->(name) { File.read(File.join(en_us_dir, "#{name}.txt")).strip }
+  locale = "en-US"
+
+  deliver(
+    api_key:                  asc_api_key,
+    app_identifier:           APP_IDENTIFIER,
+    platform:                 platform.to_s,
+    metadata_path:            metadata_dir,
+    app_review_information:   review_info,
+    name:                     { locale => en_us.call("name") },
+    subtitle:                 { locale => en_us.call("subtitle") },
+    privacy_url:              { locale => en_us.call("privacy_url") },
+    description:              { locale => en_us.call("description") },
+    keywords:                 { locale => en_us.call("keywords") },
+    support_url:              { locale => en_us.call("support_url") },
+    marketing_url:            { locale => en_us.call("marketing_url") },
+    release_notes:            { locale => en_us.call("release_notes") },
+    copyright:                File.read(File.join(metadata_dir, "copyright.txt")).strip,
+    skip_metadata:            false,
+    skip_binary_upload:       true,
+    skip_screenshots:         true,
+    force:                    true,
+    submit_for_review:        false,
+    automatic_release:        false,
+    precheck_include_in_app_purchases: false
+  )
+  if review_info[:phone_number].nil?
+    UI.success("Metadata uploaded. (Phone number for review still pending — fill fastlane/metadata/review_information/phone_number.txt before submit_for_review.)")
+  else
+    UI.success("Metadata uploaded.")
+  end
+end
+
+def do_submit_for_review(platform:)
+  deliver(
+    api_key:                  asc_api_key,
+    app_identifier:           APP_IDENTIFIER,
+    platform:                 platform.to_s,
+    skip_metadata:            false,
+    skip_binary_upload:       true,
+    skip_screenshots:         false,
+    force:                    true,
+    submit_for_review:        true,
+    automatic_release:        false,
+    submission_information: {
+      export_compliance_uses_encryption: false,
+      export_compliance_encryption_updated: false,
+      add_id_info_uses_idfa: false,
+      content_rights_contains_third_party_content: false,
+    },
+    precheck_include_in_app_purchases: false
+  )
+  UI.success("Submitted to App Review (#{platform}).")
+end
+
+# ─── iOS lanes ────────────────────────────────────────────────────────────────
+platform :ios do
+  desc "Sign + upload to TestFlight + push tag"
+  desc "Usage:    fastlane release tag:v0.1.0"
+  desc "Dry run:  fastlane release tag:v0.1.0 skip_upload:true skip_tag:true"
+  lane :release do |options|
+    tag         = options[:tag] or UI.user_error!("tag: option is required (e.g. tag:v0.1.0)")
+    skip_upload = options[:skip_upload] || false
+    skip_tag    = options[:skip_tag]    || false
+
+    repo_root = File.expand_path("..", __dir__)
+    version   = tag.sub(/^v/, "")
+    dry_run   = skip_upload || skip_tag
+
+    UI.header("Release #{tag}#{dry_run ? " [DRY RUN]" : ""}")
+
+    UI.message("Step 1/4: building signed iOS .ipa + macOS .pkg for v#{version}…")
+    sh("cd #{repo_root} && ci/local-release-check.sh #{tag} --sign-ios --sign-macos")
+
+    ipa_path = File.join(repo_root, "build", IPA_NAME_PATTERN % version)
+    pkg_path = File.join(repo_root, "build", PKG_NAME_PATTERN % version)
+    UI.user_error!("IPA missing at #{ipa_path}") unless File.exist?(ipa_path)
+    UI.user_error!("pkg missing at #{pkg_path}") unless File.exist?(pkg_path)
+
+    api_key = asc_api_key
+
+    if skip_upload
+      UI.important("Step 2/4: Skipping iOS TestFlight upload (skip_upload:true)")
+      UI.important("Step 3/4: Skipping macOS TestFlight upload (skip_upload:true)")
+    else
+      UI.message("Step 2/4: Uploading iOS .ipa to TestFlight…")
+      pilot(api_key: api_key, ipa: ipa_path, skip_waiting_for_build_processing: true)
+      UI.message("Step 3/4: Uploading macOS .pkg to TestFlight…")
+      pilot(api_key: api_key, pkg: pkg_path, skip_waiting_for_build_processing: true)
+    end
+
+    if skip_tag
+      UI.important("Step 4/4: Skipping tag push (skip_tag:true). Run 'git tag #{tag} && git push origin #{tag}' manually when ready.")
+    else
+      UI.message("Step 4/4: Tagging and pushing #{tag}…")
+      sh("cd #{repo_root} && git tag #{tag} && git push origin #{tag}")
+    end
+
+    UI.success("#{tag} is live on TestFlight (iOS + macOS).")
+  end
+
+  desc "Capture App Store screenshots (iOS + macOS via ci/take-screenshots.sh)"
+  desc "Output: fastlane/screenshots/en-US/*.png"
+  desc "Usage: fastlane take_screenshots"
+  # Renamed from `capture_screenshots` to avoid the lane-vs-built-in-action collision.
+  lane :take_screenshots do
+    repo_root = File.expand_path("..", __dir__)
+    sh("cd #{repo_root} && ci/take-screenshots.sh")
+    UI.success("Screenshots in fastlane/screenshots/. Inspect, then run upload_screenshots (ios/mac).")
+  end
+
+  desc "Upload iOS screenshots to App Store Connect (no submit, no metadata change)"
+  lane :upload_screenshots do
+    deliver(
+      api_key:                  asc_api_key,
+      app_identifier:           APP_IDENTIFIER,
+      platform:                 :ios,
+      skip_metadata:            true,
+      skip_binary_upload:       true,
+      skip_screenshots:         false,
+      overwrite_screenshots:    true,
+      force:                    true,
+      submit_for_review:        false,
+      automatic_release:        false,
+      precheck_include_in_app_purchases: false
+    )
+    UI.success("iOS screenshots uploaded. Submit via fastlane ios submit_for_review when ready.")
+  end
+
+  desc "Upload iOS metadata text (name/subtitle/description/keywords/URLs) without screenshots or binary"
+  lane :upload_metadata do
+    do_upload_metadata(platform: :ios)
+  end
+
+  desc "Submit the latest iOS TestFlight build for App Store review"
+  desc "Prerequisites: take_screenshots + upload_screenshots + upload_metadata done; build is in 'Ready for Review' state"
+  lane :submit_for_review do
+    do_submit_for_review(platform: :ios)
+  end
+end
+
+# ─── macOS lanes ──────────────────────────────────────────────────────────────
+# iOS + macOS apps share the same bundle id (Universal Purchase). App Store
+# Connect maintains separate AppStoreVersion records per platform — the same
+# metadata files are reused across both platforms by default.
+platform :mac do
+  desc "Upload macOS metadata text"
+  lane :upload_metadata do
+    do_upload_metadata(platform: :osx)
+  end
+
+  desc "Upload macOS screenshots in fastlane/screenshots/en-US/ to App Store Connect"
+  # deliver infers macOS device class from PNG dimensions
+  # (2880×1800 → MAC_2880, 1440×900 → MAC_1440, etc.).
+  lane :upload_screenshots do
+    deliver(
+      api_key:                  asc_api_key,
+      app_identifier:           APP_IDENTIFIER,
+      platform:                 "osx",
+      skip_metadata:            true,
+      skip_binary_upload:       true,
+      skip_screenshots:         false,
+      overwrite_screenshots:    true,
+      force:                    true,
+      submit_for_review:        false,
+      automatic_release:        false,
+      precheck_include_in_app_purchases: false
+    )
+    UI.success("macOS screenshots uploaded. Submit via fastlane mac submit_for_review when ready.")
+  end
+
+  desc "Submit the latest macOS TestFlight build for App Store review"
+  lane :submit_for_review do
+    do_submit_for_review(platform: :osx)
+  end
+end

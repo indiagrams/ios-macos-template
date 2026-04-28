@@ -1,0 +1,10 @@
+# Git hooks. Install: `lefthook install` (runs as part of `make bootstrap`).
+#
+# Pre-push runs ci/local-check.sh --fast — same checks CI runs on PRs.
+# Skip with `git push --no-verify` only if you know what you're doing.
+
+pre-push:
+  parallel: false
+  commands:
+    local-check:
+      run: ci/local-check.sh --fast

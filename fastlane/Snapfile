@@ -1,0 +1,28 @@
+# fastlane/Snapfile — iOS App Store screenshot capture.
+#
+# Drives `AppStoreScreenshotTests` on the listed simulators.
+# Output → ./fastlane/screenshots/{language}/*.png (deliver requires flat layout
+# in en-US/; nested device subdirectories are silently dropped).
+#
+# Apple App Store Connect requires screenshots for at minimum the 6.7" iPhone
+# slot (1290×2796) and one iPad Pro slot (2064×2752). Smaller iPhone sizes are
+# NOT required as of 2024 — Apple uses scaled versions of the 6.7" upload.
+devices([
+  "iPhone 16 Plus",          # 6.7-inch — primary App Store slot (1290×2796)
+  "iPad Pro 13-inch (M4)"    # 13-inch iPad — secondary slot (2064×2752)
+])
+
+languages(["en-US"])
+
+project("app/HelloApp.xcodeproj")
+scheme("HelloApp-iOS")
+configuration("Debug")
+
+output_directory("./fastlane/screenshots")
+
+clear_previous_screenshots(true)
+
+# Serial — concurrent simulators race when shared state is involved.
+concurrent_simulators(false)
+
+override_status_bar(false)

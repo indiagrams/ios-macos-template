@@ -1,0 +1,16 @@
+# fastlane/MacSnapfile — macOS App Store screenshot capture.
+#
+# Note: macOS screenshots are NOT actually driven by `fastlane snapshot` (which
+# is iOS-only). ci/take-screenshots.sh runs the macOS UITest target via
+# xcodebuild test directly and extracts attachments via ci/extract-mac-screenshots.sh.
+# This file is here for completeness if you ever choose to drive macOS via
+# fastlane snapshot in the future.
+
+scheme("HelloApp-macOS")
+project("app/HelloApp.xcodeproj")
+configuration("Debug")
+output_directory("./fastlane/screenshots")
+
+clear_previous_screenshots(false)
+
+override_status_bar(false)

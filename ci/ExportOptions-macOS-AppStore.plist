@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ExportOptions for macOS App Store distribution.
+  ci/local-release-check.sh substitutes TEAM_ID_PLACEHOLDER at build time.
+  signingStyle=automatic lets Xcode pick the matching profile from the team.
+  After export, the script re-signs the .app to add app-sandbox + network +
+  camera entitlements (Apple's Mac App Store profile strips them by default;
+  TestFlight rejects with "sandbox not enabled" otherwise).
+-->
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store-connect</string>
+    <key>destination</key>
+    <string>export</string>
+    <key>teamID</key>
+    <string>TEAM_ID_PLACEHOLDER</string>
+    <key>signingStyle</key>
+    <string>automatic</string>
+</dict>
+</plist>

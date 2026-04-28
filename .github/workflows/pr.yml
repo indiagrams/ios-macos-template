@@ -1,0 +1,100 @@
+name: PR
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+# Cancel an older run for the same PR / branch when a new push lands.
+concurrency:
+  group: pr-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # iOS device build is the primary signal — it uses the iphoneos SDK and the
+  # real entitlements pathway. Catches bugs the Simulator doesn't (SDK header
+  # drift, missing device-only APIs, wrong xcframework slice, etc.).
+  app-ios-device:
+    name: app (iOS device)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install xcbeautify + xcodegen
+        run: brew install xcbeautify xcodegen
+
+      - name: regenerate Xcode project (incl. Generated-Info.plist files)
+        working-directory: app
+        run: xcodegen generate
+
+      - name: build iOS device (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project app/HelloApp.xcodeproj \
+            -scheme HelloApp-iOS \
+            -configuration Debug \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | xcbeautify --renderer github-actions
+
+  # iOS Simulator — backup signal (different SDK + xcframework slice).
+  app-ios-sim:
+    name: app (iOS Simulator)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install xcbeautify + xcodegen
+        run: brew install xcbeautify xcodegen
+
+      - name: regenerate Xcode project
+        working-directory: app
+        run: xcodegen generate
+
+      - name: build iOS Simulator (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project app/HelloApp.xcodeproj \
+            -scheme HelloApp-iOS \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | xcbeautify --renderer github-actions
+
+  app-macos:
+    name: app (macOS)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install xcbeautify + xcodegen
+        run: brew install xcbeautify xcodegen
+
+      - name: regenerate Xcode project
+        working-directory: app
+        run: xcodegen generate
+
+      - name: build macOS (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project app/HelloApp.xcodeproj \
+            -scheme HelloApp-macOS \
+            -configuration Debug \
+            -destination 'generic/platform=macOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | xcbeautify --renderer github-actions

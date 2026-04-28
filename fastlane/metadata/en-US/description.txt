@@ -1,0 +1,5 @@
+TODO: replace with your App Store description (up to 4000 characters).
+
+Replace this file before running `fastlane ios upload_metadata` /
+`fastlane mac upload_metadata`. App Store Review will reject submissions whose
+description still contains the literal "TODO".

@@ -1,7 +1,7 @@
 # fastlane/Fastfile
 #
-# iOS + macOS release pipeline. Modeled on indiagrams/PrivateClaw +
-# indiagrams/AnchorKey production pipelines.
+# iOS + macOS release pipeline. Modeled on production iOS + macOS shipping
+# pipelines used in real App Store submissions.
 #
 # Usage:
 #   set -a; source .env.local; set +a; fastlane release tag:v0.1.0

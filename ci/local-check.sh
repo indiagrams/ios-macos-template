@@ -43,8 +43,9 @@ require_cmd() {
 }
 
 # Verify shared release helpers (ci/lib/) match their pinned SHA-256s.
-# Identical copies live in indiagrams/PrivateClaw + indiagrams/AnchorKey + this
-# template. Drift would silently re-introduce per-project divergence.
+# Identical copies live in this template and downstream consumer projects.
+# Drift would silently re-introduce per-project divergence — the exact
+# problem the lib was created to prevent.
 verify_helpers_in_sync() {
   if [ ! -f ci/lib/SHA256SUMS ] || [ ! -d ci/lib ]; then
     fail "ci/lib/SHA256SUMS missing — shared helper integrity cannot be checked"

@@ -157,7 +157,7 @@ let slots: [Slot] = [
 // Render to a temp .iconset directory (used by iconutil), and copy each PNG
 // into the .appiconset directory so the asset catalog stays in sync.
 let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory())
-  .appendingPathComponent("anchorkey-iconset-\(ProcessInfo.processInfo.processIdentifier)")
+  .appendingPathComponent("appicon-iconset-\(ProcessInfo.processInfo.processIdentifier)")
 let iconsetDir = tmpDir.appendingPathComponent("AppIcon.iconset")
 try? FileManager.default.removeItem(at: tmpDir)
 try FileManager.default.createDirectory(at: iconsetDir, withIntermediateDirectories: true)

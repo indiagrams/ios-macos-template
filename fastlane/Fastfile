@@ -36,7 +36,7 @@ default_platform(:ios)
 
 # ─── Shared helpers ───────────────────────────────────────────────────────────
 
-APP_IDENTIFIER     = "io.indiagrams.helloapp"
+APP_IDENTIFIER     = "com.example.helloapp"
 IOS_SCHEME         = "HelloApp-iOS"
 MACOS_SCHEME       = "HelloApp-macOS"
 IPA_NAME_PATTERN   = "HelloApp-%s.ipa"   # printf with version

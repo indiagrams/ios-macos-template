@@ -1,20 +1,23 @@
-# Apple Distribution cert SHA-1 resolver — shared across indiagrams release pipelines.
+# Apple Distribution cert SHA-1 resolver — shared across release pipelines.
 #
-# DO NOT EDIT DIVERGENTLY. Identical copies live in:
-#   - github.com/indiagrams/PrivateClaw  ci/lib/resolve-dist-cert-sha.sh
-#   - github.com/indiagrams/AnchorKey    ci/lib/resolve-dist-cert-sha.sh
+# DO NOT EDIT DIVERGENTLY. Byte-identical copies live in this template and in
+# downstream consumer projects that derive from it. Each project pins this
+# file's SHA-256 in its own `ci/lib/SHA256SUMS`; ci/local-check.sh fails the
+# build if the local copy drifts from the pinned hash.
 #
-# Any new project signing for Apple Developer team A26TJZ8QHQ should copy this
-# file as-is. When you change one project's copy, update the other(s) in the
-# same release cycle. `make verify-helpers-in-sync` (in each repo) compares
-# the local copy against a canonical SHA-256 — CI fails if they drift.
+# When you change one project's copy, propagate the same edit to every other
+# project that consumes it within the same release cycle — otherwise the
+# consumer projects' next CI run will fail until they update.
+#
+# Any new project signing for an Apple Developer team can copy this file
+# as-is and adopt the same `verify_helpers_in_sync` check pattern.
 #
 # WHY THIS EXISTS
 # ---------------
 # The `Apple Distribution: <name> (<team-id>)` common name is shared across
 # every Apple Distribution cert issued to that team. When a developer machine
-# carries certs for multiple apps (e.g. PrivateClaw + AnchorKey under the same
-# personal team), `codesign --sign "Apple Distribution"` and exportArchive's
+# carries certs for multiple apps under the same team,
+# `codesign --sign "Apple Distribution"` and exportArchive's
 # `signingCertificate: "Apple Distribution"` both become ambiguous and pick
 # one randomly. Symptoms:
 #   - exportArchive: "Provisioning profile X doesn't include signing

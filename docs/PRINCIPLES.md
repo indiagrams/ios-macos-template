@@ -107,7 +107,7 @@ first and let's talk.
 ## Tone
 
 We aim for a small, useful template. We say no to features that fit a
-specific Indiagrams use case but not the broader iOS/macOS world. We say
+specific organizational use case but not the broader iOS/macOS world. We say
 yes to fixes for the gotchas hiding in `xcodebuild`, `fastlane deliver`,
 `actool`, and `codesign` — because someone hit them, debugged them, and
 shouldn't have to do that again.

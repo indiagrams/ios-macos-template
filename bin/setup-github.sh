@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bin/setup-github.sh — apply Indiagrams house-style GitHub configuration to a
+# bin/setup-github.sh — apply standard GitHub configuration (branch protection, squash, auto-merge) to a
 # repo derived from this template.
 #
 # What it sets:
@@ -48,7 +48,7 @@ else
 fi
 
 if ! [[ "$REPO" =~ ^[^/]+/[^/]+$ ]]; then
-  fail "invalid repo '$REPO' — expected owner/name (e.g. indiagrams/myapp)"
+  fail "invalid repo '$REPO' — expected owner/name (e.g. acme/myapp)"
 fi
 
 step "Target: $REPO"
@@ -117,5 +117,5 @@ echo "$PROTECTION_JSON" | gh api -X PUT "repos/$REPO/branches/main/protection" \
 ok "main: PR-required, 3 CI checks (strict), enforce on admins, linear history"
 
 step "Done"
-ok "$REPO is configured to Indiagrams house style."
+ok "$REPO is configured (PR-required, 3 CI checks, squash-only, auto-merge)."
 ok "Direct pushes to main are blocked. Open PRs and let CI run."

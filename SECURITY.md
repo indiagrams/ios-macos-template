@@ -14,15 +14,6 @@ Do NOT open a public GitHub issue for security bugs. Public issues are for
 non-security bugs and feature requests; for vulnerabilities, the email
 inbox is the only supported channel.
 
-We aim to acknowledge new reports within ~7 days — same response window as
-[`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md)
-#23. Acknowledgement, not resolution: the first reply confirms we have the
-report and are looking at it. Fix and release follow on their own timeline.
-
-We follow a 90-day coordinated-disclosure window. We target a fix and a
-release within 90 days of the initial report. After that window, the
-reporter is free to publish their findings regardless of the fix status.
-
 If the issue affects a downstream consumer app derived from this template
 (and not the template itself), please report to that app's maintainers
 instead — see "Out of Scope" below.
@@ -36,6 +27,17 @@ A useful report includes:
 - The impact you observed — what could an attacker do, on which surface.
 
 Keep it short. This is guidance, not a gating questionnaire.
+
+## Response
+
+We aim to acknowledge new reports within ~7 days — same response window as
+[`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/PRINCIPLES.md`](docs/PRINCIPLES.md)
+#23. Acknowledgement, not resolution: the first reply confirms we have the
+report and are looking at it. Fix and release follow on their own timeline.
+
+We follow a 90-day coordinated-disclosure window. We target a fix and a
+release within 90 days of the initial report. After that window, the
+reporter is free to publish their findings regardless of the fix status.
 
 ## In Scope
 

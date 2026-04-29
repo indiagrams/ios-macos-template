@@ -61,7 +61,7 @@ targets:
         SUPPORTS_MACCATALYST: NO
         CODE_SIGN_ENTITLEMENTS: iOS/HelloApp.entitlements
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
-        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_NSHumanReadableCopyright: "TODO Copyright © <year> <Your Org>. All rights reserved."
 
 # ─── macOS app ────────────────────────────────────────────────────────
   HelloApp-macOS:

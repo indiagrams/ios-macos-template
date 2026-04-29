@@ -6,7 +6,7 @@
 # The stub app is named "HelloApp" with bundle id "io.indiagrams.helloapp".
 # Rename for your project: see README.md → "Renaming the stub".
 
-.PHONY: bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github help
+.PHONY: bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help
 
 help:
 	@echo "Targets:"
@@ -20,6 +20,8 @@ help:
 	@echo "  screenshots      Capture App Store screenshots (iOS + macOS) to fastlane/screenshots/"
 	@echo "  release-dryrun   fastlane release tag:v0.0.0 skip_upload:true skip_tag:true"
 	@echo "  setup-github     Apply Indiagrams house-style branch protection to current repo"
+	@echo "  phase-checklist  Print the GSD canonical per-phase checklist (usage: make phase-checklist N=3.1)"
+	@echo "  milestone-checklist  Print the GSD milestone wrap-up checklist (usage: make milestone-checklist M=1)"
 
 bootstrap:
 	brew bundle
@@ -56,3 +58,11 @@ release-dryrun:
 
 setup-github:
 	bin/setup-github.sh
+
+phase-checklist:
+	@if [ -z "$(N)" ]; then echo "usage: make phase-checklist N=<phase>  (e.g. N=3.1)"; exit 2; fi
+	@bin/phase-runbook.sh $(N)
+
+milestone-checklist:
+	@if [ -z "$(M)" ]; then echo "usage: make milestone-checklist M=<milestone>  (e.g. M=1)"; exit 2; fi
+	@bin/phase-runbook.sh --milestone $(M)

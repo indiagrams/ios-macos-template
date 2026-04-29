@@ -1,9 +1,29 @@
 # ios-macos-template
 
+[![CI](https://github.com/indiagrams/ios-macos-template/actions/workflows/pr.yml/badge.svg)](https://github.com/indiagrams/ios-macos-template/actions/workflows/pr.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org)
+
 Boilerplate for iOS + macOS apps in the Indiagrams house style.
-Distilled from [PrivateClaw](https://github.com/indiagrams/PrivateClaw) and
-[AnchorKey](https://github.com/indiagrams/AnchorKey) — same XcodeGen layout,
-same fastlane release pipeline, same App Store submission tooling.
+Distilled from production iOS + macOS apps shipping under the indiagrams
+org — same XcodeGen layout, same fastlane release pipeline, same App Store
+submission tooling.
+
+## Why this template
+
+- **XcodeGen-driven project file.** No `.xcodeproj` committed. The project
+  source-of-truth is `app/project.yml`; `xcodegen generate` materializes the
+  Xcode bundle. Diffs stay clean and merge conflicts on the project file
+  disappear.
+- **Lefthook pre-push gate.** `ci/local-check.sh --fast` (an unsigned iOS
+  device build) runs locally before every `git push`. CI on GitHub is a
+  confirmation, not a discovery channel — broken builds don't reach `main`'s
+  PR queue.
+- **Signed fastlane releases run locally, not in CI.** Apple cert
+  provisioning in GitHub Actions is hard, project-specific, and fragile.
+  `fastlane release tag:vX.Y.Z` runs from your laptop with the certs already
+  in your login Keychain. The pattern is documented (see "Setting up signing
+  + ASC" below); the CI burden is not adopted.
 
 What you get out of the box:
 
@@ -160,8 +180,8 @@ fastlane mac upload_screenshots
 
 ## Why these specific patterns
 
-These are not invented — they're hard-won from PrivateClaw (1.0 shipped) and
-AnchorKey (currently in TestFlight v0.0.11). Specific gotchas baked in:
+These are not invented — they're hard-won from real production iOS + macOS
+shipping pipelines. Specific gotchas baked in:
 
 - **iOS device build, not Simulator, as primary CI signal** — Simulator green
   with device red happens often (xcframework slice missing, entitlements
@@ -225,4 +245,4 @@ to match — the names must match the job `name:` attribute exactly.
 
 ## License
 
-Internal Indiagrams template. Not for external distribution.
+MIT — see [LICENSE](LICENSE).

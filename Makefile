@@ -19,7 +19,7 @@ help:
 	@echo "  icons            Regenerate macOS AppIcon.iconset + AppIcon.icns from 1024 source"
 	@echo "  screenshots      Capture App Store screenshots (iOS + macOS) to fastlane/screenshots/"
 	@echo "  release-dryrun   fastlane release tag:v0.0.0 skip_upload:true skip_tag:true"
-	@echo "  setup-github     Apply Indiagrams house-style branch protection to current repo"
+	@echo "  setup-github     Apply branch protection settings to current repo"
 	@echo "  phase-checklist  Print the GSD canonical per-phase checklist (usage: make phase-checklist N=3.1)"
 	@echo "  milestone-checklist  Print the GSD milestone wrap-up checklist (usage: make milestone-checklist M=1)"
 

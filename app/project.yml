@@ -83,7 +83,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         LSApplicationCategoryType: public.app-category.utilities
-        NSHumanReadableCopyright: "TODO Copyright © 2026 Indiagram LLC. All rights reserved."
+        NSHumanReadableCopyright: "TODO Copyright © <year> <Your Org>. All rights reserved."
         NSPrincipalClass: NSApplication
         # CFBundleIconName intentionally NOT set — its presence makes Sonoma+
         # prefer Assets.car AppIcon (which has actool's broken 4-size set).

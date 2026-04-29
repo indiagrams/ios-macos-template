@@ -3,7 +3,7 @@
 # Run `make bootstrap` once after cloning. After that, `git push` runs
 # ci/local-check.sh --fast automatically via lefthook.
 #
-# The stub app is named "HelloApp" with bundle id "io.indiagrams.helloapp".
+# The stub app is named "HelloApp" with bundle id "com.example.helloapp".
 # Rename for your project: see README.md → "Renaming the stub".
 
 .PHONY: bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help

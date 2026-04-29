@@ -5,7 +5,7 @@
 name: HelloApp
 
 options:
-  bundleIdPrefix: io.indiagrams
+  bundleIdPrefix: com.example
   deploymentTarget:
     iOS: "17.0"
     macOS: "14.0"
@@ -56,7 +56,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.indiagrams.helloapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp
         TARGETED_DEVICE_FAMILY: "1,2"           # iPhone + iPad
         SUPPORTS_MACCATALYST: NO
         CODE_SIGN_ENTITLEMENTS: iOS/HelloApp.entitlements
@@ -92,7 +92,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.indiagrams.helloapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp
         CODE_SIGN_ENTITLEMENTS: macOS/HelloApp.entitlements
         # Suppress actool's auto-injection of CFBundleIconName=AppIcon. Empty
         # value = actool emits Assets.car as before but does not set the key,
@@ -121,7 +121,7 @@ targets:
       - path: UITests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.indiagrams.helloapp.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp.uitests
         TEST_TARGET_NAME: HelloApp-iOS
         GENERATE_INFOPLIST_FILE: YES
         # SnapshotHelper.swift uses raw NSURLConnection patterns that warn
@@ -138,7 +138,7 @@ targets:
       - path: MacOSUITests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.indiagrams.helloapp.macuitests
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp.macuitests
         TEST_TARGET_NAME: HelloApp-macOS
         GENERATE_INFOPLIST_FILE: YES
     dependencies:

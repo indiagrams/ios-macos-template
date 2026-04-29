@@ -10,7 +10,7 @@
 # Idempotent: skips bump/attach steps that are already at the target.
 #
 # Configuration:
-#   APP_BUNDLE_ID env var — defaults to "io.indiagrams.helloapp" (rename for your
+#   APP_BUNDLE_ID env var — defaults to "com.example.helloapp" (rename for your
 #   project; see README.md → "Renaming the stub").
 
 require 'spaceship'
@@ -30,7 +30,7 @@ token = Spaceship::ConnectAPI::Token.create(
 )
 Spaceship::ConnectAPI.token = token
 
-bundle_id = ENV.fetch("APP_BUNDLE_ID", "io.indiagrams.helloapp")
+bundle_id = ENV.fetch("APP_BUNDLE_ID", "com.example.helloapp")
 app = Spaceship::ConnectAPI::App.find(bundle_id) \
   or abort "error: app #{bundle_id} not found on ASC"
 

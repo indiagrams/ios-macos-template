@@ -59,7 +59,7 @@ The stub uses these names:
 | Token | Value |
 |---|---|
 | App name (scheme + product) | `HelloApp` |
-| Bundle ID | `io.indiagrams.helloapp` |
+| Bundle ID | `com.example.helloapp` |
 | Team ID | `TEAM_ID_PLACEHOLDER` (overridden via `.env.local`) |
 | Project file | `app/HelloApp.xcodeproj` |
 | IPA | `build/HelloApp-{ver}.ipa` |
@@ -70,14 +70,14 @@ To rename for your project, search-replace these tokens across the repo:
 ```bash
 # Pick three strings:
 #   APP_NAME    e.g. MyApp        (scheme + product)
-#   BUNDLE_ID   e.g. io.indiagrams.myapp
+#   BUNDLE_ID   e.g. com.example.myapp
 #   DISPLAY     e.g. "My App"     (Bundle Display Name)
 
 # 1. Strings in source/config files
 grep -rl "HelloApp" --exclude-dir=.git --exclude="*.png" . \
   | xargs sed -i '' 's/HelloApp/MyApp/g'
-grep -rl "io.indiagrams.helloapp" --exclude-dir=.git . \
-  | xargs sed -i '' 's/io.indiagrams.helloapp/io.indiagrams.myapp/g'
+grep -rl "com.example.helloapp" --exclude-dir=.git . \
+  | xargs sed -i '' 's/com.example.helloapp/com.example.myapp/g'
 
 # 2. File paths
 mv app/iOS/HelloApp.entitlements        app/iOS/MyApp.entitlements

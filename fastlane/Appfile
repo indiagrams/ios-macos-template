@@ -4,7 +4,7 @@
 # for the macOS app (Universal Purchase) so deliver picks the right
 # AppStoreVersion via the platform: arg.
 
-app_identifier "io.indiagrams.helloapp"
+app_identifier "com.example.helloapp"
 
 # Apple ID + Team ID come from .env.local (gitignored).
 apple_id ENV["FASTLANE_APPLE_ID"] if ENV["FASTLANE_APPLE_ID"]

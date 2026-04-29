@@ -73,7 +73,7 @@ step() { printf '\n==> %s\n' "$*"; }
 ok()   { printf '    ✓ %s\n' "$*"; }
 fail() { printf '    ✗ %s\n' "$*" >&2; exit 1; }
 
-# Apple Distribution cert SHA-1 resolver — shared library across indiagrams projects.
+# Apple Distribution cert SHA-1 resolver — shared library; SHA-pinned across consumer repos.
 . "$(dirname "${BASH_SOURCE[0]}")/lib/resolve-dist-cert-sha.sh"
 
 VERSION="${TAG#v}"

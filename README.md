@@ -4,9 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org)
 
-Boilerplate for iOS + macOS apps in the Indiagrams house style.
-Distilled from production iOS + macOS apps shipping under the indiagrams
-org — same XcodeGen layout, same fastlane release pipeline, same App Store
+Opinionated boilerplate for iOS + macOS apps.
+Distilled from production iOS + macOS apps shipping on the App Store —
+same XcodeGen layout, same fastlane release pipeline, same App Store
 submission tooling.
 
 ## Why this template
@@ -131,7 +131,7 @@ provisioning profiles via `-allowProvisioningUpdates`. Subsequent runs reuse the
 │   ├── ExportOptions-iOS.plist      # signed iOS App Store export options
 │   ├── ExportOptions-macOS-AppStore.plist
 │   └── lib/
-│       ├── resolve-dist-cert-sha.sh # cert SHA-1 disambiguation (shared across indiagrams projects)
+│       ├── resolve-dist-cert-sha.sh # cert SHA-1 disambiguation (shared library; SHA-pinned across consumer repos)
 │       └── SHA256SUMS               # pinned hashes; CI fails if lib/ drifts
 ├── fastlane/
 │   ├── Fastfile                     # release | take_screenshots | upload_screenshots | upload_metadata | submit_for_review
@@ -228,10 +228,10 @@ After creating your repo and pushing the first commit, run:
 ```bash
 make setup-github                                  # uses current repo's origin
 # or:
-bin/setup-github.sh indiagrams/myapp               # explicit target
+bin/setup-github.sh acme/myapp                     # explicit target
 ```
 
-This applies the Indiagrams house-style settings to your repo:
+This applies the following settings to your repo:
 
 - **Branch protection on `main`**:
   - Require PR before merging (no direct pushes — even for repo admins)

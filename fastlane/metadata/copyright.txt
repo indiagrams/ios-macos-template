@@ -1,1 +1,1 @@
-TODO Copyright © 2026 Indiagram LLC. All rights reserved.
+TODO Copyright © <year> <Your Org>. All rights reserved.

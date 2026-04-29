@@ -178,6 +178,15 @@ fastlane ios upload_screenshots
 fastlane mac upload_screenshots
 ```
 
+**Run the GSD per-phase checklist (optional, for users following the [GSD](https://github.com/aimazon/get-shit-done) workflow)**
+```bash
+make phase-checklist N=3.1            # auto-ticks based on artifacts in .planning/phases/03.1-*/
+make milestone-checklist M=1          # cross-phase wrap-up checklist
+bin/phase-runbook.sh 3.1 --pr 42      # also paste into PR #42's body
+```
+
+The runbook prints the canonical 10-step phase loop (plan → review → execute → code-review → verify → secure → tests → validate) and auto-ticks each step based on artifacts already produced. Skip this whole block if you don't use GSD.
+
 ## Why these specific patterns
 
 These are not invented — they're hard-won from real production iOS + macOS

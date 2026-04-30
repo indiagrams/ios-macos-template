@@ -455,3 +455,69 @@ apply_substitutions() {
     fail "HIGH-6 violation: $REMAINING placeholder match(es) remain after Step G"
   ok "placeholder fully replaced (0 remaining)"
 }
+
+# ── Idempotency + partial-rename detection (REQ-6, REQ-10; HIGH-3) ───────
+
+# Returns 0 if fully renamed (caller should silent-exit-0).
+# Returns 1 if partial-rename state (caller should fail unless --force).
+# Returns 2 if pre-rename state (caller should proceed normally).
+check_idempotency() {
+  local target_xcodeproj="app/$APP_NAME.xcodeproj"
+  local target_swift="app/Shared/$APP_NAME.swift"
+  local target_ios_ent="app/iOS/$APP_NAME.entitlements"
+  local target_macos_ent="app/macOS/$APP_NAME.entitlements"
+
+  local source_swift="app/Shared/HelloApp.swift"
+  local source_ios_ent="app/iOS/HelloApp.entitlements"
+  local source_macos_ent="app/macOS/HelloApp.entitlements"
+
+  local renamed=0
+  [ -d "$target_xcodeproj" ] && renamed=$((renamed + 1))
+  [ -f "$target_swift" ] && [ ! -f "$source_swift" ] && renamed=$((renamed + 1))
+  [ -f "$target_ios_ent" ] && [ ! -f "$source_ios_ent" ] && renamed=$((renamed + 1))
+  [ -f "$target_macos_ent" ] && [ ! -f "$source_macos_ent" ] && renamed=$((renamed + 1))
+
+  local source_present=0
+  [ -f "$source_swift" ] && source_present=$((source_present + 1))
+  [ -f "$source_ios_ent" ] && source_present=$((source_present + 1))
+  [ -f "$source_macos_ent" ] && source_present=$((source_present + 1))
+
+  if [ "$renamed" -ge 3 ] && [ "$source_present" -eq 0 ]; then
+    return 0  # idempotent no-op (full rename detected)
+  fi
+
+  if [ "$renamed" -eq 0 ] && [ "$source_present" -ge 3 ]; then
+    return 2  # proceed with normal rename
+  fi
+
+  return 1
+}
+
+# ── File-path renames via git mv (REQ-3; D-1 mv-after-sed ordering) ──────
+
+rename_file_paths() {
+  step "Renaming file paths (3 git mv operations)"
+
+  local pairs=(
+    "app/Shared/HelloApp.swift:app/Shared/$APP_NAME.swift"
+    "app/iOS/HelloApp.entitlements:app/iOS/$APP_NAME.entitlements"
+    "app/macOS/HelloApp.entitlements:app/macOS/$APP_NAME.entitlements"
+  )
+
+  local pair src dst
+  for pair in "${pairs[@]}"; do
+    src="${pair%%:*}"
+    dst="${pair##*:}"
+
+    if [ ! -f "$src" ]; then
+      fail "rename source missing: $src — repo state unexpected"
+    fi
+
+    if [ -e "$dst" ]; then
+      fail "rename target already exists: $dst — refusing to overwrite"
+    fi
+
+    git mv "$src" "$dst"
+    ok "$src -> $dst"
+  done
+}

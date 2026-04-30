@@ -660,9 +660,18 @@ main() {
 
   case "$IDEMPOT" in
     0)
-      # Already-renamed — silent exit 0 per REQ-6 + SPEC AC-13.
-      # No step(), no ok(), no stdout. Disarm traps (no rollback
-      # needed because no mutations occurred).
+      # Already-renamed.
+      # WR-02: under --dry-run, the user's intent is "show me what
+      # WOULD change." Silent exit 0 leaves them unsure whether the
+      # script crashed, no-oped, or mis-parsed flags. Print an
+      # explicit "nothing to preview" message before exiting.
+      if [ "$DRY_RUN" = "1" ]; then
+        step "DRY RUN — already-renamed state detected"
+        ok "no substitutions would be applied (re-run idempotent)"
+      fi
+      # Real run on already-renamed tree: silent exit 0 per REQ-6 +
+      # SPEC AC-13. No step(), no ok(), no stdout. Disarm traps (no
+      # rollback needed because no mutations occurred).
       trap - ERR EXIT INT TERM
       exit 0
       ;;

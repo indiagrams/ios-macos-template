@@ -333,3 +333,125 @@ enumerate_targets() {
 enumerate_target_files() {
   enumerate_targets | awk -F: '{print $1}' | sort -u
 }
+
+# ── Substitutions (REQ-2, REQ-9; D-1; HIGH-6 placeholder + HIGH-7 escape) ─
+
+# HIGH-7 closure: escape sed replacement metacharacters &, \, |.
+# Input gates (T2 reject_special_chars) already reject newlines and '|'
+# in DISPLAY_NAME/EMAIL/SLUG, so this helper handles the residual cases:
+#   - '&'  → in sed replacement, '&' = entire match. Escape to '\&'.
+#   - '\'  → backslash. Escape to '\\'.
+#   - '|'  → already rejected at gate, but escape to '\|' as belt-suspenders.
+# The order matters: backslash MUST be escaped first (otherwise its escape
+# would re-escape the others).
+sed_escape_replacement() {
+  printf '%s' "$1" | sed -e 's/[\&|]/\\&/g'
+}
+
+# The DISPLAY_NAME placeholder (HIGH-6 closure). Chosen so it does NOT
+# contain HelloApp, com.example.helloapp, maintainers@indiagram.com,
+# <year>, indiagrams/ios-macos-template — none of the broad sweeps
+# will mutate it. Verified zero hits in current tree.
+DISPLAY_PLACEHOLDER='__GSD_DISPLAY_PLACEHOLDER__'
+
+apply_substitutions() {
+  local year escaped_email escaped_slug escaped_display
+  year=$(date +%Y)
+  escaped_email=$(sed_escape_replacement "$EMAIL")
+  escaped_slug=$(sed_escape_replacement "$SLUG")
+  escaped_display=$(sed_escape_replacement "$DISPLAY_NAME")
+
+  # Step A: <year> -> current year (3 source sites; pre-xcodegen)
+  step "Substituting <year> -> $year"
+  git grep -lw -e '<year>' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+    | while read -r f; do
+        sed -i '' "s|<year>|$year|g" "$f"
+        ok "<year> substituted in $f"
+      done
+
+  # Step B: com.example.helloapp -> $BUNDLE_ID
+  # BUNDLE_ID is regex-validated to match ^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$
+  # so cannot contain &, \, |, newline. No escape needed.
+  step "Substituting com.example.helloapp -> $BUNDLE_ID"
+  git grep -lw -F -e 'com.example.helloapp' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+    | while read -r f; do
+        sed -i '' "s|com\.example\.helloapp|$BUNDLE_ID|g" "$f"
+        ok "bundle ID substituted in $f"
+      done
+
+  # Step C: maintainers@indiagram.com -> $EMAIL (escaped — HIGH-7)
+  step "Substituting maintainers@indiagram.com -> $EMAIL"
+  git grep -lw -F -e 'maintainers@indiagram.com' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+    | while read -r f; do
+        sed -i '' "s|maintainers@indiagram\.com|$escaped_email|g" "$f"
+        ok "email substituted in $f"
+      done
+
+  # Step D: indiagrams/ios-macos-template -> $SLUG (escaped — HIGH-7)
+  step "Substituting indiagrams/ios-macos-template -> $SLUG"
+  git grep -lw -F -e 'indiagrams/ios-macos-template' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+    | while read -r f; do
+        sed -i '' "s|indiagrams/ios-macos-template|$escaped_slug|g" "$f"
+        ok "GitHub slug substituted in $f"
+      done
+
+  # Step E_NEW: DISPLAY_NAME anchored sites -> placeholder (HIGH-6 closure)
+  # The placeholder is a literal string with no regex metachars and
+  # no HelloApp/com.example.helloapp/etc. literal substrings — it
+  # passes through Step F (broad HelloApp -> APP_NAME sweep) untouched.
+  step "Replacing DISPLAY_NAME sites with placeholder (HIGH-6)"
+
+  if [ -f app/project.yml ]; then
+    sed -i '' "s|CFBundleDisplayName: HelloApp|CFBundleDisplayName: $DISPLAY_PLACEHOLDER|g" app/project.yml
+    ok "DISPLAY placeholder set in app/project.yml (2 CFBundleDisplayName sites)"
+  fi
+
+  if [ -f app/Shared/ContentView.swift ]; then
+    sed -i '' "s|Text(\"HelloApp\")|Text(\"$DISPLAY_PLACEHOLDER\")|g" app/Shared/ContentView.swift
+    ok "DISPLAY placeholder set in app/Shared/ContentView.swift"
+  fi
+
+  if [ -f app/UITests/AppStoreScreenshotTests.swift ]; then
+    sed -i '' "s|staticTexts\[\"HelloApp\"\]|staticTexts[\"$DISPLAY_PLACEHOLDER\"]|g" app/UITests/AppStoreScreenshotTests.swift
+    ok "DISPLAY placeholder set in app/UITests/AppStoreScreenshotTests.swift"
+  fi
+
+  if [ -f fastlane/metadata/en-US/name.txt ]; then
+    sed -i '' "s|^HelloApp$|$DISPLAY_PLACEHOLDER|" fastlane/metadata/en-US/name.txt
+    ok "DISPLAY placeholder set in fastlane/metadata/en-US/name.txt"
+  fi
+
+  # Step F: HelloApp -> $APP_NAME (broad sweep; placeholder unaffected
+  # because __GSD_DISPLAY_PLACEHOLDER__ contains no HelloApp substring)
+  # APP_NAME is regex-validated [A-Z][a-zA-Z0-9]*; no escape needed.
+  step "Substituting HelloApp -> $APP_NAME (broad sweep)"
+  git grep -lw -e 'HelloApp' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+    | while read -r f; do
+        sed -i '' "s|HelloApp|$APP_NAME|g" "$f"
+        ok "HelloApp substituted in $f"
+      done
+
+  # HIGH-2 belt-and-suspenders assertion: bin/rename.sh and
+  # ci/test-rename.sh MUST be bit-identical to pre-substitution.
+  # Pathspec exclusion is the primary defense; this is the falsifiable
+  # check that the defense worked.
+  git diff --quiet -- bin/rename.sh ci/test-rename.sh 2>/dev/null \
+    || fail "HIGH-2 violation: bin/rename.sh or ci/test-rename.sh modified by substitution sweep"
+  ok "self-exclusion verified — bin/rename.sh + ci/test-rename.sh unchanged"
+
+  # Step G_NEW: placeholder -> $DISPLAY_NAME (escaped — HIGH-7)
+  step "Replacing placeholder with DISPLAY_NAME (HIGH-6)"
+  git grep -lw -F -e "$DISPLAY_PLACEHOLDER" -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+    | while read -r f; do
+        sed -i '' "s|$DISPLAY_PLACEHOLDER|$escaped_display|g" "$f"
+        ok "DISPLAY_NAME substituted in $f"
+      done
+
+  # HIGH-6 verifiable assertion: zero placeholder matches post-Step-G.
+  # If the placeholder remains anywhere, Step G failed to clean up.
+  REMAINING=$(git grep -F -c -e "$DISPLAY_PLACEHOLDER" -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+              | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)
+  [ "${REMAINING:-0}" = "0" ] || \
+    fail "HIGH-6 violation: $REMAINING placeholder match(es) remain after Step G"
+  ok "placeholder fully replaced (0 remaining)"
+}

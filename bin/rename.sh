@@ -310,12 +310,23 @@ trap 'rollback' EXIT
 # (contains HelloApp, com.example.helloapp, etc. in test fixtures).
 
 # The shared pathspec exclusion list (used everywhere)
+# M3 P3 cross-AI HIGH-1 closure (2026-04-29): extended with 3 new
+# entries for the verify-rename infrastructure files. Without these,
+# the rename script's broad sweep (e.g. Step F's git grep -l HelloApp)
+# would rewrite `APP_NAME_ORIG="HelloApp"` -> `APP_NAME_ORIG="MyApp"`
+# inside bin/verify-rename.sh, breaking verify on every post-rename
+# tree. ci/test-rename-gates.sh has the same problem (its G-01 fixture
+# contains HelloAppApp). ci/test-verify-rename.sh embeds the same
+# literals in its mutate-and-fail and D-05 marker tests.
 PATHSPEC_EXCLUSIONS=(
   ':!.planning'
   ':!LICENSE'
   ':!app/HelloApp.xcodeproj'
   ':!bin/rename.sh'
   ':!ci/test-rename.sh'
+  ':!ci/test-rename-gates.sh'
+  ':!bin/verify-rename.sh'
+  ':!ci/test-verify-rename.sh'
 )
 
 # ── Substitutions (REQ-2, REQ-9; D-1; HIGH-6 placeholder + HIGH-7 escape) ─

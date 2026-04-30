@@ -43,10 +43,18 @@ ok()   { printf '    ✓ %s\n' "$*"; }
 fail() { printf '    ✗ %s\n' "$*" >&2; exit 1; }
 
 cleanup() {
+  # M3 P3 cross-AI WR-01 closure (bash 3.2 unbound-array fix):
+  # guard the iteration with a length check. On bash 3.2.57 (macOS
+  # system bash), expanding "${TMPDIRS[@]}" when the array is empty
+  # raises 'unbound variable' under `set -u` — which fires if any
+  # pre-flight failure exits before the first fresh_clone populates
+  # the array. Length-guard is bash-3.2-portable and POSIX-equivalent.
   local d
-  for d in "${TMPDIRS[@]}"; do
-    [ -n "$d" ] && [ -d "$d" ] && rm -rf "$d"
-  done
+  if [ "${#TMPDIRS[@]}" -gt 0 ]; then
+    for d in "${TMPDIRS[@]}"; do
+      [ -n "$d" ] && [ -d "$d" ] && rm -rf "$d"
+    done
+  fi
 }
 trap 'cleanup' EXIT INT TERM
 
@@ -468,9 +476,14 @@ fi
 grep -qF "MyAppApp" "$TD/app/Shared/MyApp.swift" || \
   fail "G-01: app/Shared/MyApp.swift missing 'MyAppApp' — substitution did not occur"
 # Repo-wide: zero HelloApp substring matches outside the standard exclusions.
+# M3 P3 cross-AI HIGH-2 part B closure (2026-04-30; SPEC carve-out):
+# extended with 2 new pathspec entries for the verify-rename
+# infrastructure files so this gate does not false-fail on them.
+# NARROW maintenance only — no other change to this gate.
 HITS=$(cd "$TD" && git grep -c -e HelloApp -- . \
         ':!.planning' ':!LICENSE' ':!app/HelloApp.xcodeproj' \
         ':!bin/rename.sh' ':!ci/test-rename.sh' ':!ci/test-rename-gates.sh' \
+        ':!bin/verify-rename.sh' ':!ci/test-verify-rename.sh' \
         2>/dev/null \
         | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)
 test "$HITS" = "0" || \

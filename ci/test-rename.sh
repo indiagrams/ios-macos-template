@@ -93,6 +93,15 @@ step "Post-rename assertions"
 # scripts' literal references (e.g. error messages mentioning HelloApp).
 # MEDIUM-1: -F applied to fixed-literal patterns containing '.'
 #
+# M3 P3 cross-AI HIGH-2 part A closure (2026-04-30; SPEC carve-out):
+# all 5 git grep invocations below extended with 3 new self-reference
+# pathspec entries for the M3 P3 verify-rename infrastructure files
+# (the gates test, the new verify script, and its integration test).
+# Without these extensions, M3 P1's integration test would false-fail
+# on the new verify files (which retain original template literals by
+# design). NARROW maintenance only — no test logic, no fixture-arg,
+# no assertion-structure change.
+#
 # Signature: check_zero PATTERN [F|NW]
 #   F   → use git grep -F (fixed-string)
 #   NW  → drop -w word-boundary (substring match — required for HelloApp
@@ -106,19 +115,25 @@ check_zero() {
     F)
       hits=$(git grep -cw -F -e "$pat" -- . \
               ':!.planning' ':!LICENSE' ':!app/HelloApp.xcodeproj' \
-              ':!bin/rename.sh' ':!ci/test-rename.sh' 2>/dev/null \
+              ':!bin/rename.sh' ':!ci/test-rename.sh' \
+              ':!ci/test-rename-gates.sh' ':!bin/verify-rename.sh' \
+              ':!ci/test-verify-rename.sh' 2>/dev/null \
               | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)
       ;;
     NW)
       hits=$(git grep -c -e "$pat" -- . \
               ':!.planning' ':!LICENSE' ':!app/HelloApp.xcodeproj' \
-              ':!bin/rename.sh' ':!ci/test-rename.sh' 2>/dev/null \
+              ':!bin/rename.sh' ':!ci/test-rename.sh' \
+              ':!ci/test-rename-gates.sh' ':!bin/verify-rename.sh' \
+              ':!ci/test-verify-rename.sh' 2>/dev/null \
               | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)
       ;;
     *)
       hits=$(git grep -cw -e "$pat" -- . \
               ':!.planning' ':!LICENSE' ':!app/HelloApp.xcodeproj' \
-              ':!bin/rename.sh' ':!ci/test-rename.sh' 2>/dev/null \
+              ':!bin/rename.sh' ':!ci/test-rename.sh' \
+              ':!ci/test-rename-gates.sh' ':!bin/verify-rename.sh' \
+              ':!ci/test-verify-rename.sh' 2>/dev/null \
               | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)
       ;;
   esac
@@ -134,13 +149,17 @@ check_zero "indiagrams/ios-macos-template" F
 
 # Positive assertions: new identifiers present
 test "$(git grep -cw -e "$TEST_APP" -- . ':!.planning' ':!LICENSE' \
-      ':!bin/rename.sh' ':!ci/test-rename.sh' 2>/dev/null \
+      ':!bin/rename.sh' ':!ci/test-rename.sh' \
+      ':!ci/test-rename-gates.sh' ':!bin/verify-rename.sh' \
+      ':!ci/test-verify-rename.sh' 2>/dev/null \
       | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)" -gt 0 \
   || fail "post-rename: '$TEST_APP' not present"
 ok "'$TEST_APP' has matches"
 
 test "$(git grep -cw -F -e "$TEST_BUNDLE" -- . ':!.planning' ':!LICENSE' \
-      ':!bin/rename.sh' ':!ci/test-rename.sh' 2>/dev/null \
+      ':!bin/rename.sh' ':!ci/test-rename.sh' \
+      ':!ci/test-rename-gates.sh' ':!bin/verify-rename.sh' \
+      ':!ci/test-verify-rename.sh' 2>/dev/null \
       | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)" -gt 0 \
   || fail "post-rename: '$TEST_BUNDLE' not present"
 ok "'$TEST_BUNDLE' has matches"

@@ -212,3 +212,78 @@ validate_args() {
     fail "invalid --slug '$SLUG' — expected OWNER/REPO (e.g. acme/myapp)"
   ok "SLUG format OK"
 }
+
+# ── Reset-hard rollback (REQ-7; HIGH-1 closure — replaces broken stash) ───
+#
+# Background: the prior plan iteration used `git stash push --include-untracked`
+# to capture pre-state. On a clean working tree (which Gate 7 requires),
+# `git stash` creates NO entry and SNAPSHOT_CREATED stays 0 → rollback
+# was a no-op → mutations were never undone. Cross-AI HIGH-1.
+#
+# Fix: leverage Gate 7's clean-tree precondition. Pre-mutation HEAD ==
+# working tree, so `git reset --hard HEAD` restores tracked-file
+# modifications and `git mv` staging. Plus:
+#
+#   - rm -rf app/$APP_NAME.xcodeproj  (regenerated dir is gitignored;
+#     `git clean -fd` without -x won't touch it)
+#   - git clean -fd                    (removes new untracked files;
+#     NEVER -fdx — forker's .env.local would be deleted)
+#
+# No git stash. No SNAPSHOT_REF. No snapshot_drop_on_success.
+#
+# iter-6 BLOCKER-iter5-1 closure: MUTATION_STARTED guard flag prevents
+# the trap from firing destructive ops on a pre-mutation gate failure
+# (e.g. dirty-tree gate fails → trap → reset --hard → DESTROYS the
+# forker's uncommitted work). The flag is initialized to 0 here at
+# file scope and flipped to 1 inside main() right before the first
+# mutation call (apply_substitutions). rollback() early-outs unless
+# the flag is set.
+
+ROLLBACK_DONE=0
+MUTATION_STARTED=0  # set to 1 in main() right before first mutation
+
+rollback() {
+  # Idempotent — only fires once even if both ERR and EXIT trip.
+  [ "$ROLLBACK_DONE" = "1" ] && return 0
+  ROLLBACK_DONE=1
+
+  # iter-6 BLOCKER-iter5-1: pre-mutation early-out. If no mutations
+  # were made, nothing to roll back — and running git reset --hard
+  # HEAD on a forker's dirty working tree (e.g. when the clean-tree
+  # gate failed and triggered the EXIT trap) would DESTROY the
+  # forker's uncommitted work. main() flips MUTATION_STARTED=1
+  # right before the first mutation call (apply_substitutions); any
+  # failure BEFORE that point lands here as a no-op rollback.
+  [ "$MUTATION_STARTED" = "1" ] || return 0
+
+  printf '    ✗ rolling back to pre-rename state...\n' >&2
+
+  # Step 1: remove the regenerated xcodeproj if T7 ran (it's gitignored,
+  # so `git clean -fd` without -x won't touch it). APP_NAME may be
+  # unset if rollback fires before arg parsing — guard.
+  if [ -n "${APP_NAME:-}" ] && [ -d "app/$APP_NAME.xcodeproj" ]; then
+    rm -rf "app/$APP_NAME.xcodeproj" 2>/dev/null || true
+  fi
+
+  # Step 2: git reset --hard restores tracked-file modifications +
+  # git mv staging back to HEAD.
+  if git reset --hard HEAD --quiet 2>/dev/null; then
+    # Step 3: git clean -fd removes any NEW untracked files xcodegen
+    # may have created alongside. NOT -fdx — forker's .env.local etc.
+    # are precious. Pre-flight Gate 7 already required clean tree, so
+    # there should be nothing else to clean except what THIS script
+    # introduced.
+    git clean -fd --quiet 2>/dev/null || true
+    printf '    ✗ rolled back to pre-rename state.\n' >&2
+  else
+    printf '    ✗ git reset --hard HEAD failed; manual recovery required.\n' >&2
+    printf '    ✗ inspect: git status; git log --oneline -5\n' >&2
+  fi
+}
+
+# Trap on ERR + EXIT + signals (Ctrl-C = INT, kill = TERM)
+# The traps remain armed for the entire mutation phase (T5/T6/T7); they
+# are disarmed by main() on the success path via `trap - ERR EXIT INT TERM`.
+trap 'rollback' ERR
+trap 'rollback' INT TERM
+trap 'rollback' EXIT

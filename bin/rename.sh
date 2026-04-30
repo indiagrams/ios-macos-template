@@ -362,8 +362,15 @@ apply_substitutions() {
   escaped_display=$(sed_escape_replacement "$DISPLAY_NAME")
 
   # Step A: <year> -> current year (3 source sites; pre-xcodegen)
+  # WR-01: wrap `git grep` in a brace group with `|| true` so a no-match
+  # (`git grep` exit 1) does not abort the pipeline under
+  # `set -euo pipefail`. Without this, the --force partial-rename path
+  # spuriously triggers rollback when some surfaces are already
+  # substituted. Brace group is required because `|` binds tighter than
+  # `||`; a bare `git grep ... || true | while ...` would short-circuit
+  # the entire pipeline on success.
   step "Substituting <year> -> $year"
-  git grep -lw -e '<year>' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+  { git grep -lw -e '<year>' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null || true; } \
     | while read -r f; do
         sed -i '' "s|<year>|$year|g" "$f"
         ok "<year> substituted in $f"
@@ -373,7 +380,7 @@ apply_substitutions() {
   # BUNDLE_ID is regex-validated to match ^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$
   # so cannot contain &, \, |, newline. No escape needed.
   step "Substituting com.example.helloapp -> $BUNDLE_ID"
-  git grep -lw -F -e 'com.example.helloapp' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+  { git grep -lw -F -e 'com.example.helloapp' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null || true; } \
     | while read -r f; do
         sed -i '' "s|com\.example\.helloapp|$BUNDLE_ID|g" "$f"
         ok "bundle ID substituted in $f"
@@ -381,7 +388,7 @@ apply_substitutions() {
 
   # Step C: maintainers@indiagram.com -> $EMAIL (escaped — HIGH-7)
   step "Substituting maintainers@indiagram.com -> $EMAIL"
-  git grep -lw -F -e 'maintainers@indiagram.com' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+  { git grep -lw -F -e 'maintainers@indiagram.com' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null || true; } \
     | while read -r f; do
         sed -i '' "s|maintainers@indiagram\.com|$escaped_email|g" "$f"
         ok "email substituted in $f"
@@ -389,7 +396,7 @@ apply_substitutions() {
 
   # Step D: indiagrams/ios-macos-template -> $SLUG (escaped — HIGH-7)
   step "Substituting indiagrams/ios-macos-template -> $SLUG"
-  git grep -lw -F -e 'indiagrams/ios-macos-template' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+  { git grep -lw -F -e 'indiagrams/ios-macos-template' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null || true; } \
     | while read -r f; do
         sed -i '' "s|indiagrams/ios-macos-template|$escaped_slug|g" "$f"
         ok "GitHub slug substituted in $f"
@@ -425,7 +432,7 @@ apply_substitutions() {
   # because __GSD_DISPLAY_PLACEHOLDER__ contains no HelloApp substring)
   # APP_NAME is regex-validated [A-Z][a-zA-Z0-9]*; no escape needed.
   step "Substituting HelloApp -> $APP_NAME (broad sweep)"
-  git grep -lw -e 'HelloApp' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+  { git grep -lw -e 'HelloApp' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null || true; } \
     | while read -r f; do
         sed -i '' "s|HelloApp|$APP_NAME|g" "$f"
         ok "HelloApp substituted in $f"
@@ -441,7 +448,7 @@ apply_substitutions() {
 
   # Step G_NEW: placeholder -> $DISPLAY_NAME (escaped — HIGH-7)
   step "Replacing placeholder with DISPLAY_NAME (HIGH-6)"
-  git grep -lw -F -e "$DISPLAY_PLACEHOLDER" -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+  { git grep -lw -F -e "$DISPLAY_PLACEHOLDER" -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null || true; } \
     | while read -r f; do
         sed -i '' "s|$DISPLAY_PLACEHOLDER|$escaped_display|g" "$f"
         ok "DISPLAY_NAME substituted in $f"

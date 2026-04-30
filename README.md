@@ -54,6 +54,21 @@ open app/HelloApp.xcodeproj
 
 ## Renaming the stub
 
+Run these five commands from the cloned repo:
+
+```bash
+bin/rename.sh YourApp com.your-org.yourapp 'Your App' --email=you@example.com    # substitute identity surfaces (app name, bundle ID, display, maintainer email, repo slug)
+bin/verify-rename.sh                                                              # assert no leftover originals (run BEFORE commit so a bad rename never lands in git history)
+git add -A && git commit -m "Rename app stub"                                    # record the rename (rename.sh mutates the tree but does not commit)
+git push -u origin main                                                          # publish your renamed fork BEFORE branch protection is enabled
+bin/setup-github.sh                                                              # branch protection + auto-merge + squash-only (runs LAST so it doesn't gate the initial publish)
+```
+
+That's it — your fork is renamed, verified, committed, pushed, and locked down with branch protection.
+
+<details>
+<summary>If you prefer manual sed</summary>
+
 The stub uses these names:
 
 | Token | Value |
@@ -88,7 +103,12 @@ mv app/Shared/HelloApp.swift            app/Shared/MyApp.swift
 make generate
 ```
 
-You'll also want to:
+</details>
+
+### After rename: still-manual steps
+
+These steps `bin/rename.sh` cannot automate — they need your real assets:
+
 - Replace `app/iOS/Assets.xcassets/AppIcon.appiconset/Icon-1024.png` with your real 1024×1024 icon.
 - Run `make icons` to regenerate the macOS iconset + `.icns` from the new 1024 source.
 - Fill in `fastlane/metadata/en-US/*.txt` (replace TODO markers).

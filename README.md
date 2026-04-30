@@ -41,6 +41,14 @@ What you get out of the box:
 - **Working stub** — `HelloApp` (iOS + macOS) boots, builds green, and
   drives screenshot capture for App Store submission.
 
+## What you get
+
+The template ships with a working `HelloApp` stub that builds green on both iOS and macOS — here's what it looks like out of the box:
+
+![HelloApp template running on iOS Simulator — hammer icon, "HelloApp" title, and 'Rename me' instruction visible](docs/screenshots/ios-home.png)
+
+![HelloApp template running natively on macOS — same hammer icon, title, and rename instruction](docs/screenshots/macos-home.png)
+
 ## Quickstart
 
 ```bash

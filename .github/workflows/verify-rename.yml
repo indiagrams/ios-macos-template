@@ -1,0 +1,36 @@
+name: verify-rename
+
+# Non-required workflow: integration self-test for bin/verify-rename.sh.
+# Triggered only when a PR touches the rename / verify infrastructure
+# (D-06 paths filter). NOT added to branch-protection required checks —
+# this is a visible signal, not a merge gate. The 3 required checks
+# in pr.yml (app (iOS device) / app (iOS Simulator) / app (macOS))
+# remain byte-identical (SPEC AC-5).
+
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - bin/rename.sh
+      - bin/verify-rename.sh
+      - ci/test-verify-rename.sh
+
+# D-07: mirror pr.yml concurrency — cancel stale verify runs on new push.
+concurrency:
+  group: verify-rename-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-rename:
+    name: verify-rename self-test
+    runs-on: macos-15
+    # D-08: 10x the SPEC's <30s budget; generous cold-runner headroom.
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install xcodegen
+        run: brew install xcodegen
+
+      - name: run ci/test-verify-rename.sh
+        run: bash ci/test-verify-rename.sh

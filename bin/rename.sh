@@ -318,22 +318,6 @@ PATHSPEC_EXCLUSIONS=(
   ':!ci/test-rename.sh'
 )
 
-enumerate_targets() {
-  git grep -nw \
-    -e HelloApp \
-    -F -e com.example.helloapp \
-    -F -e maintainers@indiagram.com \
-    -e '<year>' \
-    -F -e 'indiagrams/ios-macos-template' \
-    -- . "${PATHSPEC_EXCLUSIONS[@]}" \
-    2>/dev/null \
-    || true
-}
-
-enumerate_target_files() {
-  enumerate_targets | awk -F: '{print $1}' | sort -u
-}
-
 # ── Substitutions (REQ-2, REQ-9; D-1; HIGH-6 placeholder + HIGH-7 escape) ─
 
 # HIGH-7 closure: escape sed replacement metacharacters &, \, |.

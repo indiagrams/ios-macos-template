@@ -468,9 +468,14 @@ fi
 grep -qF "MyAppApp" "$TD/app/Shared/MyApp.swift" || \
   fail "G-01: app/Shared/MyApp.swift missing 'MyAppApp' — substitution did not occur"
 # Repo-wide: zero HelloApp substring matches outside the standard exclusions.
+# M3 P3 cross-AI HIGH-2 part B closure (2026-04-30; SPEC carve-out):
+# extended with 2 new pathspec entries for the verify-rename
+# infrastructure files so this gate does not false-fail on them.
+# NARROW maintenance only — no other change to this gate.
 HITS=$(cd "$TD" && git grep -c -e HelloApp -- . \
         ':!.planning' ':!LICENSE' ':!app/HelloApp.xcodeproj' \
         ':!bin/rename.sh' ':!ci/test-rename.sh' ':!ci/test-rename-gates.sh' \
+        ':!bin/verify-rename.sh' ':!ci/test-verify-rename.sh' \
         2>/dev/null \
         | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)
 test "$HITS" = "0" || \

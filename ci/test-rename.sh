@@ -93,28 +93,40 @@ step "Post-rename assertions"
 # scripts' literal references (e.g. error messages mentioning HelloApp).
 # MEDIUM-1: -F applied to fixed-literal patterns containing '.'
 #
-# Signature: check_zero PATTERN [F]
-#   F  → use git grep -F (fixed-string)
+# Signature: check_zero PATTERN [F|NW]
+#   F   → use git grep -F (fixed-string)
+#   NW  → drop -w word-boundary (substring match — required for HelloApp
+#         per goal-backward gap-closure G-01: HelloAppApp contains
+#         HelloApp as a substring; -w would mask it from the scrub check)
 check_zero() {
   local pat="$1"
-  local fflag="${2:-}"
+  local mode="${2:-}"
   local hits
-  if [ "$fflag" = "F" ]; then
-    hits=$(git grep -cw -F -e "$pat" -- . \
-            ':!.planning' ':!LICENSE' ':!app/HelloApp.xcodeproj' \
-            ':!bin/rename.sh' ':!ci/test-rename.sh' 2>/dev/null \
-            | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)
-  else
-    hits=$(git grep -cw -e "$pat" -- . \
-            ':!.planning' ':!LICENSE' ':!app/HelloApp.xcodeproj' \
-            ':!bin/rename.sh' ':!ci/test-rename.sh' 2>/dev/null \
-            | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)
-  fi
+  case "$mode" in
+    F)
+      hits=$(git grep -cw -F -e "$pat" -- . \
+              ':!.planning' ':!LICENSE' ':!app/HelloApp.xcodeproj' \
+              ':!bin/rename.sh' ':!ci/test-rename.sh' 2>/dev/null \
+              | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)
+      ;;
+    NW)
+      hits=$(git grep -c -e "$pat" -- . \
+              ':!.planning' ':!LICENSE' ':!app/HelloApp.xcodeproj' \
+              ':!bin/rename.sh' ':!ci/test-rename.sh' 2>/dev/null \
+              | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)
+      ;;
+    *)
+      hits=$(git grep -cw -e "$pat" -- . \
+              ':!.planning' ':!LICENSE' ':!app/HelloApp.xcodeproj' \
+              ':!bin/rename.sh' ':!ci/test-rename.sh' 2>/dev/null \
+              | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)
+      ;;
+  esac
   test "$hits" = "0" || fail "post-rename: '$pat' still has $hits matches"
   ok "'$pat' == 0 matches"
 }
 
-check_zero "HelloApp"
+check_zero "HelloApp" NW
 check_zero "com.example.helloapp" F
 check_zero "maintainers@indiagram.com" F
 check_zero "<year>"
@@ -200,11 +212,25 @@ BEFORE:
 $STATUS_BEFORE
 AFTER:
 $STATUS_AFTER"
-ok "second rename was silent no-op (exit 0; status unchanged)"
+
+# Goal-backward gap-closure G-02: SPEC REQ-6 / AC-13 require the
+# already-renamed re-run to produce NO stdout. The prior form
+# asserted only EXIT==0 + tree-equality, so a stray
+# "==> Pre-flight gates (args validation)" line from validate_args
+# slipped through silently. We now assert OUT is empty.
+test -z "$OUT" || fail "second rename was not silent (expected empty stdout, got):
+$OUT"
+ok "second rename was silent no-op (exit 0; status unchanged; stdout empty)"
 
 # ── make check: build green on the renamed app ────────────────────────────
+#
+# Goal-backward gap-closure G-03: SPEC AC-12 requires verification that
+# the renamed app builds green across all 3 platform targets. The prior
+# form ran only `make check` (iOS device) and assumed the other targets
+# would follow. We now run all three explicitly: iOS device + iOS Sim
+# + macOS, each as a separate gate.
 
-step "make check (build the renamed app)"
+step "make check (iOS device build of the renamed app — AC-11)"
 bash -euo pipefail <<'BASH'
 set +e
 make check 2>&1 | tee .test-rename-make-check.log
@@ -213,6 +239,26 @@ set -e
 test "$EXIT" -eq 0 || { echo "ERROR: make check failed with exit $EXIT"; exit 1; }
 BASH
 ok "make check exit 0"
+
+step "make check-sim (iOS Simulator build of the renamed app — AC-12 part 1)"
+bash -euo pipefail <<'BASH'
+set +e
+make check-sim 2>&1 | tee .test-rename-make-check-sim.log
+EXIT=${PIPESTATUS[0]}
+set -e
+test "$EXIT" -eq 0 || { echo "ERROR: make check-sim failed with exit $EXIT"; exit 1; }
+BASH
+ok "make check-sim exit 0"
+
+step "make check-macos (macOS build of the renamed app — AC-12 part 2)"
+bash -euo pipefail <<'BASH'
+set +e
+make check-macos 2>&1 | tee .test-rename-make-check-macos.log
+EXIT=${PIPESTATUS[0]}
+set -e
+test "$EXIT" -eq 0 || { echo "ERROR: make check-macos failed with exit $EXIT"; exit 1; }
+BASH
+ok "make check-macos exit 0"
 
 # ── Forced-failure rollback exercise (SPEC AC-19; HIGH-1 reset-hard) ──────
 #

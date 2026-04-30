@@ -49,16 +49,18 @@ The template ships with a working `HelloApp` stub that builds green on both iOS 
 
 ![HelloApp template running natively on macOS — same hammer icon, title, and rename instruction](docs/screenshots/macos-home.png)
 
-## Quickstart
+## Quickstart in 5 minutes
+
+5 minutes from `gh repo create` to a green build:
 
 ```bash
-git clone https://github.com/indiagrams/ios-macos-template.git my-app
-cd my-app
-make bootstrap          # brew bundle, lefthook install, xcodegen, bundle install
-make check              # iOS device build (primary signal)
-make check-macos        # macOS build
-open app/HelloApp.xcodeproj
+gh repo create my-app --template indiagrams/ios-macos-template --public --clone && cd my-app   # ~30s — fork from template + clone
+bin/rename.sh YourApp com.your-org.yourapp 'Your App' --email=you@example.com   # ~30s — substitute identity surfaces
+make bootstrap   # ~3min — brew bundle + lefthook + xcodegen + bundle install (warm Homebrew cache)
+make check   # ~1.5min — iOS device build (primary signal)
 ```
+
+Want branch protection + push to a fresh remote? See [Renaming the stub](#renaming-the-stub) for the full 5-command flow.
 
 ## Renaming the stub
 

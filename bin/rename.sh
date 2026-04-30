@@ -287,3 +287,49 @@ rollback() {
 trap 'rollback' ERR
 trap 'rollback' INT TERM
 trap 'rollback' EXIT
+
+# ── Substitution-target enumeration (REQ-2; HIGH-2 + MEDIUM-1 closure) ───
+
+# Why -nw -e P1 -e P2 (not -nE '(\b|^)P\b'):
+# M2 P5 cross-AI HIGH-1 (Codex): the regex form silently false-passes
+# in git grep — returns 0 hits when 14 are present. -nw is git-grep-
+# native and reliable. Carry-forward.
+#
+# Why -F on com.example.helloapp / maintainers@indiagram.com /
+# indiagrams/ios-macos-template (MEDIUM-1):
+# Without -F, the literal `.` in these patterns is regex any-char.
+# `git grep -nw -e com.example.helloapp` would match `comXexampleXhelloapp`
+# (none exist in tree, but the principle is wrong). -F treats the
+# pattern as fixed-string. -F + -w combine correctly in git grep.
+#
+# Why :!bin/rename.sh :!ci/test-rename.sh exclusions (HIGH-2):
+# bin/rename.sh contains every substitution-surface literal in its
+# print_usage block, error messages, sed patterns, etc. Without
+# exclusion, the broad HelloApp -> APP_NAME sweep would rewrite the
+# running script — corrupting future runs. Same for ci/test-rename.sh
+# (contains HelloApp, com.example.helloapp, etc. in test fixtures).
+
+# The shared pathspec exclusion list (used everywhere)
+PATHSPEC_EXCLUSIONS=(
+  ':!.planning'
+  ':!LICENSE'
+  ':!app/HelloApp.xcodeproj'
+  ':!bin/rename.sh'
+  ':!ci/test-rename.sh'
+)
+
+enumerate_targets() {
+  git grep -nw \
+    -e HelloApp \
+    -F -e com.example.helloapp \
+    -F -e maintainers@indiagram.com \
+    -e '<year>' \
+    -F -e 'indiagrams/ios-macos-template' \
+    -- . "${PATHSPEC_EXCLUSIONS[@]}" \
+    2>/dev/null \
+    || true
+}
+
+enumerate_target_files() {
+  enumerate_targets | awk -F: '{print $1}' | sort -u
+}

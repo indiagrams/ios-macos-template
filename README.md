@@ -285,3 +285,5 @@ to match — the names must match the job `name:` attribute exactly.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+See [CHANGELOG.md](CHANGELOG.md) for version history and the [Versioning](CHANGELOG.md#versioning) policy.

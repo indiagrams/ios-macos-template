@@ -36,7 +36,7 @@ Forkers tracking template upgrades should read the CHANGELOG before pulling temp
 When cutting a release:
 
 1. Move the `[Unreleased]` entries into a new `[X.Y.Z] - YYYY-MM-DD` section in `CHANGELOG.md` and commit.
-2. Extract the new section to a release-notes file (e.g. `awk '/^## \[X\.Y\.Z\]/,/^## /' CHANGELOG.md > release-notes.md`, then trim the trailing next-section line).
+2. Extract the new section to a release-notes file: `awk '/^## \[X\.Y\.Z\]/{flag=1; print; next} flag && /^## /{exit} flag' CHANGELOG.md > release-notes.md`.
 3. Create an annotated tag with the release notes as its message, push, and create the GitHub release.
 
 ```bash

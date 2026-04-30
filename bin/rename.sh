@@ -583,19 +583,39 @@ print_dry_run_plan() {
   step "DRY RUN — no files will be modified"
 
   echo
-  echo "Substitution surfaces detected (via 'git grep -nw'):"
-  enumerate_target_files | while read -r f; do
-    echo "  $f"
-  done
+  echo "Substitution surfaces by file (via 'git grep -cw' with -F for fixed-literal patterns):"
+
+  # Per-pattern enumeration. -F applied to fixed-literal patterns
+  # (MEDIUM-1); HelloApp + <year> have no regex metachars.
+  # All grep invocations use PATHSPEC_EXCLUSIONS from T4 (HIGH-2:
+  # excludes :!bin/rename.sh and :!ci/test-rename.sh).
+  local pat fflag label
+  while IFS='|' read -r pat fflag label; do
+    echo
+    echo "  $label"
+    if [ "$fflag" = "F" ]; then
+      git grep -cw -F -e "$pat" -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+        | awk -F: '$2 > 0 { printf "    %-50s %d match(es)\n", $1, $2 }' \
+        || echo "    (no matches)"
+    else
+      git grep -cw -e "$pat" -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null \
+        | awk -F: '$2 > 0 { printf "    %-50s %d match(es)\n", $1, $2 }' \
+        || echo "    (no matches)"
+    fi
+  done <<EOF
+HelloApp||HelloApp -> $APP_NAME (broad sweep)
+com.example.helloapp|F|com.example.helloapp -> $BUNDLE_ID
+maintainers@indiagram.com|F|maintainers@indiagram.com -> $EMAIL
+<year>||<year> -> $(date +%Y)
+indiagrams/ios-macos-template|F|indiagrams/ios-macos-template -> $SLUG
+EOF
 
   echo
-  echo "Substitution plan:"
-  echo "  HelloApp                       -> $APP_NAME (broad sweep, after placeholder set)"
-  echo "  com.example.helloapp           -> $BUNDLE_ID"
-  echo "  HelloApp (display contexts)    -> $DISPLAY_NAME (5 sites via __GSD_DISPLAY_PLACEHOLDER__)"
-  echo "  maintainers@indiagram.com      -> $EMAIL"
-  echo "  indiagrams/ios-macos-template  -> $SLUG"
-  echo "  <year>                         -> $(date +%Y)"
+  echo "DISPLAY_NAME anchored sites (-> $DISPLAY_NAME via __GSD_DISPLAY_PLACEHOLDER__):"
+  echo "  app/project.yml: CFBundleDisplayName (2 sites — iOS + macOS)"
+  echo "  app/Shared/ContentView.swift: Text(\"HelloApp\")"
+  echo "  app/UITests/AppStoreScreenshotTests.swift: staticTexts[\"HelloApp\"]"
+  echo "  fastlane/metadata/en-US/name.txt: whole-file"
 
   echo
   echo "File-path renames:"

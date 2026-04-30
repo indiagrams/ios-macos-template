@@ -326,8 +326,14 @@ PATHSPEC_EXCLUSIONS=(
 #   - '&'  → in sed replacement, '&' = entire match. Escape to '\&'.
 #   - '\'  → backslash. Escape to '\\'.
 #   - '|'  → already rejected at gate, but escape to '\|' as belt-suspenders.
-# The order matters: backslash MUST be escaped first (otherwise its escape
-# would re-escape the others).
+#
+# In a single regex pass, match any of \ & | in the bracket expression
+# and prefix with \. The replacement \\& re-emits the matched literal
+# preceded by a backslash, producing the sed-replacement-safe form.
+# (BSD sed's bracket expression DOES match a literal backslash inside
+# [\&|] — verified empirically on macOS.) Because this is a single
+# pass, no ordering concerns apply: each `\`, `&`, or `|` is matched
+# at most once and replaced atomically with its escaped form.
 sed_escape_replacement() {
   printf '%s' "$1" | sed -e 's/[\&|]/\\&/g'
 }

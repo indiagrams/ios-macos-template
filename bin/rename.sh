@@ -521,3 +521,181 @@ rename_file_paths() {
     ok "$src -> $dst"
   done
 }
+
+# ── Pre-flight gate functions (called by main; iter-5 BLOCKER-3) ─────────
+#
+# File-scope is reserved for: helpers (T1) + function defs (T2-T7) +
+# trap arming (T3) + main "$@" invocation (this file's last line).
+# Everything else lives inside main() so call order is canonical
+# AND every callee is defined when called (resolves BLOCKER-3).
+
+gate_xcodegen_present() {
+  command -v xcodegen >/dev/null 2>&1 || \
+    fail "xcodegen not found — run \`make bootstrap\` first"
+  ok "xcodegen on PATH"
+}
+
+gate_clean_tree() {
+  # NOTE: We deliberately DO NOT pass --untracked-files=no here.
+  # Forker-facing script must catch untracked files (e.g.
+  # .env.local, notes.md, WIP edits) so they don't get touched
+  # by reset-hard rollback.
+  if [ "$(git status --short | wc -l | tr -d ' ')" != "0" ]; then
+    fail "working tree not clean — commit, stash, or remove untracked files before running rename"
+  fi
+  ok "working tree clean"
+}
+
+gate_on_main() {
+  local BRANCH
+  BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  if [ "$BRANCH" != "main" ] && [ "$FORCE" != "1" ]; then
+    fail "not on main branch (currently: $BRANCH) — run with --force to override"
+  fi
+  ok "branch check: $BRANCH (force=$FORCE)"
+}
+
+# ── xcodegen regen (REQ-4; D-1 step 3) ───────────────────────────────────
+
+regen_xcodeproj() {
+  step "Regenerating xcodeproj via xcodegen"
+
+  grep -q "^name: $APP_NAME$" app/project.yml || \
+    fail "project.yml \`name:\` not substituted to '$APP_NAME' — sed sweep regression"
+  ok "project.yml \`name: $APP_NAME\` confirmed pre-xcodegen"
+
+  if [ -d "app/HelloApp.xcodeproj" ]; then
+    rm -rf "app/HelloApp.xcodeproj"
+    ok "removed gitignored app/HelloApp.xcodeproj"
+  fi
+
+  ( cd app && xcodegen generate ) || \
+    fail "xcodegen generate failed — check app/project.yml syntax post-substitution"
+
+  [ -d "app/$APP_NAME.xcodeproj" ] || \
+    fail "xcodegen completed but app/$APP_NAME.xcodeproj/ not created — unexpected"
+  ok "app/$APP_NAME.xcodeproj/ regenerated"
+}
+
+# ── --dry-run preview (REQ-8; T8 will extend this) ───────────────────────
+
+print_dry_run_plan() {
+  step "DRY RUN — no files will be modified"
+
+  echo
+  echo "Substitution surfaces detected (via 'git grep -nw'):"
+  enumerate_target_files | while read -r f; do
+    echo "  $f"
+  done
+
+  echo
+  echo "Substitution plan:"
+  echo "  HelloApp                       -> $APP_NAME (broad sweep, after placeholder set)"
+  echo "  com.example.helloapp           -> $BUNDLE_ID"
+  echo "  HelloApp (display contexts)    -> $DISPLAY_NAME (5 sites via __GSD_DISPLAY_PLACEHOLDER__)"
+  echo "  maintainers@indiagram.com      -> $EMAIL"
+  echo "  indiagrams/ios-macos-template  -> $SLUG"
+  echo "  <year>                         -> $(date +%Y)"
+
+  echo
+  echo "File-path renames:"
+  echo "  app/Shared/HelloApp.swift       -> app/Shared/$APP_NAME.swift"
+  echo "  app/iOS/HelloApp.entitlements   -> app/iOS/$APP_NAME.entitlements"
+  echo "  app/macOS/HelloApp.entitlements -> app/macOS/$APP_NAME.entitlements"
+
+  echo
+  echo "xcodegen regen:"
+  echo "  cd app && xcodegen generate  ->  app/$APP_NAME.xcodeproj/"
+
+  echo
+  ok "dry run complete — re-run without --dry-run to apply"
+}
+
+# ── Main orchestration (iter-5 BLOCKER-3 — canonical call order) ─────────
+
+main() {
+  step "Pre-flight"
+
+  # 1. Args parsing (defined in T2)
+  parse_args "$@"
+
+  # 2. Args validation: gates 3, 4, 5, 5b, 5c (defined in T2)
+  validate_args
+
+  # 3. Idempotency dispatch — case 0/1/2 (HIGH-3: BEFORE clean-tree)
+  # Gate 7: working tree clean (line-tagged for HIGH-3 line-number assertion)
+  # — NOTE: the actual call to gate_clean_tree is below; this dispatch
+  # MUST appear before that line in the file.
+  set +e
+  check_idempotency
+  local IDEMPOT=$?
+  set -e
+
+  case "$IDEMPOT" in
+    0)
+      # Already-renamed — silent exit 0 per REQ-6 + SPEC AC-13.
+      # No step(), no ok(), no stdout. Disarm traps (no rollback
+      # needed because no mutations occurred).
+      trap - ERR EXIT INT TERM
+      exit 0
+      ;;
+    1)
+      # Partial-rename state. Per MEDIUM-4, --force bypasses this gate.
+      if [ "$FORCE" = "1" ]; then
+        step "Idempotency check"
+        ok "partial-rename state detected; --force bypass enabled — proceeding"
+      else
+        step "Idempotency check"
+        fail "partial-rename state detected — restore manually or run --force to override"
+      fi
+      ;;
+    2)
+      step "Idempotency check"
+      ok "pre-rename state confirmed — proceeding with rename"
+      ;;
+  esac
+
+  # 4. xcodegen presence (gate 2)
+  gate_xcodegen_present
+
+  # 5+6. Mutation-scoped gates: clean-tree + on-main. Skipped on --dry-run.
+  if [ "$DRY_RUN" != "1" ]; then
+    # Gate 7: working tree clean
+        gate_clean_tree
+    # Gate 8: on main (override via --force per MEDIUM-4)
+        gate_on_main
+  else
+    ok "Gates 7+8 (clean-tree + on-main) skipped on --dry-run path"
+  fi
+
+  step "All pre-flight gates passed"
+
+  # 7. --dry-run path — no mutations.
+  if [ "$DRY_RUN" = "1" ]; then
+    print_dry_run_plan
+    trap - ERR EXIT INT TERM
+    exit 0
+  fi
+
+  # 8-10. Real rename: traps from T3 are armed. Helpers fire in D-1 order.
+  # iter-6 BLOCKER-iter5-1: arm rollback's destructive-op path.
+  # All gates passed; about to make destructive changes. Setting
+  # MUTATION_STARTED=1 here ensures rollback() executes its full
+  # body (rm -rf xcodeproj + git reset --hard + git clean) on any
+  # failure from this line forward. A trap firing BEFORE this line
+  # (e.g. on a pre-flight gate failure) is a no-op rollback,
+  # protecting the forker's dirty working tree.
+      MUTATION_STARTED=1
+      apply_substitutions
+      rename_file_paths
+      regen_xcodeproj
+
+  # Success path: disarm rollback traps (no stash to drop per HIGH-1)
+  trap - ERR EXIT INT TERM
+
+  step "Rename complete"
+  ok "$APP_NAME ($BUNDLE_ID) — \"$DISPLAY_NAME\""
+  ok "next: run 'make check' to verify the build is green"
+}
+
+main "$@"

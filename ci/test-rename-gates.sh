@@ -43,10 +43,18 @@ ok()   { printf '    ✓ %s\n' "$*"; }
 fail() { printf '    ✗ %s\n' "$*" >&2; exit 1; }
 
 cleanup() {
+  # M3 P3 cross-AI WR-01 closure (bash 3.2 unbound-array fix):
+  # guard the iteration with a length check. On bash 3.2.57 (macOS
+  # system bash), expanding "${TMPDIRS[@]}" when the array is empty
+  # raises 'unbound variable' under `set -u` — which fires if any
+  # pre-flight failure exits before the first fresh_clone populates
+  # the array. Length-guard is bash-3.2-portable and POSIX-equivalent.
   local d
-  for d in "${TMPDIRS[@]}"; do
-    [ -n "$d" ] && [ -d "$d" ] && rm -rf "$d"
-  done
+  if [ "${#TMPDIRS[@]}" -gt 0 ]; then
+    for d in "${TMPDIRS[@]}"; do
+      [ -n "$d" ] && [ -d "$d" ] && rm -rf "$d"
+    done
+  fi
 }
 trap 'cleanup' EXIT INT TERM
 

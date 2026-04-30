@@ -421,8 +421,20 @@ apply_substitutions() {
   # Step F: HelloApp -> $APP_NAME (broad sweep; placeholder unaffected
   # because __GSD_DISPLAY_PLACEHOLDER__ contains no HelloApp substring)
   # APP_NAME is regex-validated [A-Z][a-zA-Z0-9]*; no escape needed.
+  #
+  # NOTE: enumeration is `git grep -l` (NO -w word-boundary). The other
+  # surfaces (com.example.helloapp / maintainers@indiagram.com / slug /
+  # <year>) are full-token strings, but `HelloApp` appears as a SUBSTRING
+  # inside `HelloAppApp` (the SwiftUI @main struct name in
+  # app/Shared/HelloApp.swift line 4). With -w, that file is not
+  # enumerated → sed never visits it → post-rename file `MyApp.swift`
+  # contains residual `HelloAppApp`, violating AC-4 (zero `HelloApp`
+  # substring matches post-rename). Without -w, every file containing
+  # the literal `HelloApp` substring is visited; sed's replacement
+  # pattern is also non-word-bounded so `HelloAppApp` correctly becomes
+  # `MyAppApp`. (Goal-backward verification gap-closure G-01.)
   step "Substituting HelloApp -> $APP_NAME (broad sweep)"
-  { git grep -lw -e 'HelloApp' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null || true; } \
+  { git grep -l -e 'HelloApp' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null || true; } \
     | while read -r f; do
         sed -i '' "s|HelloApp|$APP_NAME|g" "$f"
         ok "HelloApp substituted in $f"
@@ -631,18 +643,25 @@ EOF
 # ── Main orchestration (iter-5 BLOCKER-3 — canonical call order) ─────────
 
 main() {
-  step "Pre-flight"
-
   # 1. Args parsing (defined in T2)
   parse_args "$@"
 
-  # 2. Args validation: gates 3, 4, 5, 5b, 5c (defined in T2)
-  validate_args
-
-  # 3. Idempotency dispatch — case 0/1/2 (HIGH-3: BEFORE clean-tree)
-  # Gate 7: working tree clean (line-tagged for HIGH-3 line-number assertion)
-  # — NOTE: the actual call to gate_clean_tree is below; this dispatch
-  # MUST appear before that line in the file.
+  # 2. Idempotency dispatch — case 0/1/2 (HIGH-3: BEFORE clean-tree).
+  # Goal-backward gap-closure G-02: the dispatch MUST run before
+  # validate_args (which prints "==> Pre-flight gates (args validation)").
+  # SPEC REQ-6 / AC-13 require the case-0 path to produce NO stdout.
+  # Running validate_args first violates that contract on a fully-
+  # renamed tree.
+  #
+  # Trade-off: APP_NAME hasn't been regex-validated yet at this point,
+  # so check_idempotency runs against a potentially-invalid
+  # `app/$APP_NAME.xcodeproj` path. This is structurally safe because:
+  #   - If APP_NAME is invalid, no target paths exist, so case is 2
+  #     (or 1 if some-but-not-all source paths missing). Either way
+  #     control falls through to validate_args, which rejects the
+  #     invalid APP_NAME with the correct error.
+  #   - If APP_NAME is valid AND matches a fully-renamed state, case
+  #     is 0 → silent exit 0 (the desired contract).
   set +e
   check_idempotency
   local IDEMPOT=$?
@@ -666,7 +685,11 @@ main() {
       exit 0
       ;;
     1)
-      # Partial-rename state. Per MEDIUM-4, --force bypasses this gate.
+      # Partial-rename state OR APP_NAME mismatch. Per MEDIUM-4,
+      # --force bypasses this gate. validate_args will fire below
+      # so an invalid APP_NAME on this branch surfaces as the
+      # validate_args error, not as partial-rename noise.
+      step "Pre-flight"
       if [ "$FORCE" = "1" ]; then
         step "Idempotency check"
         ok "partial-rename state detected; --force bypass enabled — proceeding"
@@ -676,10 +699,14 @@ main() {
       fi
       ;;
     2)
+      step "Pre-flight"
       step "Idempotency check"
       ok "pre-rename state confirmed — proceeding with rename"
       ;;
   esac
+
+  # 3. Args validation: gates 3, 4, 5, 5b, 5c (defined in T2)
+  validate_args
 
   # 4. xcodegen presence (gate 2)
   gate_xcodegen_present

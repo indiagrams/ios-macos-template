@@ -14,10 +14,15 @@ on:
       - bin/rename.sh
       - bin/verify-rename.sh
       - ci/test-verify-rename.sh
+      - .github/workflows/verify-rename.yml
+
+# Least-privilege token (M6 P3 IN-01 closure).
+permissions:
+  contents: read
 
 # D-07: mirror pr.yml concurrency — cancel stale verify runs on new push.
 concurrency:
-  group: verify-rename-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

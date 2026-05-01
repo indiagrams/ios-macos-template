@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org)
 
+> **v1.0.0 released** — [release notes](https://github.com/indiagrams/ios-macos-template/releases/tag/v1.0.0). The "Use this template" button is live; fork it and ship.
+
 Opinionated boilerplate for iOS + macOS apps.
 Distilled from production iOS + macOS apps shipping on the App Store —
 same XcodeGen layout, same fastlane release pipeline, same App Store

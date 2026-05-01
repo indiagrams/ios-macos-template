@@ -53,7 +53,19 @@ The template ships with a working `HelloApp` stub that builds green on both iOS 
 
 ## Quickstart in 5 minutes
 
-5 minutes from `gh repo create` to a green build:
+**Prereqs:** macOS with Xcode (the full app, not just Command Line Tools), Homebrew, and `gh` authenticated.
+
+**Don't have all of those?** Run `bin/preflight.sh` first — it checks every prereq and walks you through installing the missing ones (Homebrew, gh CLI, gh auth, bundler). One-time setup, then you're ready:
+
+```bash
+git clone https://github.com/indiagrams/ios-macos-template.git /tmp/preflight \
+  && bash /tmp/preflight/bin/preflight.sh \
+  && rm -rf /tmp/preflight
+```
+
+**Apple Developer account?** See [`docs/APPLE-PREREQS.md`](docs/APPLE-PREREQS.md) — a free Apple ID is enough to build and run on Simulator; the paid Developer Program ($99/yr) is required for TestFlight + App Store. The doc covers Team ID, App Store Connect API keys, and code-signing artifacts to keep out of git.
+
+**5 minutes from `gh repo create` to a green build:**
 
 ```bash
 gh repo create my-app --template indiagrams/ios-macos-template --public --clone && cd my-app   # ~30s — fork from template + clone

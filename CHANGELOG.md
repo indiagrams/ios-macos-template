@@ -47,7 +47,7 @@ When cutting a release:
 ```bash
 # After moving Unreleased → [X.Y.Z] in CHANGELOG.md, committing,
 # and writing release-notes.md (the new section's body):
-git tag -a vX.Y.Z -F release-notes.md   # annotated tag; -F reads notes from file
+git tag -a vX.Y.Z --cleanup=verbatim -F release-notes.md   # annotated tag; --cleanup=verbatim preserves Markdown headings (default --cleanup=strip eats #-prefixed lines); -F reads notes from file
 git push origin vX.Y.Z
 gh release create vX.Y.Z --notes-from-tag --title "vX.Y.Z" --verify-tag
 ```

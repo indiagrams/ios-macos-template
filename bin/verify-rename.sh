@@ -78,6 +78,7 @@ APP_NAME_ORIG="HelloApp"
 BUNDLE_ID_ORIG="com.example.helloapp"
 EMAIL_ORIG="maintainers@indiagram.com"
 SLUG_ORIG="indiagrams/ios-macos-template"
+YEAR_ORIG="<year>"
 
 # check_surface LABEL LITERAL
 # Greps tracked files for LITERAL excluding the 5 self-reference paths.
@@ -136,13 +137,14 @@ check_surface() {
   echo "$count"
 }
 
-# ── Main: 4 surface checks + summary on failure ───────────────────────
+# ── Main: 5 surface checks + summary on failure ───────────────────────
 APP_NAME_HITS=$(check_surface "APP_NAME" "$APP_NAME_ORIG")
 BUNDLE_ID_HITS=$(check_surface "BUNDLE_ID" "$BUNDLE_ID_ORIG")
 EMAIL_HITS=$(check_surface "EMAIL" "$EMAIL_ORIG")
 SLUG_HITS=$(check_surface "SLUG" "$SLUG_ORIG")
+YEAR_HITS=$(check_surface "YEAR" "$YEAR_ORIG")
 
-TOTAL=$((APP_NAME_HITS + BUNDLE_ID_HITS + EMAIL_HITS + SLUG_HITS))
+TOTAL=$((APP_NAME_HITS + BUNDLE_ID_HITS + EMAIL_HITS + SLUG_HITS + YEAR_HITS))
 
 # Count surfaces with non-zero matches.
 SURFACES_LEAKED=0
@@ -150,6 +152,7 @@ SURFACES_LEAKED=0
 [ "$BUNDLE_ID_HITS" -gt 0 ] && SURFACES_LEAKED=$((SURFACES_LEAKED + 1))
 [ "$EMAIL_HITS"     -gt 0 ] && SURFACES_LEAKED=$((SURFACES_LEAKED + 1))
 [ "$SLUG_HITS"      -gt 0 ] && SURFACES_LEAKED=$((SURFACES_LEAKED + 1))
+[ "$YEAR_HITS"      -gt 0 ] && SURFACES_LEAKED=$((SURFACES_LEAKED + 1))
 
 if [ "$TOTAL" -gt 0 ]; then
   printf 'Verify failed: %d total matches across %d surfaces.\n' \

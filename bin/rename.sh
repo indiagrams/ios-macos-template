@@ -6,7 +6,7 @@
 # idempotent (silent no-op on re-run with same args), pre-flight-gated.
 #
 # Usage:
-#   bin/rename.sh APP_NAME BUNDLE_ID DISPLAY_NAME --email=EMAIL [--slug=OWNER/REPO] [--dry-run] [--force]
+#   bin/rename.sh APP_NAME BUNDLE_ID DISPLAY_NAME --email=EMAIL [--slug=OWNER/REPO] [--year=YYYY] [--dry-run] [--force]
 #   bin/rename.sh -h                                # print this usage
 #   bin/rename.sh --help                            # alias for -h
 #
@@ -29,6 +29,7 @@
 #                       CONTRIBUTING.md. If omitted, auto-derives from
 #                       `git remote get-url origin`. MUST NOT contain
 #                       newline or '|'.
+#   --year=YYYY         Override copyright year (default: current year via date +%Y).
 #   --dry-run           Preview substitutions without applying.
 #   --force             Override the on-main-branch gate AND the partial-
 #                       rename detection gate. Other gates (args validation,
@@ -107,6 +108,7 @@ BUNDLE_ID=""
 DISPLAY_NAME=""
 EMAIL=""
 SLUG=""
+YEAR_ARG=""
 DRY_RUN=0
 FORCE=0
 
@@ -135,6 +137,12 @@ parse_args() {
         [ $# -ge 2 ] || fail "--slug requires a value (e.g. --slug=acme/myapp)"
         case "$2" in -*) fail "--slug value cannot start with '-' (got '$2')";; esac
         SLUG="$2"; shift 2 ;;
+      --year=*)
+        YEAR_ARG="${1#--year=}"; shift ;;
+      --year)
+        [ $# -ge 2 ] || fail "--year requires a value (e.g. --year=2026)"
+        case "$2" in -*) fail "--year value cannot start with '-' (got '$2')";; esac
+        YEAR_ARG="$2"; shift 2 ;;
       -*)
         fail "unknown flag '$1' — run with -h for usage" ;;
       *)
@@ -357,7 +365,7 @@ DISPLAY_PLACEHOLDER='__GSD_DISPLAY_PLACEHOLDER__'
 
 apply_substitutions() {
   local year escaped_email escaped_slug escaped_display
-  year=$(date +%Y)
+  year="${YEAR_ARG:-$(date +%Y)}"
   escaped_email=$(sed_escape_replacement "$EMAIL")
   escaped_slug=$(sed_escape_replacement "$SLUG")
   escaped_display=$(sed_escape_replacement "$DISPLAY_NAME")

@@ -27,15 +27,15 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TMPDIR=""
+WORK_DIR=""
 
 step() { printf '\n==> %s\n' "$*"; }
 ok()   { printf '    ✓ %s\n' "$*"; }
 fail() { printf '    ✗ %s\n' "$*" >&2; exit 1; }
 
 cleanup() {
-  if [ -n "$TMPDIR" ] && [ -d "$TMPDIR" ]; then
-    rm -rf "$TMPDIR"
+  if [ -n "$WORK_DIR" ] && [ -d "$WORK_DIR" ]; then
+    rm -rf "$WORK_DIR"
   fi
 }
 trap 'cleanup' EXIT INT TERM
@@ -53,13 +53,13 @@ ok "tools present"
 # ── Clone to tmpdir ───────────────────────────────────────────────────────
 
 step "Clone to tmpdir"
-TMPDIR="$(mktemp -d -t test-rename-XXXXXX)"
-ok "tmpdir: $TMPDIR"
+WORK_DIR="$(mktemp -d -t test-rename-XXXXXX)"
+ok "tmpdir: $WORK_DIR"
 
-git clone --no-hardlinks --quiet "$REPO_ROOT" "$TMPDIR"
-ok "cloned $REPO_ROOT -> $TMPDIR"
+git clone --no-hardlinks --quiet "$REPO_ROOT" "$WORK_DIR"
+ok "cloned $REPO_ROOT -> $WORK_DIR"
 
-cd "$TMPDIR"
+cd "$WORK_DIR"
 
 # Force-set main to cloned HEAD so bin/rename.sh's on-main pre-flight
 # gate passes AND both shell scripts (bin/rename.sh + ci/test-rename.sh)
@@ -292,7 +292,7 @@ step "Forced-failure rollback exercise (SPEC AC-19; HIGH-1 reset-hard)"
 
 # Reset clone to pre-rename state.
 git reset --hard --quiet HEAD
-git clean -fdx --quiet  # -x is fine here because TMPDIR is fully owned by us
+git clean -fdx --quiet  # -x is fine here because WORK_DIR is fully owned by us
 
 test -f app/Shared/HelloApp.swift || \
   fail "AC-19 setup: expected app/Shared/HelloApp.swift to be present pre-rename after reset"

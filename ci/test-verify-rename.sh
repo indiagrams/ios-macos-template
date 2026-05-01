@@ -11,7 +11,7 @@
 # test that catches drift if the exclusion list ever expands or contracts.
 #
 # Cross-AI review closures (see 03-REVIEWS.md):
-#   HIGH-Plan2-1 — restore README.md via `cp $TMPDIR/README.md.post-rename`
+#   HIGH-Plan2-1 — restore README.md via `cp $WORK_DIR/README.md.post-rename`
 #                  snapshot, NOT a git-based file restore (resetting the
 #                  file to HEAD). HEAD is pre-rename in the tmpdir because
 #                  rename.sh leaves changes uncommitted; restoring to it
@@ -32,15 +32,15 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TMPDIR=""
+WORK_DIR=""
 
 step() { printf '\n==> %s\n' "$*"; }
 ok()   { printf '    ✓ %s\n' "$*"; }
 fail() { printf '    ✗ %s\n' "$*" >&2; exit 1; }
 
 cleanup() {
-  if [ -n "$TMPDIR" ] && [ -d "$TMPDIR" ]; then
-    rm -rf "$TMPDIR"
+  if [ -n "$WORK_DIR" ] && [ -d "$WORK_DIR" ]; then
+    rm -rf "$WORK_DIR"
   fi
 }
 trap 'cleanup' EXIT INT TERM
@@ -54,13 +54,13 @@ command -v xcodegen  >/dev/null || fail "xcodegen not on PATH — run 'make boot
 ok "tools present"
 
 step "Clone to tmpdir"
-TMPDIR="$(mktemp -d -t test-verify-rename-XXXXXX)"
-ok "tmpdir: $TMPDIR"
+WORK_DIR="$(mktemp -d -t test-verify-rename-XXXXXX)"
+ok "tmpdir: $WORK_DIR"
 
-git clone --no-hardlinks --quiet "$REPO_ROOT" "$TMPDIR"
-ok "cloned $REPO_ROOT -> $TMPDIR"
+git clone --no-hardlinks --quiet "$REPO_ROOT" "$WORK_DIR"
+ok "cloned $REPO_ROOT -> $WORK_DIR"
 
-cd "$TMPDIR"
+cd "$WORK_DIR"
 
 git checkout --quiet -B main HEAD \
   || fail "failed to set main to current HEAD in clone"
@@ -103,9 +103,9 @@ step "Mutate-and-fail: snapshot README, reintroduce HelloApp, assert byte-exact 
 # because rename.sh leaves changes uncommitted in the tmpdir — that
 # would restore to pre-rename, with all 5 surface literals re-leaked,
 # invalidating the D-05 test entirely. Use a file snapshot via cp.
-cp README.md "$TMPDIR/README.md.post-rename" \
-  || fail "could not snapshot README.md to $TMPDIR/README.md.post-rename"
-ok "README.md snapshotted to $TMPDIR/README.md.post-rename"
+cp README.md "$WORK_DIR/README.md.post-rename" \
+  || fail "could not snapshot README.md to $WORK_DIR/README.md.post-rename"
+ok "README.md snapshotted to $WORK_DIR/README.md.post-rename"
 
 # Append the literal HelloApp to README.md. This is in the post-rename
 # tmpdir, so any HelloApp marker is a leak (the rename swept the file
@@ -145,7 +145,7 @@ test -z "$VERIFY_STDOUT" || fail "mutate-and-fail: stdout not empty on exit 1"
 ok "mutate-and-fail: exit $VERIFY_EXIT + byte-exact APP_NAME header + README mention + summary + stdout empty"
 
 # Cross-AI HIGH-Plan2-1: restore README from snapshot, NOT git checkout.
-cp "$TMPDIR/README.md.post-rename" README.md \
+cp "$WORK_DIR/README.md.post-rename" README.md \
   || fail "could not restore README.md from snapshot"
 ok "README.md restored to post-rename state via snapshot (NOT git checkout)"
 

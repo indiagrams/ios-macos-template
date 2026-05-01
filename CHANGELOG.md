@@ -7,11 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Visibility flipped from private to public on 2026-05-01 (M5 P3)
-
 ### Added
 - _Nothing yet — track in-flight work here._
+
+## [1.0.0] - 2026-05-01
+
+### Changed
+- Visibility flipped from private to public on 2026-05-01 (M5 P3)
 
 ## [0.x] - 2026-04-30
 

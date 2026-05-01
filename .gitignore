@@ -61,3 +61,6 @@ vendor/bundle/
 # OS
 Thumbs.db
 ehthumbs.db
+
+# Generated artifacts (regenerable from CHANGELOG.md)
+release-notes.md

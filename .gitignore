@@ -33,6 +33,7 @@ app/HelloApp.xcodeproj
 .env.*.local
 *.pem
 *.key
+*.p8
 *.p12
 *.mobileprovision
 secrets/

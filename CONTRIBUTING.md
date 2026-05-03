@@ -11,8 +11,9 @@ Before opening a PR, ask:
 - Does this fix a sharp edge a stranger would hit?
 - Does it preserve the "5-minute clone-to-first-build" promise?
 - Does it generalize, or is it specific to your project?
+- For enhancements: does it pass the [SCOPE.md](SCOPE.md) test? (Stuff *around* the project — XcodeGen, fastlane, CI, signing, release tooling — is in scope. Stuff *inside* the project — networking libs, persistence, auth, UI framework opinions — is deliberately out of scope.)
 
-If the answer to all three is yes, open a PR. If you're unsure, open an issue first.
+If the answer to all is yes, open a PR. If you're unsure, open an issue first.
 
 ## Quickstart
 

@@ -208,6 +208,8 @@ set -a; source .env.local; set +a
 fastlane release tag:v0.1.0
 ```
 
+Prefer Apple-native tooling (no Ruby/fastlane)? See [`docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md`](docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md) — same archive/export flow, replaces fastlane with `xcrun altool` + `xcrun notarytool` + ASC API direct.
+
 **Submit to App Review (one-shot, sync versions)**
 ```bash
 ci/bump-asc-version.sh v0.1.0   # bump ASC version + attach TestFlight build + re-upload metadata

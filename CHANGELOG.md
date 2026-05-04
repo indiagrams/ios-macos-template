@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- _Nothing yet — track in-flight work here._
+- `docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md` — alternative release path using `xcodebuild` + `xcrun altool` + `xcrun notarytool` + App Store Connect API direct, for forkers who prefer to avoid the Ruby/fastlane dependency surface (#35)
 
 ## [1.0.0] - 2026-05-01
 

@@ -191,6 +191,8 @@ provisioning profiles via `-allowProvisioningUpdates`. Subsequent runs reuse the
     └── MacOSUITests/                # macOS UITest target (drives screenshot capture)
 ```
 
+Prefer Tuist (`Project.swift`) over XcodeGen (`project.yml`)? See [`docs/MIGRATING-TO-TUIST.md`](docs/MIGRATING-TO-TUIST.md) — one-way migration guide validated end-to-end against this template.
+
 ## Common workflows
 
 **Develop a feature**

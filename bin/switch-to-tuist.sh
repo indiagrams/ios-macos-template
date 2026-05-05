@@ -185,8 +185,12 @@ gate_on_main() {
 mutate_remove_project_yml() {
   step "Removing app/project.yml"
   if [ -f "app/project.yml" ]; then
-    git rm --quiet app/project.yml
-    ok "app/project.yml removed (git rm)"
+    # -f bypasses git's "file has local modifications" refusal.
+    # bin/rename.sh invokes this script mid-mutation (project.yml is sed-
+    # substituted but uncommitted); -f tolerates that. On a clean tree
+    # there are no local modifications so -f is a no-op.
+    git rm -f --quiet app/project.yml
+    ok "app/project.yml removed (git rm -f)"
   else
     ok "app/project.yml already absent"
   fi

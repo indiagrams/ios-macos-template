@@ -490,6 +490,64 @@ test "$HITS" = "0" || \
   fail "G-01: $HITS HelloApp substring matches remain post-rename (substring form, no -w)"
 ok "HelloAppApp scrubbed; MyAppApp present; 0 HelloApp substring hits repo-wide"
 
+# ── Gate 5d: --generator validation (#38; PR 4) ───────────────────────────
+#
+# Per #38: bin/rename.sh's --generator=GEN flag accepts only 'tuist' or
+# 'xcodegen' (default 'xcodegen'). Three falsifiable forms exercised:
+#   - --generator=invalid → fail at validate_args
+#   - --generator=tuist on dry-run from REPO_ROOT (where tuist IS on PATH)
+#     → succeeds with 'Post-rename generator switch' line in dry-run output
+#   - --generator=xcodegen explicit (the default) → succeeds with 'xcodegen'
+#     in dry-run output
+
+step "Gate 5d: --generator=invalid exits 1 with descriptive error"
+set +e
+GI_OUT=$(cd "$REPO_ROOT" && bin/rename.sh MyApp com.acme.myapp "My App" \
+  --email=test@acme.com --slug=test/myapp --generator=invalid 2>&1)
+GI_EXIT=$?
+set -e
+test "$GI_EXIT" -ne 0 || \
+  fail "Gate 5d: --generator=invalid should exit non-zero (got $GI_EXIT); output: $GI_OUT"
+echo "$GI_OUT" | grep -q -- "invalid --generator 'invalid'" || \
+  fail "Gate 5d: stderr missing \"invalid --generator 'invalid'\"; got: $GI_OUT"
+echo "$GI_OUT" | grep -q "must be 'tuist' or 'xcodegen'" || \
+  fail "Gate 5d: stderr missing \"must be 'tuist' or 'xcodegen'\"; got: $GI_OUT"
+ok "--generator=invalid rejected (exit $GI_EXIT)"
+
+step "Gate 5d: --generator=tuist dry-run shows 'Post-rename generator switch'"
+TD=$(fresh_clone)
+set +e
+GT_OUT=$(cd "$TD" && bin/rename.sh MyApp com.acme.myapp "My App" \
+  --email=test@acme.com --slug=test/myapp --generator=tuist --dry-run 2>&1)
+GT_EXIT=$?
+set -e
+test "$GT_EXIT" -eq 0 || fail "Gate 5d: --generator=tuist --dry-run exited $GT_EXIT (expected 0); output: $GT_OUT"
+echo "$GT_OUT" | grep -q -- "--generator 'tuist' valid" || \
+  fail "Gate 5d: --generator=tuist did not announce valid; got: $GT_OUT"
+echo "$GT_OUT" | grep -q "Post-rename generator switch (--generator=tuist):" || \
+  fail "Gate 5d: --generator=tuist dry-run missing 'Post-rename generator switch'; got: $GT_OUT"
+echo "$GT_OUT" | grep -q "tuist on PATH" || \
+  fail "Gate 5d: --generator=tuist did not run gate_tuist_present_if_needed; got: $GT_OUT"
+ok "--generator=tuist dry-run announces switch + runs tuist-presence gate"
+
+step "Gate 5d: --generator=xcodegen (default) dry-run announces xcodegen path"
+TD=$(fresh_clone)
+set +e
+GX_OUT=$(cd "$TD" && bin/rename.sh MyApp com.acme.myapp "My App" \
+  --email=test@acme.com --slug=test/myapp --generator=xcodegen --dry-run 2>&1)
+GX_EXIT=$?
+set -e
+test "$GX_EXIT" -eq 0 || fail "Gate 5d: --generator=xcodegen --dry-run exited $GX_EXIT (expected 0); output: $GX_OUT"
+echo "$GX_OUT" | grep -q -- "--generator 'xcodegen' valid" || \
+  fail "Gate 5d: --generator=xcodegen did not announce valid; got: $GX_OUT"
+echo "$GX_OUT" | grep -q "Post-rename generator: xcodegen" || \
+  fail "Gate 5d: --generator=xcodegen dry-run missing 'Post-rename generator: xcodegen'; got: $GX_OUT"
+# Tuist gate must NOT run on the xcodegen path (avoid forcing forkers
+# without tuist installed to install it).
+! echo "$GX_OUT" | grep -q "tuist on PATH" || \
+  fail "Gate 5d: --generator=xcodegen unexpectedly ran tuist-presence gate; got: $GX_OUT"
+ok "--generator=xcodegen (default) announces xcodegen path; tuist gate not invoked"
+
 # ── Done ──────────────────────────────────────────────────────────────────
 
 step "ci/test-rename-gates.sh: all gate-coverage assertions passed"

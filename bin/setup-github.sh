@@ -6,7 +6,9 @@
 #   - Default branch: main
 #   - Branch protection on main:
 #       * Require PR before merging (no direct pushes)
-#       * Require 3 status checks: app (iOS device), app (iOS Simulator), app (macOS)
+#       * Require 6 status checks: 3 XcodeGen (app (iOS device), app (iOS Simulator),
+#         app (macOS)) + 3 Tuist parity (app (Tuist iOS device),
+#         app (Tuist iOS Simulator), app (Tuist macOS))
 #       * Require status checks to be up-to-date before merge
 #       * Enforce on admins (no bypass — same rules apply to repo owner)
 #       * Require linear history
@@ -85,7 +87,10 @@ PROTECTION_JSON=$(cat <<'JSON'
     "checks": [
       { "context": "app (iOS device)" },
       { "context": "app (iOS Simulator)" },
-      { "context": "app (macOS)" }
+      { "context": "app (macOS)" },
+      { "context": "app (Tuist iOS device)" },
+      { "context": "app (Tuist iOS Simulator)" },
+      { "context": "app (Tuist macOS)" }
     ]
   },
   "enforce_admins": true,
@@ -114,8 +119,8 @@ echo "$PROTECTION_JSON" | gh api -X PUT "repos/$REPO/branches/main/protection" \
   # PUT returns 404. Make this error clearer.
   fail "could not apply protection — does '$REPO' have a 'main' branch yet? Push at least one commit first."
 }
-ok "main: PR-required, 3 CI checks (strict), enforce on admins, linear history"
+ok "main: PR-required, 6 CI checks (3 XcodeGen + 3 Tuist, strict), enforce on admins, linear history"
 
 step "Done"
-ok "$REPO is configured (PR-required, 3 CI checks, squash-only, auto-merge)."
+ok "$REPO is configured (PR-required, 6 CI checks, squash-only, auto-merge)."
 ok "Direct pushes to main are blocked. Open PRs and let CI run."

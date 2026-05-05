@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Tuist.swift` + `app/Project.swift` — Tuist 4 manifests committed alongside `app/project.yml`. XcodeGen remains the default; Tuist users can `cd app && tuist generate --no-open` and build directly. Forker-time selection arrives in a follow-up PR (Refs #38)
 - `bin/switch-to-tuist.sh` — convert a fork from XcodeGen to Tuist via a single command. Idempotent + atomic-rollback (parity with `bin/rename.sh`'s contract). Edits Brewfile, Makefile, ci/local-check.sh, ci/local-release-check.sh, .github/workflows/pr.yml; removes `app/project.yml`. Exercised by `ci/test-switch-to-tuist.sh` and reused by the `bin/rename.sh --generator=tuist` flag in a follow-up PR. (Refs #38)
 
+### Changed
+- CI now runs both XcodeGen and Tuist generators on every PR (3 → 6 required checks). Existing XcodeGen jobs unchanged; new Tuist parity jobs (`app (Tuist iOS device)`, `app (Tuist iOS Simulator)`, `app (Tuist macOS)`) use `bin/switch-to-tuist.sh` to convert the fork before building. `bin/setup-github.sh` updated; existing forkers must re-run `make setup-github` once to pick up the new required checks. README + CONTRIBUTING + PRINCIPLES updated to reference 6 checks. (Refs #38)
+
 ## [1.0.0] - 2026-05-01
 
 ### Changed

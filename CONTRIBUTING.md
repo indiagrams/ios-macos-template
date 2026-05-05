@@ -49,11 +49,11 @@ the primary signal.
 
 ## What every PR needs
 
-1. **Three CI checks green.** Branch protection on `main` enforces this.
-   The required jobs are:
-   - `app (iOS device)`
-   - `app (iOS Simulator)`
-   - `app (macOS)`
+1. **Six CI checks green.** Branch protection on `main` enforces this.
+   The required jobs are 3 XcodeGen + 3 Tuist parity:
+   - `app (iOS device)`              · `app (Tuist iOS device)`
+   - `app (iOS Simulator)`           · `app (Tuist iOS Simulator)`
+   - `app (macOS)`                   · `app (Tuist macOS)`
 
    These names are pinned in `.github/workflows/pr.yml` and mirrored in
    `bin/setup-github.sh`. Renaming a job means updating both — see

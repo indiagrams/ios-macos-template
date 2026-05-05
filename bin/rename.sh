@@ -6,7 +6,7 @@
 # idempotent (silent no-op on re-run with same args), pre-flight-gated.
 #
 # Usage:
-#   bin/rename.sh APP_NAME BUNDLE_ID DISPLAY_NAME --email=EMAIL [--slug=OWNER/REPO] [--year=YYYY] [--dry-run] [--force]
+#   bin/rename.sh APP_NAME BUNDLE_ID DISPLAY_NAME --email=EMAIL [--slug=OWNER/REPO] [--year=YYYY] [--generator=tuist|xcodegen] [--dry-run] [--force]
 #   bin/rename.sh -h                                # print this usage
 #   bin/rename.sh --help                            # alias for -h
 #
@@ -30,6 +30,15 @@
 #                       `git remote get-url origin`. MUST NOT contain
 #                       newline or '|'.
 #   --year=YYYY         Override copyright year (default: current year via date +%Y).
+#   --generator=GEN     Project generator to use post-rename. One of:
+#                         xcodegen (default; byte-for-byte unchanged behavior;
+#                                   Tuist artifacts left in tree but unused)
+#                         tuist    (invokes bin/switch-to-tuist.sh --force after
+#                                   rename to delete app/project.yml + edit
+#                                   Brewfile / Makefile / ci scripts / pr.yml)
+#                       Both manifests ship on `main` (#38); the flag picks which
+#                       one drives the renamed fork. Pre-flight gate fails if
+#                       --generator=tuist and `tuist` is not on PATH.
 #   --dry-run           Preview substitutions without applying.
 #   --force             Override the on-main-branch gate AND the partial-
 #                       rename detection gate. Other gates (args validation,
@@ -47,6 +56,7 @@
 #   5. DISPLAY_NAME non-empty AND no newline/'|'
 #   5b. EMAIL non-empty AND no newline/'|'
 #   5c. SLUG non-empty (auto-derived if absent) AND no newline/'|' AND OWNER/REPO format
+#   5d. GENERATOR ∈ {tuist, xcodegen} (default xcodegen; tuist requires `tuist` on PATH)
 #   6. Idempotency check (BEFORE clean-tree gate per HIGH-3) —
 #      case 0 = silent exit 0 (already renamed)
 #      case 1 = partial-rename fail (unless --force)
@@ -109,6 +119,7 @@ DISPLAY_NAME=""
 EMAIL=""
 SLUG=""
 YEAR_ARG=""
+GENERATOR="xcodegen"   # default; --generator=tuist|xcodegen overrides (#38)
 DRY_RUN=0
 FORCE=0
 
@@ -143,6 +154,12 @@ parse_args() {
         [ $# -ge 2 ] || fail "--year requires a value (e.g. --year=2026)"
         case "$2" in -*) fail "--year value cannot start with '-' (got '$2')";; esac
         YEAR_ARG="$2"; shift 2 ;;
+      --generator=*)
+        GENERATOR="${1#--generator=}"; shift ;;
+      --generator)
+        [ $# -ge 2 ] || fail "--generator requires a value (e.g. --generator=tuist)"
+        case "$2" in -*) fail "--generator value cannot start with '-' (got '$2')";; esac
+        GENERATOR="$2"; shift 2 ;;
       -*)
         fail "unknown flag '$1' — run with -h for usage" ;;
       *)
@@ -219,6 +236,15 @@ validate_args() {
   [[ "$SLUG" =~ ^[^/]+/[^/]+$ ]] || \
     fail "invalid --slug '$SLUG' — expected OWNER/REPO (e.g. acme/myapp)"
   ok "SLUG format OK"
+
+  # Gate 5d: --generator ∈ {tuist, xcodegen}. Default 'xcodegen' set at
+  # file scope so this gate effectively rejects anything that survived
+  # parse_args with a non-empty non-default value.
+  case "$GENERATOR" in
+    tuist|xcodegen) ;;
+    *) fail "invalid --generator '$GENERATOR' — must be 'tuist' or 'xcodegen' (default: xcodegen)" ;;
+  esac
+  ok "--generator '$GENERATOR' valid"
 }
 
 # ── Reset-hard rollback (REQ-7; HIGH-1 closure — replaces broken stash) ───
@@ -422,6 +448,16 @@ apply_substitutions() {
     ok "DISPLAY placeholder set in app/project.yml (2 CFBundleDisplayName sites)"
   fi
 
+  # #38 closure: app/Project.swift's two CFBundleDisplayName lines need
+  # the same placeholder treatment as project.yml. Without anchoring,
+  # Step F's broad HelloApp -> APP_NAME sweep would set CFBundleDisplayName
+  # to the APP_NAME (forker's code-name) instead of the DISPLAY_NAME
+  # (forker's user-facing name). Project.swift was added to `main` in #39.
+  if [ -f app/Project.swift ]; then
+    sed -i '' "s|\"CFBundleDisplayName\": \"HelloApp\"|\"CFBundleDisplayName\": \"$DISPLAY_PLACEHOLDER\"|g" app/Project.swift
+    ok "DISPLAY placeholder set in app/Project.swift (2 CFBundleDisplayName sites)"
+  fi
+
   if [ -f app/Shared/ContentView.swift ]; then
     sed -i '' "s|Text(\"HelloApp\")|Text(\"$DISPLAY_PLACEHOLDER\")|g" app/Shared/ContentView.swift
     ok "DISPLAY placeholder set in app/Shared/ContentView.swift"
@@ -563,6 +599,20 @@ gate_xcodegen_present() {
   ok "xcodegen on PATH"
 }
 
+gate_tuist_present_if_needed() {
+  # Only fires when --generator=tuist. Pre-mutation gate so we fail
+  # fast before any file mutation. The tuist binary is needed because
+  # bin/switch-to-tuist.sh (invoked post-rename when GEN=tuist) gates
+  # on `tuist` being on PATH and the rename script's atomic-rollback
+  # contract requires no successful mutations before a downstream
+  # failure.
+  if [ "$GENERATOR" = "tuist" ]; then
+    command -v tuist >/dev/null 2>&1 || \
+      fail "tuist not found (--generator=tuist) — install with 'brew install --cask tuist' (then re-run)"
+    ok "tuist on PATH ($(tuist version 2>/dev/null | head -1))"
+  fi
+}
+
 gate_clean_tree() {
   # NOTE: We deliberately DO NOT pass --untracked-files=no here.
   # Forker-facing script must catch untracked files (e.g.
@@ -644,6 +694,9 @@ EOF
   echo "  app/Shared/ContentView.swift: Text(\"HelloApp\")"
   echo "  app/UITests/AppStoreScreenshotTests.swift: staticTexts[\"HelloApp\"]"
   echo "  fastlane/metadata/en-US/name.txt: whole-file"
+  if [ -f app/Project.swift ]; then
+    echo "  app/Project.swift: CFBundleDisplayName (2 sites — iOS + macOS, Tuist manifest)"
+  fi
 
   echo
   echo "File-path renames:"
@@ -654,6 +707,15 @@ EOF
   echo
   echo "xcodegen regen:"
   echo "  cd app && xcodegen generate  ->  app/$APP_NAME.xcodeproj/"
+
+  if [ "$GENERATOR" = "tuist" ]; then
+    echo
+    echo "Post-rename generator switch (--generator=tuist):"
+    echo "  bin/switch-to-tuist.sh --force  ->  delete app/project.yml + edit Brewfile / Makefile / ci scripts / .github/workflows/pr.yml"
+  else
+    echo
+    echo "Post-rename generator: xcodegen (default; Tuist artifacts left in tree but unused)"
+  fi
 
   echo
   ok "dry run complete — re-run without --dry-run to apply"
@@ -730,6 +792,9 @@ main() {
   # 4. xcodegen presence (gate 2)
   gate_xcodegen_present
 
+  # 4b. Tuist presence (gate 5d-companion; only fires when --generator=tuist).
+  gate_tuist_present_if_needed
+
   # 5+6. Mutation-scoped gates: clean-tree + on-main. Skipped on --dry-run.
   if [ "$DRY_RUN" != "1" ]; then
     # Gate 7: working tree clean
@@ -761,6 +826,23 @@ main() {
       apply_substitutions
       rename_file_paths
       regen_xcodeproj
+
+  # Final mutation phase: --generator=tuist invokes bin/switch-to-tuist.sh
+  # to delete app/project.yml + edit Brewfile / Makefile / ci scripts /
+  # pr.yml. The switch script's idempotency dispatch returns case 2
+  # (pre-switch state) on a fresh post-substitution tree — Brewfile
+  # still has `brew "xcodegen"`, project.yml is still present (just
+  # sed-substituted), Project.swift is still present. --force bypasses
+  # switch-to-tuist's clean-tree + on-main gates (the rename script's
+  # tree is dirty mid-mutation by design). The rollback trap remains
+  # armed; if switch-to-tuist fails, ROLLBACK_DONE=0 + MUTATION_STARTED=1
+  # → reset-hard restores the pre-rename tree (including project.yml).
+  if [ "$GENERATOR" = "tuist" ]; then
+    step "Invoking bin/switch-to-tuist.sh --force (--generator=tuist)"
+    bin/switch-to-tuist.sh --force \
+      || fail "bin/switch-to-tuist.sh failed — see preceding stderr for diagnostic"
+    ok "switched fork to Tuist (project.yml deleted; Brewfile / Makefile / ci scripts / pr.yml updated)"
+  fi
 
   # Success path: disarm rollback traps (no stash to drop per HIGH-1)
   trap - ERR EXIT INT TERM

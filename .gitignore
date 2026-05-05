@@ -14,7 +14,11 @@ app/iOS/Generated-Info.plist
 app/macOS/Generated-Info.plist
 
 # XcodeGen-generated project (regenerated from project.yml)
+# Tuist-generated project + workspace + cache (regenerated from app/Project.swift)
 app/HelloApp.xcodeproj
+app/HelloApp.xcworkspace
+app/Derived/
+.tuist/
 
 # Editor
 .vscode/

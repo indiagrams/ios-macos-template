@@ -14,8 +14,8 @@
 #   0 — all 4 surfaces clean (no matches in tracked files)
 #   1 — any leak; per-surface stderr report + trailing summary
 #
-# Surfaces synced with bin/rename.sh:291. If rename.sh adds a surface,
-# update both. (D-03 cross-reference.)
+# Surfaces synced with bin/rename.sh's substitution-target enumeration.
+# If rename.sh adds a surface, update both. (D-03 cross-reference.)
 #
 # DISPLAY_NAME shares 'HelloApp' literal with APP_NAME pre-rename;
 # covered transitively by APP_NAME_ORIG (D-11).
@@ -153,6 +153,24 @@ SURFACES_LEAKED=0
 [ "$EMAIL_HITS"     -gt 0 ] && SURFACES_LEAKED=$((SURFACES_LEAKED + 1))
 [ "$SLUG_HITS"      -gt 0 ] && SURFACES_LEAKED=$((SURFACES_LEAKED + 1))
 [ "$YEAR_HITS"      -gt 0 ] && SURFACES_LEAKED=$((SURFACES_LEAKED + 1))
+
+# ── 6th surface: project-manifest sanity (#38) ─────────────────────────
+# After bin/rename.sh runs, the fork should have at least one of
+# app/project.yml (XcodeGen) or app/Project.swift (Tuist) — both are
+# legitimate post-rename states (default --generator=xcodegen leaves
+# Tuist artifacts in tree; --generator=tuist invokes
+# bin/switch-to-tuist.sh which deletes project.yml). Neither present
+# means the project is unbuildable — that's the leak this check
+# catches. Forker error: e.g. accidentally deleting both manifest
+# files mid-rename.
+if [ ! -f "app/project.yml" ] && [ ! -f "app/Project.swift" ]; then
+  printf 'PROJECT MANIFEST leak (no generator manifest present):\n' >&2
+  printf '  app/project.yml absent AND app/Project.swift absent\n' >&2
+  printf '  Project is unbuildable — restore one (or run bin/rename.sh --generator=…)\n' >&2
+  printf '\n' >&2
+  TOTAL=$((TOTAL + 1))
+  SURFACES_LEAKED=$((SURFACES_LEAKED + 1))
+fi
 
 if [ "$TOTAL" -gt 0 ]; then
   printf 'Verify failed: %d total matches across %d surfaces.\n' \

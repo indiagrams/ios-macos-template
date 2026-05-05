@@ -334,6 +334,86 @@ ok "AC-19 (c): pre-rename file paths restored"
 
 step "AC-19 forced-failure rollback exercise: PASSED"
 
+# ── --generator=tuist end-to-end (#38; PR 4 closure) ──────────────────────
+#
+# Per #38 acceptance criteria:
+#   bin/rename.sh ... --generator=tuist on a fresh clone produces a
+#   Tuist-only fork that `make check` is green on.
+#
+# Reuses the existing tmpdir clone shape (force-set main, fresh checkout)
+# because the rename script's idempotency dispatch needs a recognizable
+# pre-rename state. The earlier AC-19 reset-hard left the clone in a
+# clean post-rollback main, which is exactly what we want here.
+
+step "--generator=tuist end-to-end (#38)"
+
+# Reset clone to clean main (post-AC-19 it should already be clean,
+# but be explicit — earlier failed-rename leftovers must not survive).
+git reset --hard --quiet HEAD
+git clean -fdx --quiet
+
+test -f app/project.yml      || fail "--generator=tuist setup: app/project.yml missing pre-rename"
+test -f app/Project.swift    || fail "--generator=tuist setup: app/Project.swift missing pre-rename (PR 1 not landed?)"
+test -f Tuist.swift          || fail "--generator=tuist setup: Tuist.swift missing pre-rename"
+test -x bin/switch-to-tuist.sh || fail "--generator=tuist setup: bin/switch-to-tuist.sh missing/not executable (PR 2 not landed?)"
+command -v tuist >/dev/null  || fail "--generator=tuist setup: tuist not on PATH; install via 'brew install --cask tuist'"
+
+bin/rename.sh "$TEST_APP" "$TEST_BUNDLE" "$TEST_DISPLAY" \
+  --email="$TEST_EMAIL" --slug="$TEST_SLUG" --generator=tuist \
+  || fail "bin/rename.sh --generator=tuist failed in tmpdir"
+ok "rename --generator=tuist complete"
+
+# Post-rename assertions specific to --generator=tuist:
+test ! -f app/project.yml || fail "--generator=tuist: app/project.yml still present (switch-to-tuist did not delete it)"
+test -f app/Project.swift || fail "--generator=tuist: app/Project.swift missing (substitutions wiped it?)"
+test -f Tuist.swift       || fail "--generator=tuist: Tuist.swift missing"
+! grep -q '^brew "xcodegen"' Brewfile || \
+  fail "--generator=tuist: Brewfile still has 'brew \"xcodegen\"'"
+grep -q 'cd app && tuist generate --no-open' Makefile || \
+  fail "--generator=tuist: Makefile missing 'tuist generate --no-open'"
+! grep -q 'cd app && xcodegen generate' Makefile || \
+  fail "--generator=tuist: Makefile still has 'cd app && xcodegen generate'"
+grep -q 'require_cmd tuist' ci/local-check.sh || \
+  fail "--generator=tuist: ci/local-check.sh missing 'require_cmd tuist'"
+! grep -q 'require_cmd xcodegen' ci/local-check.sh || \
+  fail "--generator=tuist: ci/local-check.sh still has 'require_cmd xcodegen'"
+grep -q 'tuist generate --no-open' .github/workflows/pr.yml || \
+  fail "--generator=tuist: .github/workflows/pr.yml missing 'tuist generate --no-open'"
+! grep -q 'run: xcodegen generate' .github/workflows/pr.yml || \
+  fail "--generator=tuist: .github/workflows/pr.yml still has 'run: xcodegen generate'"
+ok "--generator=tuist: 5 mutation surfaces verified (no project.yml, Brewfile, Makefile, ci/local-check.sh, pr.yml)"
+
+# CFBundleDisplayName placeholder verification — Project.swift's
+# CFBundleDisplayName lines must end up as DISPLAY_NAME (not APP_NAME).
+grep -qF "\"CFBundleDisplayName\": \"$TEST_DISPLAY\"" app/Project.swift || \
+  fail "--generator=tuist: app/Project.swift's CFBundleDisplayName not set to DISPLAY_NAME '$TEST_DISPLAY'"
+ok "Project.swift CFBundleDisplayName placeholder honored ('$TEST_DISPLAY')"
+
+# Verify-rename must exit 0 silent on the --generator=tuist post-rename tree.
+set +e
+VERIFY_OUT=$(bin/verify-rename.sh 2>&1)
+VERIFY_EXIT=$?
+set -e
+test "$VERIFY_EXIT" = "0" || fail "--generator=tuist: bin/verify-rename.sh exited $VERIFY_EXIT (expected 0); output:
+$VERIFY_OUT"
+test -z "$VERIFY_OUT" || fail "--generator=tuist: bin/verify-rename.sh produced output (expected silent); got:
+$VERIFY_OUT"
+ok "--generator=tuist: bin/verify-rename.sh exit 0 silent (5 surfaces clean + manifest sanity)"
+
+# make check on the renamed Tuist fork (iOS device build via the rewritten
+# ci/local-check.sh which now invokes 'tuist generate --no-open' first).
+step "--generator=tuist: make check (iOS device build)"
+bash -euo pipefail <<'BASH'
+set +e
+make check 2>&1 | tee .test-rename-tuist-make-check.log
+EXIT=${PIPESTATUS[0]}
+set -e
+test "$EXIT" -eq 0 || { echo "ERROR: --generator=tuist make check failed with exit $EXIT"; exit 1; }
+BASH
+ok "--generator=tuist: make check exit 0 (Tuist-driven build green)"
+
+step "--generator=tuist end-to-end: PASSED"
+
 # ── Done ──────────────────────────────────────────────────────────────────
 
 step "ci/test-rename.sh: all assertions passed"

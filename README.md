@@ -31,7 +31,7 @@ What you get out of the box:
 
 - **Local checks** — `ci/local-check.sh --fast` runs an unsigned iOS device
   build (the primary CI signal) on every `git push` via lefthook.
-- **GitHub Actions** — three jobs on every PR: iOS device, iOS Simulator, macOS.
+- **GitHub Actions** — six jobs on every PR: 3 XcodeGen (iOS device, iOS Simulator, macOS) + 3 Tuist parity (same matrix, exercises `bin/switch-to-tuist.sh` before building).
   Branch protection on `main` blocks direct pushes.
 - **Signed release pipeline** — `fastlane release tag:v0.1.0` builds signed
   `.ipa` + `.pkg`, uploads both to TestFlight, then pushes the git tag.
@@ -283,7 +283,7 @@ This applies the following settings to your repo:
 
 - **Branch protection on `main`**:
   - Require PR before merging (no direct pushes — even for repo admins)
-  - Require 3 CI checks green: `app (iOS device)`, `app (iOS Simulator)`, `app (macOS)`
+  - Require 6 CI checks green: `app (iOS device)`, `app (iOS Simulator)`, `app (macOS)` (XcodeGen) + `app (Tuist iOS device)`, `app (Tuist iOS Simulator)`, `app (Tuist macOS)` (parity matrix)
   - Require checks to be up-to-date with `main` before merge (strict mode)
   - Enforce on admins (no bypass)
   - Require linear history

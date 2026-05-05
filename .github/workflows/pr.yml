@@ -98,3 +98,109 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | xcbeautify --renderer github-actions
+
+  # ─── Tuist parity matrix ────────────────────────────────────────────────────
+  # The Tuist manifests (Tuist.swift + app/Project.swift) ship alongside
+  # app/project.yml so forkers can pick their generator at fork time
+  # (bin/rename.sh --generator=tuist|xcodegen). These 3 jobs run
+  # bin/switch-to-tuist.sh against a fresh checkout, regenerate
+  # HelloApp.xcodeproj from Project.swift, and run the same xcodebuild
+  # commands as the XcodeGen jobs above. Keeps both manifests in sync
+  # on every PR — drift fails CI immediately.
+  app-tuist-ios-device:
+    name: app (Tuist iOS device)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install xcbeautify + tuist
+        run: |
+          brew install xcbeautify
+          brew install --cask tuist
+
+      - name: switch fork to Tuist
+        run: bin/switch-to-tuist.sh --force
+
+      - name: regenerate Xcode project (Tuist)
+        working-directory: app
+        run: tuist generate --no-open
+
+      - name: build iOS device (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project app/HelloApp.xcodeproj \
+            -scheme HelloApp-iOS \
+            -configuration Debug \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | xcbeautify --renderer github-actions
+
+  app-tuist-ios-sim:
+    name: app (Tuist iOS Simulator)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install xcbeautify + tuist
+        run: |
+          brew install xcbeautify
+          brew install --cask tuist
+
+      - name: switch fork to Tuist
+        run: bin/switch-to-tuist.sh --force
+
+      - name: regenerate Xcode project (Tuist)
+        working-directory: app
+        run: tuist generate --no-open
+
+      - name: build iOS Simulator (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project app/HelloApp.xcodeproj \
+            -scheme HelloApp-iOS \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | xcbeautify --renderer github-actions
+
+  app-tuist-macos:
+    name: app (Tuist macOS)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install xcbeautify + tuist
+        run: |
+          brew install xcbeautify
+          brew install --cask tuist
+
+      - name: switch fork to Tuist
+        run: bin/switch-to-tuist.sh --force
+
+      - name: regenerate Xcode project (Tuist)
+        working-directory: app
+        run: tuist generate --no-open
+
+      - name: build macOS (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project app/HelloApp.xcodeproj \
+            -scheme HelloApp-macOS \
+            -configuration Debug \
+            -destination 'generic/platform=macOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | xcbeautify --renderer github-actions

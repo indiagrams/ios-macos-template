@@ -1,21 +1,39 @@
-# Migrating from XcodeGen to Tuist
+# Switching an already-renamed fork from XcodeGen to Tuist
 
-A step-by-step recipe for forking this template and switching its project
-generator from [XcodeGen](https://github.com/yonaskolb/XcodeGen) to
-[Tuist](https://tuist.dev). One-way migration: applies once on your
-fork, no parallel maintenance.
+> **If you're forking the template fresh, prefer
+> `bin/rename.sh ... --generator=tuist` — it produces a Tuist-only
+> fork in one shot.** This doc covers the in-place switch path:
+> you already ran `bin/rename.sh` (or the default
+> `--generator=xcodegen`) and now want to flip your existing fork
+> from `app/project.yml` to `app/Project.swift`.
 
-> **Status:** documentation only. The template's default project
-> generator remains XcodeGen (`app/project.yml` → `xcodegen generate`
-> → `app/HelloApp.xcodeproj`). This doc shows what to change in your
-> fork if you'd rather drive the project file from `Project.swift`
-> instead. Tracked in [#34](https://github.com/indiagrams/ios-macos-template/issues/34).
+The fast path is one command:
+
+```bash
+bin/switch-to-tuist.sh   # idempotent + atomic-rollback (parity with bin/rename.sh)
+```
+
+That script is what `bin/rename.sh --generator=tuist` invokes for you
+at fork time. Running it standalone on an already-renamed fork is the
+equivalent in-place operation.
+
+The rest of this document explains **what** the script does (so you can
+audit, adapt, or step through it manually if you prefer) and the
+**non-obvious gotchas** that surfaced during validation. If you trust
+the script, [Step 4 — Validate end-to-end](#step-4--validate-end-to-end)
+is the only section you really need.
+
+> **Status:** in-place switch path. The template's `main` ships both
+> manifests (`Tuist.swift` + `app/Project.swift` alongside
+> `app/project.yml`) and CI verifies both stay in sync on every PR
+> via the 6-job matrix (3 XcodeGen + 3 Tuist parity). Tracked in
+> [#34](https://github.com/indiagrams/ios-macos-template/issues/34) +
+> [#38](https://github.com/indiagrams/ios-macos-template/issues/38).
 >
-> The migration described here was **validated end-to-end against this
-> repo at v1.0.0** — a throwaway clone, the steps below applied
-> verbatim, and `make check` / `make check-sim` / `make check-macos` all
-> green. Where Tuist behaves differently from XcodeGen in non-obvious
-> ways, those gotchas are flagged inline.
+> Validated end-to-end against this repo: a throwaway clone, ran
+> `bin/switch-to-tuist.sh`, then `make check` / `make check-sim` /
+> `make check-macos` all green. The script's
+> `ci/test-switch-to-tuist.sh` harness re-runs that validation in CI.
 
 ## Why this exists
 
@@ -40,18 +58,22 @@ first-time forker; this doc is for forkers who'd rather migrate.
 
 ## What this doc covers
 
-- 1:1 translation of `app/project.yml` → `app/Project.swift` plus
-  top-level `Tuist.swift`
-- Updates to: `Makefile`, `Brewfile`, `ci/local-check.sh`,
-  `ci/local-release-check.sh`, `.github/workflows/pr.yml`, `.gitignore`,
-  `bin/rename.sh`, `bin/verify-rename.sh`
-- Caveats / gotchas surfaced during validation
-
+- What `bin/switch-to-tuist.sh` does, surface-by-surface, so you can audit
+  or adapt it
+- The Tuist 4 manifest layout (`Tuist.swift` + `app/Project.swift` —
+  both already on `main` after #38; this is a pointer + audit reference,
+  not a "type this in" recipe)
+- Edits to `Makefile`, `Brewfile`, `ci/local-check.sh`,
+  `ci/local-release-check.sh`, `.github/workflows/pr.yml` that the
+  script applies
+- Caveats / gotchas the validation surfaced
 ## What this doc does not cover
 
-- **Maintaining both XcodeGen and Tuist in lockstep.** Choose one. The
-  doc's value is a clean cutover; the maintenance cost of keeping both
-  manifest formats in sync isn't worth what it'd save.
+- **Maintaining both XcodeGen and Tuist in lockstep.** This template's
+  `main` does maintain both (verified by the 6-job CI matrix), but in
+  your fork after `bin/switch-to-tuist.sh` runs, `app/project.yml` is
+  gone and the XcodeGen tooling is removed. Pick one for your fork; the
+  template carries both so you can pick at fork time.
 - **Adopting Tuist's caching / build-graph features
   (`tuist cache warm`, `tuist run`, project-as-package).** Those are
   Tuist's actual differentiators — but they're independent of the
@@ -88,38 +110,36 @@ The migration was validated against Tuist **4.191.x**. Older versions
 (pre-4.0) used a different `Project.swift` schema and the steps below
 will not apply.
 
-## Step 1 — Add `Tuist.swift` at repo root
+## Step 1 — `Tuist.swift` is already on `main`
 
-Create `Tuist.swift` (one file, ~12 lines):
+Since #38, the template ships a top-level [`Tuist.swift`](../Tuist.swift)
+at the repo root. You don't need to author one. If you're auditing it
+or adapting it for a stricter Xcode-version pin, here's the relevant
+contract:
 
 ```swift
-// Tuist.swift — top-level Tuist configuration.
-import ProjectDescription
-
+// Tuist.swift (excerpt — see ../Tuist.swift for the full file)
 let config = Config(
     compatibleXcodeVersions: .all,    // .upToNextMajor("15.0") rejects Xcode 16+; use .all unless you want a hard pin
     swiftVersion: "5.9",
-    generationOptions: .options(
-        resolveDependenciesWithSystemScm: false,
-        disablePackageVersionLocking: false
-    )
+    generationOptions: .options(...)
 )
 ```
 
 > **Gotcha — old location.** Tuist <4.0 used `Tuist/Config.swift` (a
 > subdirectory). Tuist 4 emits a deprecation warning for that path and
-> wants `Tuist.swift` at the repo root. Use the new location.
+> wants `Tuist.swift` at the repo root. The template uses the new
+> location.
 
-## Step 2 — Replace `app/project.yml` with `app/Project.swift`
+## Step 2 — Delete `app/project.yml` (the script does this)
 
-Delete `app/project.yml`. Add `app/Project.swift` (one file, ~210
-lines, full skeleton in [§ Reference Project.swift](#reference-projectswift)
-below):
+`bin/switch-to-tuist.sh` runs `git rm -f app/project.yml`. The Tuist
+equivalent ([`app/Project.swift`](../app/Project.swift), 1:1 with
+`project.yml`) is already on `main` post-#38, so there's nothing to
+author here either.
 
-```bash
-rm app/project.yml
-# write app/Project.swift — see reference at the bottom
-```
+If you're auditing the translation, here's the project.yml ↔ Project.swift
+mapping that produced [`app/Project.swift`](../app/Project.swift):
 
 Key translation points from `project.yml` → `Project.swift`:
 
@@ -174,10 +194,15 @@ Key translation points from `project.yml` → `Project.swift`:
 > .app's `Contents/Resources/` against `app/macOS/Resources/AppIcon.icns`
 > — they must match.
 
-## Step 3 — Update ancillary scripts
+## Step 3 — Ancillary script edits (the script does these)
 
-The following files all reference `xcodegen generate`. Update them in
-one pass:
+`bin/switch-to-tuist.sh` applies the diffs below in one pass. They're
+documented here as audit reference — if you'd rather step through
+manually, you can apply each diff yourself; the result is identical
+to running the script. The diffs are also what the 3 Tuist parity CI
+jobs in `.github/workflows/pr.yml` exercise on every template PR
+(via `bin/switch-to-tuist.sh --force`), so any drift between this
+doc and the script fails CI immediately:
 
 ### `Brewfile`
 
@@ -229,8 +254,9 @@ drop the Brewfile line entirely.)
 
 ### `.github/workflows/pr.yml`
 
-All three jobs (`app-ios-device`, `app-ios-sim`, `app-macos`) repeat
-the same install + generate steps. Replace each:
+All three originally-XcodeGen jobs (`app-ios-device`, `app-ios-sim`,
+`app-macos`) repeat the same install + generate steps. The script
+rewrites each — equivalent diffs:
 
 ```diff
 -      - name: install xcbeautify + xcodegen
@@ -362,8 +388,8 @@ After migrating on a fresh fork:
 - [ ] `make check` green.
 - [ ] `make check-sim` green.
 - [ ] `make check-macos` green.
-- [ ] All three CI checks (`app (iOS device)`, `app (iOS Simulator)`,
-      `app (macOS)`) green on the migration PR.
+- [ ] All 6 CI checks (3 XcodeGen — now using Tuist after the script
+      mutates the workflow — plus 3 Tuist parity) green on the PR.
 - [ ] The macOS app bundle's `.icns` matches `app/macOS/Resources/AppIcon.icns`
       by SHA-256 (post-build script ran correctly).
 - [ ] `bin/rename.sh` followed by `bin/verify-rename.sh` exits 0 on a
@@ -374,209 +400,19 @@ After migrating on a fresh fork:
 
 ## Reference `Project.swift`
 
-Drop this in at `app/Project.swift`. It's a 1:1 equivalent of
-`app/project.yml` and was the exact file used to validate this
-migration end-to-end.
+The full `Project.swift` lives at [`app/Project.swift`](../app/Project.swift)
+on `main` — that's the file `tuist generate` reads. Read or copy from
+there directly; this doc no longer carries an inline skeleton (it
+bit-rotted twice during validation). Notable layout choices:
 
-```swift
-import ProjectDescription
-
-// MARK: - Shared settings
-
-let baseSettings: SettingsDictionary = [
-    "SWIFT_VERSION": "5.9",
-    "SWIFT_STRICT_CONCURRENCY": "complete",
-    "ENABLE_USER_SCRIPT_SANDBOXING": "YES",
-    "MARKETING_VERSION": "0.0.1",
-    "CURRENT_PROJECT_VERSION": "1",
-    "DEVELOPMENT_TEAM": "TEAM_ID_PLACEHOLDER",   // override via .env.local FASTLANE_TEAM_ID
-    "CODE_SIGN_STYLE": "Automatic",
-    "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO",
-    "GCC_TREAT_WARNINGS_AS_ERRORS": "NO",
-]
-
-// MARK: - iOS app
-
-let iosInfoPlist: [String: Plist.Value] = [
-    "CFBundleDisplayName": "HelloApp",
-    "CFBundleShortVersionString": "$(MARKETING_VERSION)",
-    "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
-    "UILaunchScreen": .dictionary([:]),
-    "UIApplicationSceneManifest": .dictionary([
-        "UIApplicationSupportsMultipleScenes": false,
-    ]),
-    "UISupportedInterfaceOrientations": .array([
-        "UIInterfaceOrientationPortrait",
-        "UIInterfaceOrientationLandscapeLeft",
-        "UIInterfaceOrientationLandscapeRight",
-    ]),
-    "UISupportedInterfaceOrientations~ipad": .array([
-        "UIInterfaceOrientationPortrait",
-        "UIInterfaceOrientationPortraitUpsideDown",
-        "UIInterfaceOrientationLandscapeLeft",
-        "UIInterfaceOrientationLandscapeRight",
-    ]),
-    "ITSAppUsesNonExemptEncryption": false,
-]
-
-let iosTarget = Target.target(
-    name: "HelloApp-iOS",
-    destinations: [.iPhone, .iPad],
-    product: .app,
-    bundleId: "com.example.helloapp",
-    deploymentTargets: .iOS("17.0"),
-    infoPlist: .extendingDefault(with: iosInfoPlist),
-    sources: ["Shared/**", "iOS/**"],
-    resources: [
-        "iOS/Assets.xcassets",
-    ],
-    entitlements: .file(path: "iOS/HelloApp.entitlements"),
-    settings: .settings(base: [
-        "PRODUCT_BUNDLE_IDENTIFIER": "com.example.helloapp",
-        "TARGETED_DEVICE_FAMILY": "1,2",
-        "SUPPORTS_MACCATALYST": "NO",
-        "INFOPLIST_KEY_LSApplicationCategoryType": "public.app-category.utilities",
-        "INFOPLIST_KEY_NSHumanReadableCopyright": "TODO Copyright © <year> <Your Org>. All rights reserved.",
-    ])
-)
-
-// MARK: - macOS app
-
-let macInfoPlist: [String: Plist.Value] = [
-    "CFBundleDisplayName": "HelloApp",
-    "CFBundleShortVersionString": "$(MARKETING_VERSION)",
-    "CFBundleVersion": "$(CURRENT_PROJECT_VERSION)",
-    "LSMinimumSystemVersion": "$(MACOSX_DEPLOYMENT_TARGET)",
-    "LSApplicationCategoryType": "public.app-category.utilities",
-    "NSHumanReadableCopyright": "TODO Copyright © <year> <Your Org>. All rights reserved.",
-    "NSPrincipalClass": "NSApplication",
-    // CFBundleIconName intentionally NOT set — its presence makes Sonoma+
-    // prefer Assets.car AppIcon (which has actool's broken 4-size set).
-    // The post-build script below installs the hand-rolled .icns instead.
-    "CFBundleIconFile": "AppIcon",
-    "ITSAppUsesNonExemptEncryption": false,
-]
-
-// Overwrites actool's broken 4-size .icns with the hand-rolled 10-size
-// version. Tuist places `.post` scripts at the END of buildPhases (after
-// Resources / Frameworks / Embed Frameworks) but before Code Sign — so
-// the .icns gets overwritten *after* actool emits its broken version,
-// and the signed bundle ships with the hand-rolled 10-size set.
-let macIconScript: TargetScript = .post(
-    script: """
-    set -euo pipefail
-    /bin/cp "$SCRIPT_INPUT_FILE_0" "$SCRIPT_OUTPUT_FILE_0"
-    echo "Overwrote $SCRIPT_OUTPUT_FILE_0 with hand-rolled 10-size .icns"
-    """,
-    name: "Overwrite actool's broken AppIcon.icns with hand-rolled 10-size version",
-    inputPaths: ["$(SRCROOT)/macOS/Resources/AppIcon.icns"],
-    outputPaths: ["$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/AppIcon.icns"]
-)
-
-let macTarget = Target.target(
-    name: "HelloApp-macOS",
-    destinations: [.mac],
-    product: .app,
-    bundleId: "com.example.helloapp",
-    deploymentTargets: .macOS("14.0"),
-    infoPlist: .extendingDefault(with: macInfoPlist),
-    sources: [
-        "Shared/**",
-        // macOS/Resources/ holds the hand-rolled AppIcon.icns + source 1024 PNG.
-        // Excluded here because the post-build script copies the .icns into
-        // the .app over actool's broken 4-size version.
-        .glob("macOS/**", excluding: ["macOS/Resources/**"]),
-    ],
-    resources: [
-        "macOS/Assets.xcassets",
-    ],
-    entitlements: .file(path: "macOS/HelloApp.entitlements"),
-    scripts: [macIconScript],
-    settings: .settings(base: [
-        "PRODUCT_BUNDLE_IDENTIFIER": "com.example.helloapp",
-        // Suppress actool's auto-injection of CFBundleIconName=AppIcon.
-        // Empty value = actool emits Assets.car as before but does not set
-        // the key, so macOS reads CFBundleIconFile → our hand-rolled .icns.
-        "ASSETCATALOG_COMPILER_APPICON_NAME": "",
-    ])
-)
-
-// MARK: - UI test targets
-
-let iosUITestTarget = Target.target(
-    name: "HelloAppUITests",
-    destinations: [.iPhone, .iPad],
-    product: .uiTests,
-    bundleId: "com.example.helloapp.uitests",
-    deploymentTargets: .iOS("17.0"),
-    infoPlist: .default,
-    sources: ["UITests/**"],
-    dependencies: [.target(name: "HelloApp-iOS")],
-    settings: .settings(base: [
-        "TEST_TARGET_NAME": "HelloApp-iOS",
-        // SnapshotHelper.swift uses raw NSURLConnection patterns that warn
-        // under strict concurrency — relax for the test target only.
-        "SWIFT_STRICT_CONCURRENCY": "minimal",
-    ])
-)
-
-let macUITestTarget = Target.target(
-    name: "HelloAppMacOSUITests",
-    destinations: [.mac],
-    product: .uiTests,
-    bundleId: "com.example.helloapp.macuitests",
-    deploymentTargets: .macOS("14.0"),
-    infoPlist: .default,
-    sources: ["MacOSUITests/**"],
-    dependencies: [.target(name: "HelloApp-macOS")],
-    settings: .settings(base: [
-        "TEST_TARGET_NAME": "HelloApp-macOS",
-    ])
-)
-
-// MARK: - Schemes
-
-let iosScheme: Scheme = .scheme(
-    name: "HelloApp-iOS",
-    shared: true,
-    // NB: only the main app target — UI tests live in testAction only.
-    // Including HelloAppUITests here would compile it during plain
-    // `xcodebuild build` and trip strict-concurrency errors that the
-    // per-target SWIFT_STRICT_CONCURRENCY=minimal override can't suppress.
-    buildAction: .buildAction(targets: ["HelloApp-iOS"]),
-    testAction: .targets(
-        ["HelloAppUITests"],
-        configuration: .debug
-    ),
-    runAction: .runAction(configuration: .debug, executable: "HelloApp-iOS"),
-    archiveAction: .archiveAction(configuration: .release)
-)
-
-let macScheme: Scheme = .scheme(
-    name: "HelloApp-macOS",
-    shared: true,
-    buildAction: .buildAction(targets: ["HelloApp-macOS"]),
-    testAction: .targets(
-        ["HelloAppMacOSUITests"],
-        configuration: .debug
-    ),
-    runAction: .runAction(configuration: .debug, executable: "HelloApp-macOS"),
-    archiveAction: .archiveAction(configuration: .release)
-)
-
-// MARK: - Project
-
-let project = Project(
-    name: "HelloApp",
-    options: .options(
-        defaultKnownRegions: ["en"],
-        developmentRegion: "en"
-    ),
-    settings: .settings(base: baseSettings, defaultSettings: .recommended),
-    targets: [iosTarget, macTarget, iosUITestTarget, macUITestTarget],
-    schemes: [iosScheme, macScheme]
-)
-```
+- 4 targets: `HelloApp-iOS`, `HelloApp-macOS`, `HelloAppUITests`,
+  `HelloAppMacOSUITests`
+- 2 schemes: `HelloApp-iOS`, `HelloApp-macOS` (UI test targets in
+  `testAction:` only — see the gotcha above)
+- macOS post-build script (`macIconScript`) for the AppIcon.icns
+  override
+- Project-level + per-target settings split (matches `project.yml`'s
+  shape)
 
 ## References
 
@@ -585,4 +421,4 @@ let project = Project(
 - [`Target.target(...)` API reference](https://docs.tuist.dev/en/references/project-description/structs/target)
 - [Tuist 4 release notes](https://docs.tuist.dev/en/contributors/principles/changelog)
 - [XcodeGen project.yml schema](https://github.com/yonaskolb/XcodeGen/blob/master/Docs/ProjectSpec.md) (for cross-reference during migration)
-- This template — [`SCOPE.md`](../SCOPE.md), [`docs/PRINCIPLES.md`](PRINCIPLES.md), [`app/project.yml`](../app/project.yml) (the source you're migrating away from)
+- This template — [`SCOPE.md`](../SCOPE.md), [`docs/PRINCIPLES.md`](PRINCIPLES.md), [`app/project.yml`](../app/project.yml) (the source the script switches away from), [`app/Project.swift`](../app/Project.swift) (the destination), [`bin/switch-to-tuist.sh`](../bin/switch-to-tuist.sh) (the script this doc explains)

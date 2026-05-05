@@ -13,10 +13,7 @@ submission tooling.
 
 ## Why this template
 
-- **XcodeGen-driven project file.** No `.xcodeproj` committed. The project
-  source-of-truth is `app/project.yml`; `xcodegen generate` materializes the
-  Xcode bundle. Diffs stay clean and merge conflicts on the project file
-  disappear.
+- **Choose your project generator at fork time.** Both [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`app/project.yml`) and [Tuist](https://tuist.dev) (`app/Project.swift`) ship on `main`; pick which one drives your fork via `bin/rename.sh ... --generator=tuist|xcodegen` (default: `xcodegen`). No `.xcodeproj` is committed either way — it's regenerated from the manifest you keep. The CI matrix runs both generators on every template PR so they stay in lockstep.
 - **Lefthook pre-push gate.** `ci/local-check.sh --fast` (an unsigned iOS
   device build) runs locally before every `git push`. CI on GitHub is a
   confirmation, not a discovery channel — broken builds don't reach `main`'s
@@ -70,7 +67,8 @@ git clone https://github.com/indiagrams/ios-macos-template.git /tmp/preflight \
 ```bash
 gh repo create my-app --template indiagrams/ios-macos-template --public --clone && cd my-app   # ~30s — fork from template + clone
 bin/rename.sh YourApp com.your-org.yourapp 'Your App' --email=you@example.com   # ~30s — substitute identity surfaces (app name, bundle ID, display, maintainer email; repo slug auto-derived from git remote)
-make bootstrap   # ~3min — brew bundle + lefthook + xcodegen + bundle install (warm Homebrew cache)
+                                                                                # add --generator=tuist (default: xcodegen) for a Tuist-driven fork; both manifests ship on main, the flag picks one.
+make bootstrap   # ~3min — brew bundle + lefthook + xcodegen (or tuist) + bundle install (warm Homebrew cache)
 make check   # ~1.5min — iOS device build (primary signal)
 ```
 
@@ -82,6 +80,7 @@ Run these five commands from the cloned repo:
 
 ```bash
 bin/rename.sh YourApp com.your-org.yourapp 'Your App' --email=you@example.com    # substitute identity surfaces (app name, bundle ID, display, maintainer email, repo slug)
+                                                                                 # append --generator=tuist (default: xcodegen) to drive the fork from app/Project.swift instead of app/project.yml.
 bin/verify-rename.sh                                                              # assert no leftover originals (run BEFORE commit so a bad rename never lands in git history)
 git add -A && git commit -m "Rename app stub"                                    # record the rename (rename.sh mutates the tree but does not commit)
 git push -u origin main                                                          # publish your renamed fork BEFORE branch protection is enabled
@@ -89,6 +88,8 @@ bin/setup-github.sh                                                             
 ```
 
 That's it — your fork is renamed, verified, committed, pushed, and locked down with branch protection.
+
+Prefer Tuist over XcodeGen? Re-run with `--generator=tuist` (e.g. `bin/rename.sh YourApp com.your-org.yourapp 'Your App' --email=you@example.com --generator=tuist`) and the flag invokes `bin/switch-to-tuist.sh` for you — `app/project.yml` is removed and Brewfile / Makefile / ci scripts / `.github/workflows/pr.yml` are flipped to drive `app/Project.swift` via `tuist generate`. Already renamed and want to switch later? Run `bin/switch-to-tuist.sh` standalone — see [`docs/MIGRATING-TO-TUIST.md`](docs/MIGRATING-TO-TUIST.md) for the in-place switch guide.
 
 <details>
 <summary>If you prefer manual sed</summary>
@@ -160,8 +161,9 @@ provisioning profiles via `-allowProvisioningUpdates`. Subsequent runs reuse the
 
 ```
 .
-├── .github/workflows/pr.yml         # 3 jobs: iOS device, iOS Sim, macOS
-├── Brewfile                         # xcodegen, fastlane, lefthook, …
+├── .github/workflows/pr.yml         # 6 jobs: 3 XcodeGen + 3 Tuist parity (iOS device, iOS Sim, macOS each)
+├── Tuist.swift                      # Tuist 4 config (Tuist alternative to XcodeGen — pick at fork time via --generator)
+├── Brewfile                         # xcodegen + tuist, fastlane, lefthook, …
 ├── Makefile                         # bootstrap | check | generate | icons | screenshots | release-dryrun
 ├── lefthook.yml                     # pre-push → ci/local-check.sh --fast
 ├── Gemfile                          # fastlane via brew Ruby
@@ -183,7 +185,8 @@ provisioning profiles via `-allowProvisioningUpdates`. Subsequent runs reuse the
 │   ├── Snapfile / MacSnapfile       # screenshot capture config
 │   └── metadata/                    # App Store listing copy + review info (TODO markers)
 └── app/
-    ├── project.yml                  # XcodeGen — iOS + macOS targets + UITest targets
+    ├── project.yml                  # XcodeGen manifest — iOS + macOS targets + UITest targets
+    ├── Project.swift                # Tuist 4 manifest — 1:1 equivalent of project.yml; pick one via bin/rename.sh --generator
     ├── Shared/                      # SwiftUI app code (cross-platform)
     ├── iOS/                         # iOS-only resources (entitlements, AppIcon)
     ├── macOS/                       # macOS-only resources (entitlements, AppIcon, .icns)
@@ -191,7 +194,7 @@ provisioning profiles via `-allowProvisioningUpdates`. Subsequent runs reuse the
     └── MacOSUITests/                # macOS UITest target (drives screenshot capture)
 ```
 
-Prefer Tuist (`Project.swift`) over XcodeGen (`project.yml`)? See [`docs/MIGRATING-TO-TUIST.md`](docs/MIGRATING-TO-TUIST.md) — one-way migration guide validated end-to-end against this template.
+Prefer Tuist (`Project.swift`) over XcodeGen (`project.yml`)? Pass `--generator=tuist` to `bin/rename.sh` at fork time and the flag flips your fork to Tuist-driven (deletes `app/project.yml`, edits Brewfile / Makefile / ci scripts / pr.yml). Already renamed and want to switch later? See [`docs/MIGRATING-TO-TUIST.md`](docs/MIGRATING-TO-TUIST.md) — in-place switch guide for already-renamed forks.
 
 ## Common workflows
 

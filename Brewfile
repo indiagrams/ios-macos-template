@@ -3,6 +3,7 @@
 
 # Build / project generation
 brew "xcodegen"        # app/project.yml → HelloApp.xcodeproj
+cask "tuist"          # app/Project.swift → HelloApp.xcodeproj (Tuist alternative; see #38)
 brew "swiftlint"       # Swift lint
 brew "xcbeautify"      # nicer xcodebuild logs
 brew "xcresultparser"  # parse .xcresult bundles in CI

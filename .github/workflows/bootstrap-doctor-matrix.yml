@@ -1,0 +1,182 @@
+# Continuously validates that this template's bootstrap pipeline (bin/doctor.rb
+# + bin/lib/bootstrap.rb) works across the 2x2 matrix of supported configs:
+#   GENERATOR    × RELEASE_MODE
+#   xcodegen|tuist × ci|local
+#
+# What this proves: the orchestration layer parses .bootstrap.env, validates
+# Apple/GH credentials, runs every doctor probe without a Ruby crash. Catches
+# config-schema breaks, mode-branching bugs, and Apple/GH side state drift.
+#
+# What this does NOT prove: that `make bootstrap-fork` mints fresh certs from
+# cold, that `make ship` produces a working TestFlight build. Those are
+# destructive and require Apple-side resource churn (cert quotas, ASC App
+# records). For the full destructive E2E, run bin/refork-smoketest.sh
+# manually — see docs/CONTINUOUS-VALIDATION.md.
+#
+# Inputs come from GH Secrets on this template repo, never from a local
+# .bootstrap.env. The workflow materializes .bootstrap.env at runtime in
+# /tmp on the runner and never persists it as an artifact.
+
+name: bootstrap doctor matrix
+
+on:
+  schedule:
+    - cron: '0 7 * * 1' # Mondays 07:00 UTC, before the smoketest's release cron
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/bootstrap-doctor-matrix.yml'
+      - 'bin/lib/bootstrap.rb'
+      - 'bin/doctor.rb'
+      - 'bin/bootstrap-fork.rb'
+      - 'bin/ship.rb'
+      - 'bin/verify-testflight.rb'
+      - 'bin/init-bootstrap-env.sh'
+      - '.bootstrap.env.example'
+
+permissions:
+  contents: read
+
+jobs:
+  doctor:
+    runs-on: macos-15
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        generator:    [xcodegen, tuist]
+        release_mode: [ci, local]
+
+    steps:
+      - name: Checkout template (this repo)
+        uses: actions/checkout@v4
+        with:
+          path: template
+
+      - name: Clone smoketest (the test target)
+        # Public repo; no auth needed. We use the smoketest as a known-state
+        # fork to probe doctor against.
+        run: |
+          git clone --depth=20 https://github.com/indiagrams/ios-macos-smoketest.git smoketest
+          ( cd smoketest && git log --oneline -1 )
+
+      - name: Inject this template's bootstrap code into the smoketest checkout
+        # The smoketest carries the bootstrap code that was current at its
+        # last sync. We want to validate THIS pull request's bootstrap code
+        # against the smoketest's runtime state. Replace the smoketest's
+        # bin/lib/bootstrap.rb + bin/doctor.rb + bin/bootstrap-fork.rb +
+        # bin/ship.rb + bin/verify-testflight.rb + bin/init-bootstrap-env.sh
+        # with the template's versions.
+        run: |
+          mkdir -p smoketest/bin/lib
+          cp template/bin/lib/bootstrap.rb smoketest/bin/lib/
+          cp template/bin/{doctor.rb,bootstrap-fork.rb,ship.rb,verify-testflight.rb,init-bootstrap-env.sh} smoketest/bin/
+          chmod +x smoketest/bin/{doctor.rb,bootstrap-fork.rb,ship.rb,verify-testflight.rb,init-bootstrap-env.sh}
+          cp template/.bootstrap.env.example smoketest/
+
+      - name: Set up Ruby + bundler cache (in smoketest)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+          working-directory: smoketest
+
+      - name: Install xcodegen + tuist (so BrewBootstrap step's `which` checks pass)
+        run: |
+          # Idempotent — brew skips already-installed.
+          brew install xcodegen tuist 2>&1 | tail -3
+
+      - name: Materialize secrets to mode-0600 files outside the workspace
+        env:
+          ASC_API_KEY_P8_BASE64:         ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          MATCH_PASSWORD:                ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          KEYCHAIN_PASSWORD:             ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          SECRETS_DIR="${RUNNER_TEMP}/bootstrap-secrets"
+          mkdir -p "$SECRETS_DIR"
+          chmod 700 "$SECRETS_DIR"
+
+          # ASC API .p8 (decode the base64 to PEM)
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 -d > "$SECRETS_DIR/AuthKey.p8"
+
+          # MATCH_GIT_BASIC_AUTHORIZATION = base64("user:PAT") — extract just the PAT
+          # for GH_PAT_FILE consumption.
+          printf '%s' "$MATCH_GIT_BASIC_AUTHORIZATION" | base64 -d | cut -d: -f2- > "$SECRETS_DIR/pat"
+
+          printf '%s' "$MATCH_PASSWORD"    > "$SECRETS_DIR/match-password"
+          printf '%s' "$KEYCHAIN_PASSWORD" > "$SECRETS_DIR/keychain-password"
+
+          chmod 600 "$SECRETS_DIR"/*
+
+          echo "SECRETS_DIR=$SECRETS_DIR" >> "$GITHUB_ENV"
+
+      - name: Use the certs-repo PAT for `gh api` calls (bootstrap.rb probes private repo)
+        # The default GITHUB_TOKEN can't see the private smoketest-certs repo.
+        # Override `gh`'s auth with the PAT extracted above so probes succeed.
+        run: |
+          echo "GH_TOKEN=$(cat $SECRETS_DIR/pat)" >> "$GITHUB_ENV"
+
+      - name: Materialize .bootstrap.env from non-secret config + secret file paths
+        env:
+          GENERATOR:             ${{ matrix.generator }}
+          RELEASE_MODE:          ${{ matrix.release_mode }}
+          FASTLANE_TEAM_ID:      ${{ secrets.FASTLANE_TEAM_ID }}
+          ASC_API_KEY_ID:        ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_KEY_ISSUER_ID: ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+        run: |
+          cat > smoketest/.bootstrap.env <<EOF
+          APP_NAME=SmokeApp
+          BUNDLE_ID=com.indiagram.smoke-app
+          DISPLAY_NAME='Indiagram Smoke App'
+          APP_EMAIL=smoketest@indiagram.com
+          GENERATOR=$GENERATOR
+          RELEASE_MODE=$RELEASE_MODE
+          FASTLANE_TEAM_ID=$FASTLANE_TEAM_ID
+          ASC_API_KEY_ID=$ASC_API_KEY_ID
+          ASC_API_KEY_ISSUER_ID=$ASC_API_KEY_ISSUER_ID
+          ASC_API_KEY_P8_PATH=$SECRETS_DIR/AuthKey.p8
+          GH_ORG=indiagrams
+          GH_APP_REPO=ios-macos-smoketest
+          GH_CERTS_REPO=ios-macos-smoketest-certs
+          GH_PAT_FILE=$SECRETS_DIR/pat
+          MATCH_PASSWORD_FILE=$SECRETS_DIR/match-password
+          KEYCHAIN_PASSWORD_FILE=$SECRETS_DIR/keychain-password
+          ICON_1024_PATH=
+          ASC_APP_SKU=indiagram-smoke-001
+          ASC_APP_NAME=Indiagram Smoke App
+          EOF
+          # Print without secrets for log clarity
+          grep -vE "^(ASC_API_KEY_ID|ASC_API_KEY_ISSUER_ID|FASTLANE_TEAM_ID)=" smoketest/.bootstrap.env || true
+
+      - name: Run make doctor
+        working-directory: smoketest
+        # ci cells expect exit 0 (everything in place — smoketest is fully bootstrapped).
+        # local cells expect exit 2 (LocalKeychainCerts blocks because the runner has
+        #   no Apple Distribution + Apple Development + 3rd Party Mac Developer
+        #   Installer in its login keychain — that's CORRECT behavior; doctor is
+        #   honestly reporting that local-mode signing won't work without the
+        #   identities). Exit 1 (Ruby crash) fails the test in either mode.
+        # The smoketest's checked-out Makefile may predate the new targets,
+        # so invoke the doctor script directly via `bundle exec ruby`. This
+        # exercises the same Ruby code `make doctor` would invoke.
+        run: |
+          set +e
+          bundle exec ruby bin/doctor.rb
+          rc=$?
+          set -e
+          mode="${{ matrix.release_mode }}"
+          case "$mode/$rc" in
+            ci/0)        echo "::notice::ci cell green (rc=0)" ;;
+            local/0|local/2)
+              echo "::notice::local cell acceptable (rc=$rc)" ;;
+            *)
+              echo "::error::doctor unexpected rc=$rc in mode=$mode"
+              exit 1
+              ;;
+          esac
+
+      - name: Tear down secrets
+        if: always()
+        run: rm -rf "$SECRETS_DIR" || true

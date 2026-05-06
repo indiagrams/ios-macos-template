@@ -6,7 +6,7 @@
 # idempotent (silent no-op on re-run with same args), pre-flight-gated.
 #
 # Usage:
-#   bin/rename.sh APP_NAME BUNDLE_ID DISPLAY_NAME --email=EMAIL [--slug=OWNER/REPO] [--year=YYYY] [--generator=tuist|xcodegen] [--dry-run] [--force]
+#   bin/rename.sh APP_NAME BUNDLE_ID DISPLAY_NAME --email=EMAIL [--slug=OWNER/REPO] [--year=YYYY] [--generator=tuist|xcodegen] [--platforms=ios|macos|ios,macos] [--dry-run] [--force]
 #   bin/rename.sh -h                                # print this usage
 #   bin/rename.sh --help                            # alias for -h
 #
@@ -120,6 +120,7 @@ EMAIL=""
 SLUG=""
 YEAR_ARG=""
 GENERATOR="xcodegen"   # default; --generator=tuist|xcodegen overrides (#38)
+PLATFORMS="ios,macos"  # default; --platforms=ios|macos|ios,macos overrides (matches .bootstrap.env PLATFORMS)
 DRY_RUN=0
 FORCE=0
 
@@ -160,6 +161,12 @@ parse_args() {
         [ $# -ge 2 ] || fail "--generator requires a value (e.g. --generator=tuist)"
         case "$2" in -*) fail "--generator value cannot start with '-' (got '$2')";; esac
         GENERATOR="$2"; shift 2 ;;
+      --platforms=*)
+        PLATFORMS="${1#--platforms=}"; shift ;;
+      --platforms)
+        [ $# -ge 2 ] || fail "--platforms requires a value (e.g. --platforms=ios)"
+        case "$2" in -*) fail "--platforms value cannot start with '-' (got '$2')";; esac
+        PLATFORMS="$2"; shift 2 ;;
       -*)
         fail "unknown flag '$1' — run with -h for usage" ;;
       *)
@@ -245,6 +252,20 @@ validate_args() {
     *) fail "invalid --generator '$GENERATOR' — must be 'tuist' or 'xcodegen' (default: xcodegen)" ;;
   esac
   ok "--generator '$GENERATOR' valid"
+
+  # Gate 5e: --platforms ⊆ {ios, macos}, comma-separated, non-empty.
+  # Computes PLATFORMS_LABEL — the human-readable label baked into the
+  # SwiftUI stub's subtitle ("iOS template" / "macOS template" /
+  # "iOS + macOS template"). Mirrors .bootstrap.env's PLATFORMS field.
+  # Default 'ios,macos' set at file scope.
+  PLATFORMS_LABEL=""
+  case "$PLATFORMS" in
+    ios)              PLATFORMS_LABEL="iOS template" ;;
+    macos)            PLATFORMS_LABEL="macOS template" ;;
+    ios,macos|macos,ios) PLATFORMS_LABEL="iOS + macOS template" ;;
+    *) fail "invalid --platforms '$PLATFORMS' — must be 'ios', 'macos', 'ios,macos', or 'macos,ios' (default: ios,macos)" ;;
+  esac
+  ok "--platforms '$PLATFORMS' valid (label: '$PLATFORMS_LABEL')"
 }
 
 # ── Reset-hard rollback (REQ-7; HIGH-1 closure — replaces broken stash) ───
@@ -461,6 +482,14 @@ apply_substitutions() {
   if [ -f app/Shared/ContentView.swift ]; then
     sed -i '' "s|Text(\"HelloApp\")|Text(\"$DISPLAY_PLACEHOLDER\")|g" app/Shared/ContentView.swift
     ok "DISPLAY placeholder set in app/Shared/ContentView.swift"
+    # Platform label: "iOS + macOS template" → "$PLATFORMS_LABEL" (one of
+    # "iOS template" / "macOS template" / "iOS + macOS template"). Driven
+    # by --platforms (default ios,macos preserves the byte-for-byte
+    # unchanged path on default-flow forks). One-shot direct substitution
+    # — no placeholder mechanism needed since this string only appears at
+    # one site in the source tree.
+    sed -i '' "s|Text(\"iOS + macOS template\")|Text(\"$PLATFORMS_LABEL\")|g" app/Shared/ContentView.swift
+    ok "platform label set in app/Shared/ContentView.swift ('$PLATFORMS_LABEL')"
   fi
 
   if [ -f app/UITests/AppStoreScreenshotTests.swift ]; then

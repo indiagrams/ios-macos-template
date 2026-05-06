@@ -30,7 +30,7 @@ inspectable form so:
 
 ## What's been validated end-to-end
 
-The smoketest's phase 4 work (April-May 2026) discovered and fixed ten
+The smoketest's phase 4-6 work (April-May 2026) discovered and fixed eleven
 distinct CI failure modes between "looks like it should work" and
 "actually pushes a build to TestFlight":
 
@@ -46,6 +46,7 @@ distinct CI failure modes between "looks like it should work" and
 | G8 | altool upload rejects with `Validation failed (409) SDK version issue. This app was built with the iOS 18.5 SDK. All iOS and iPadOS apps must be built with the iOS 26 SDK or later, included in Xcode 26 or later`. Apple began enforcing iOS 26 SDK minimum for ASC uploads in 2026; macos-15 runner default is Xcode 16.4 (iOS 18.5 SDK) — too old | `release.yml` picks the highest-numbered `/Applications/Xcode_26*.app` on the runner and `xcode-select`s it; fail-loud listing of available Xcodes if no 26+ family is installed |
 | G9 | macOS exportArchive errors `No signing certificate "Mac Installer Distribution" found`. The `.app` inside an MAS `.pkg` is signed with Apple Distribution; the `.pkg` wrapper itself needs a separate cert (Apple's "3rd Party Mac Developer Installer"). `fastlane match`'s `cert` action mis-routes `mac_installer_distribution` requests to the DISTRIBUTION limit bucket and reports phantom limits | Mint via Spaceship API directly (`bin/mint-installer-cert.rb`); push to certs repo via `Match::Importer.import_cert` (`bin/import-installer-to-match.rb`); add a 3rd `match mac_installer_distribution --readonly` call in the release lane; `plutil`-patch `installerSigningCertificate = '3rd Party Mac Developer Installer'` into the macOS ExportOptions plist |
 | G10 | iOS UI tests fail to compile with `Call to main actor-isolated global function 'setupSnapshot(...)' in a synchronous nonisolated context`. Swift 6 strict concurrency (`SWIFT_STRICT_CONCURRENCY: complete`) + SnapshotHelper's `@MainActor` declarations + non-isolated test setUp/test methods. Latent in this template too — `pr.yml` runs `xcodebuild build`, not `test`, so the bug never surfaced through the main pipeline | Annotate the test class `@MainActor` (same pattern already used in `app/MacOSUITests/AppStoreScreenshotTests.swift`) |
+| G11 | `app_store_connect_api_key` action raises `OpenSSL::PKey::ECError: invalid curve name` from `Spaceship::ConnectAPI::Token.create` when invoked through fastlane's lane manager on macos-15 + Ruby 3.3.11 + OpenSSL 3.6.x — even though the same `Token.create` call with identical args succeeds when invoked directly via `bundle exec ruby`. Hits both `key_content` + `is_key_content_base64: true` paths. Possibly a regression in fastlane 2.233.x's `gsub('\n', "\n")` + lane-context handling | Decode the .p8 to a tmpfile inside the `asc_api_key` helper, then call the action with `key_filepath:` instead of `key_content:` + `is_key_content_base64`. The file path code path bypasses the buggy gsub-then-base64-decode branch |
 
 The smoketest also surfaced two ecosystem-level constraints:
 

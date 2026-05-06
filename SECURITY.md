@@ -1,6 +1,6 @@
 # Security Policy
 
-This policy covers `ios-macos-template` itself — the build, release, and CI
+This policy covers `apple-shipkit` itself — the build, release, and CI
 scaffolding that downstream consumer apps inherit. Apps derived from this
 template ship their own `SECURITY.md` and own their own disclosure process;
 this file is for vulnerabilities in the template's scaffolding, not in any

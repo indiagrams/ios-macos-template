@@ -9,7 +9,7 @@ ship with what `xcode-select --install` already provides.
 > remains [fastlane](../fastlane/Fastfile) (`fastlane release tag:vX.Y.Z`).
 > This doc shows the equivalent commands you'd run if you replaced
 > fastlane with Apple's own tools — useful as a recipe, a reference, or a
-> migration plan. Tracked in [#35](https://github.com/indiagrams/ios-macos-template/issues/35).
+> migration plan. Tracked in [#35](https://github.com/indiagrams/apple-shipkit/issues/35).
 
 ## Why this exists
 

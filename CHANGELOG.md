@@ -47,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Versioning
 
-This CHANGELOG tracks **template versions** — releases of the `ios-macos-template` repo itself, not the forker apps that consume it. Forker apps maintain their own CHANGELOG and version policy independently.
+This CHANGELOG tracks **template versions** — releases of the `apple-shipkit` repo itself, not the forker apps that consume it. Forker apps maintain their own CHANGELOG and version policy independently.
 
 Pre-1.0 (`0.x`) is the development phase: breaking changes are allowed without bumping a major version. The `0.x` retrospective entry above summarizes what shipped during M1–M4 milestones; further pre-1.0 work lands under `[Unreleased]` until the public flip.
 

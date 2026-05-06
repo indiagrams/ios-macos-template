@@ -145,7 +145,7 @@ check_zero "HelloApp" NW
 check_zero "com.example.helloapp" F
 check_zero "maintainers@indiagram.com" F
 check_zero "<year>"
-check_zero "indiagrams/ios-macos-template" F
+check_zero "indiagrams/apple-shipkit" F
 
 # Positive assertions: new identifiers present
 test "$(git grep -cw -e "$TEST_APP" -- . ':!.planning' ':!LICENSE' \

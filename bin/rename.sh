@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bin/rename.sh — fork-rename script for the ios-macos-template.
+# bin/rename.sh — fork-rename script for the apple-shipkit.
 #
 # Substitutes 5 identity surfaces + 1 derived value, renames file paths,
 # regenerates xcodeproj. Atomic (all-or-nothing via reset-hard rollback),
@@ -25,7 +25,7 @@
 #
 # Optional flags:
 #   --slug=OWNER/REPO   GitHub org/repo slug; substitutes
-#                       indiagrams/ios-macos-template across README.md +
+#                       indiagrams/apple-shipkit across README.md +
 #                       CONTRIBUTING.md. If omitted, auto-derives from
 #                       `git remote get-url origin`. MUST NOT contain
 #                       newline or '|'.
@@ -330,7 +330,7 @@ trap 'rollback' EXIT
 # native and reliable. Carry-forward.
 #
 # Why -F on com.example.helloapp / maintainers@indiagram.com /
-# indiagrams/ios-macos-template (MEDIUM-1):
+# indiagrams/apple-shipkit (MEDIUM-1):
 # Without -F, the literal `.` in these patterns is regex any-char.
 # `git grep -nw -e com.example.helloapp` would match `comXexampleXhelloapp`
 # (none exist in tree, but the principle is wrong). -F treats the
@@ -385,7 +385,7 @@ sed_escape_replacement() {
 
 # The DISPLAY_NAME placeholder (HIGH-6 closure). Chosen so it does NOT
 # contain HelloApp, com.example.helloapp, maintainers@indiagram.com,
-# <year>, indiagrams/ios-macos-template — none of the broad sweeps
+# <year>, indiagrams/apple-shipkit — none of the broad sweeps
 # will mutate it. Verified zero hits in current tree.
 DISPLAY_PLACEHOLDER='__GSD_DISPLAY_PLACEHOLDER__'
 
@@ -429,11 +429,11 @@ apply_substitutions() {
         ok "email substituted in $f"
       done
 
-  # Step D: indiagrams/ios-macos-template -> $SLUG (escaped — HIGH-7)
-  step "Substituting indiagrams/ios-macos-template -> $SLUG"
-  { git grep -lw -F -e 'indiagrams/ios-macos-template' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null || true; } \
+  # Step D: indiagrams/apple-shipkit -> $SLUG (escaped — HIGH-7)
+  step "Substituting indiagrams/apple-shipkit -> $SLUG"
+  { git grep -lw -F -e 'indiagrams/apple-shipkit' -- . "${PATHSPEC_EXCLUSIONS[@]}" 2>/dev/null || true; } \
     | while read -r f; do
-        sed -i '' "s|indiagrams/ios-macos-template|$escaped_slug|g" "$f"
+        sed -i '' "s|indiagrams/apple-shipkit|$escaped_slug|g" "$f"
         ok "GitHub slug substituted in $f"
       done
 
@@ -685,7 +685,7 @@ HelloApp||HelloApp -> $APP_NAME (broad sweep)
 com.example.helloapp|F|com.example.helloapp -> $BUNDLE_ID
 maintainers@indiagram.com|F|maintainers@indiagram.com -> $EMAIL
 <year>||<year> -> $(date +%Y)
-indiagrams/ios-macos-template|F|indiagrams/ios-macos-template -> $SLUG
+indiagrams/apple-shipkit|F|indiagrams/apple-shipkit -> $SLUG
 EOF
 
   echo

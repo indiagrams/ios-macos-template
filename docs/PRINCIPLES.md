@@ -1,6 +1,6 @@
 # Principles
 
-How `ios-macos-template` is run. The short version: opinionated where it
+How `apple-shipkit` is run. The short version: opinionated where it
 matters (build, release, security), permissive where it doesn't (your app
 code, your icons, your copy).
 

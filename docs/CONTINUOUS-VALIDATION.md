@@ -30,7 +30,7 @@ inspectable form so:
 
 ## What's been validated end-to-end
 
-The smoketest's phase 4 work (April-May 2026) discovered and fixed seven
+The smoketest's phase 4 work (April-May 2026) discovered and fixed ten
 distinct CI failure modes between "looks like it should work" and
 "actually pushes a build to TestFlight":
 
@@ -43,6 +43,9 @@ distinct CI failure modes between "looks like it should work" and
 | G5 | xcodebuild asset compilation fails with "No simulator runtime version available to use with iphonesimulator SDK version 22A3362" — `Xcode_16.app` = Xcode 16.0 with iOS 18.0 SDK but no matching iOS Simulator runtime on the runner | `release.yml` uses runner default Xcode (16.4) instead of pinning Xcode_16.app |
 | G6 | exportArchive `Cloud signing permission error` + `No profiles for com.example.helloapp were found` — `signingStyle=automatic` ExportOptions plist triggers Apple's cloud-signing endpoint which can't auth with API key only | `ci/local-release-check.sh` patches ExportOptions plist to `signingStyle=manual` + `provisioningProfiles` dict using match's emitted profile names; `release` lane in Fastfile threads `RELEASE_IOS_PROFILE_NAME` / `RELEASE_MACOS_PROFILE_NAME` env vars to the script |
 | G7 | codesign + productbuild fail with `The timestamp service is not available.` (transient `timestamp.apple.com` blip) | `ci/local-release-check.sh` adds `with_timestamp_retry` helper — wraps codesign / productbuild calls, retries up to 5 times with linear backoff (5/10/15/20s) on the specific timestamp-service-unavailable error |
+| G8 | altool upload rejects with `Validation failed (409) SDK version issue. This app was built with the iOS 18.5 SDK. All iOS and iPadOS apps must be built with the iOS 26 SDK or later, included in Xcode 26 or later`. Apple began enforcing iOS 26 SDK minimum for ASC uploads in 2026; macos-15 runner default is Xcode 16.4 (iOS 18.5 SDK) — too old | `release.yml` picks the highest-numbered `/Applications/Xcode_26*.app` on the runner and `xcode-select`s it; fail-loud listing of available Xcodes if no 26+ family is installed |
+| G9 | macOS exportArchive errors `No signing certificate "Mac Installer Distribution" found`. The `.app` inside an MAS `.pkg` is signed with Apple Distribution; the `.pkg` wrapper itself needs a separate cert (Apple's "3rd Party Mac Developer Installer"). `fastlane match`'s `cert` action mis-routes `mac_installer_distribution` requests to the DISTRIBUTION limit bucket and reports phantom limits | Mint via Spaceship API directly (`bin/mint-installer-cert.rb`); push to certs repo via `Match::Importer.import_cert` (`bin/import-installer-to-match.rb`); add a 3rd `match mac_installer_distribution --readonly` call in the release lane; `plutil`-patch `installerSigningCertificate = '3rd Party Mac Developer Installer'` into the macOS ExportOptions plist |
+| G10 | iOS UI tests fail to compile with `Call to main actor-isolated global function 'setupSnapshot(...)' in a synchronous nonisolated context`. Swift 6 strict concurrency (`SWIFT_STRICT_CONCURRENCY: complete`) + SnapshotHelper's `@MainActor` declarations + non-isolated test setUp/test methods. Latent in this template too — `pr.yml` runs `xcodebuild build`, not `test`, so the bug never surfaced through the main pipeline | Annotate the test class `@MainActor` (same pattern already used in `app/MacOSUITests/AppStoreScreenshotTests.swift`) |
 
 The smoketest also surfaced two ecosystem-level constraints:
 

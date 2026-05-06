@@ -36,7 +36,7 @@ first and let's talk.
    stack drift independently of this template, the smoketest catches rot
    before forkers do. Patterns + fixes there land back here in PRs that cite
    the failing smoketest run. See [`docs/CONTINUOUS-VALIDATION.md`](CONTINUOUS-VALIDATION.md)
-   for the seven canonical failure modes the smoketest has surfaced.
+   for the ten canonical failure modes the smoketest has surfaced.
 
 ## Documentation
 

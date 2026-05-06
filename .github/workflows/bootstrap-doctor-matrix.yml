@@ -158,9 +158,12 @@ jobs:
         #   Installer in its login keychain — that's CORRECT behavior; doctor is
         #   honestly reporting that local-mode signing won't work without the
         #   identities). Exit 1 (Ruby crash) fails the test in either mode.
+        # The smoketest's checked-out Makefile may predate the new targets,
+        # so invoke the doctor script directly via `bundle exec ruby`. This
+        # exercises the same Ruby code `make doctor` would invoke.
         run: |
           set +e
-          make doctor
+          bundle exec ruby bin/doctor.rb
           rc=$?
           set -e
           mode="${{ matrix.release_mode }}"

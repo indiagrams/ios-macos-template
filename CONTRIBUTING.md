@@ -1,4 +1,4 @@
-# Contributing to ios-macos-template
+# Contributing to apple-shipkit
 
 This is a small, opinionated template for iOS + macOS apps. We say yes to
 fixes for the gotchas hiding in `xcodebuild`, `fastlane deliver`, `actool`,
@@ -19,8 +19,8 @@ If the answer to all is yes, open a PR. If you're unsure, open an issue first.
 
 ```bash
 # 1. Fork on GitHub, then clone your fork
-git clone https://github.com/<you>/ios-macos-template.git
-cd ios-macos-template
+git clone https://github.com/<you>/apple-shipkit.git
+cd apple-shipkit
 
 # 2. One-time setup (brew bundle, lefthook install, xcodegen, bundle install)
 make bootstrap
@@ -130,7 +130,7 @@ The full operating manual is [docs/PRINCIPLES.md](docs/PRINCIPLES.md)
 For larger changes — anything touching `ci/lib/`, the release pipeline,
 the renaming script (when it lands), or the public template "API"
 (directory layout, script names, Makefile targets) — open a [GitHub
-issue](https://github.com/indiagrams/ios-macos-template/issues) first.
+issue](https://github.com/indiagrams/apple-shipkit/issues) first.
 We'll discuss the shape before you spend time on the implementation.
 
 (Issue templates are coming in a near-term update; for now, free-form is fine.)

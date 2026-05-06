@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bin/preflight.sh — verify + auto-install prereqs for ios-macos-template forks.
+# bin/preflight.sh — verify + auto-install prereqs for apple-shipkit forks.
 #
 # Idempotent. Run repeatedly; only acts on what's missing.
 #
@@ -154,7 +154,7 @@ cat <<'EOF'
 
     2. Quickstart from a fresh fork:
 
-         gh repo create my-app --template indiagrams/ios-macos-template --public --clone && cd my-app
+         gh repo create my-app --template indiagrams/apple-shipkit --public --clone && cd my-app
          bin/rename.sh YourApp com.your-org.yourapp 'Your App' --email=you@example.com
          make bootstrap
          make check

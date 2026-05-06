@@ -51,6 +51,20 @@ The same `fastlane/Fastfile` drives both — the release lane gates the `match` 
 
 You can switch modes later by editing `RELEASE_MODE` and re-running `make bootstrap-fork`. Going `local → ci`: bootstrap will set up the certs repo + secrets. Going `ci → local`: bootstrap won't tear down the existing certs repo (you'd remove that manually); CI just stops running.
 
+
+## Platforms
+
+`.bootstrap.env` has a `PLATFORMS` field that gates which targets get built, signed, and uploaded. Three valid values:
+
+| Value | Effect |
+|---|---|
+| `ios` | Ship iPhone/iPad only. `make doctor` skips the Mac Installer cert probe + the macOS .icns regeneration. `make ship` skips the macOS .pkg build + upload. PR CI runs 4 jobs (no `app (macOS)` / `app (Tuist macOS)`). Branch protection requires 4 checks. |
+| `macos` | Ship Mac only. Skips iOS provisioning profile checks + iOS .ipa upload. PR CI runs 2 jobs. Branch protection requires 2 checks. |
+| `ios,macos` | Default. Ships both, current behavior. |
+
+Switchable later: change the value in `.bootstrap.env`, re-run `make bootstrap-fork`, and the relevant pieces of the pipeline (de)activate. No tree mutation; the unused-platform code stays in the repo, just inert. (If you want a *clean tree* with the unused platform's files deleted, that's a different choice — delete `app/iOS/` or `app/macOS/` manually + adjust the relevant scheme references; the template doesn't ship a one-shot strip script for this.)
+
+Default: if `PLATFORMS` is unset or empty in `.bootstrap.env`, the bootstrap pipeline treats it as `ios,macos`. Forks created before this field existed (or forks that never edit it) preserve their existing both-platforms behavior.
 ## Config reference
 
 `.bootstrap.env` is gitignored. Its values are mostly non-secret config
@@ -78,6 +92,7 @@ actual secret bytes. The dotenv itself is low-blast-radius.
 | `ICON_1024_PATH` (optional) | Path to your 1024×1024 PNG. If set, replaces the template hammer icon and runs `make icons` | Designer artifact |
 | `ASC_APP_SKU` (optional) | Documentation hint for the manual ASC App creation step | Any unique string |
 | `ASC_APP_NAME` (optional) | Documentation hint — defaults to `DISPLAY_NAME` | The human-readable name you want shown in the App Store |
+| `PLATFORMS` (optional) | Subset of `ios,macos` that controls which targets ship. Defaults to both if unset. See [Platforms](#platforms) above | You decide |
 
 ## What `make bootstrap-fork` does
 

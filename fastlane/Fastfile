@@ -52,11 +52,26 @@ IPA_NAME_PATTERN   = "HelloApp-%s.ipa"   # printf with version
 PKG_NAME_PATTERN   = "HelloApp-%s.pkg"
 
 def asc_api_key
+  # Decode .p8 to a tmpfile and pass key_filepath instead of key_content +
+  # is_key_content_base64. The latter route hits a fastlane 2.233.x bug on
+  # macos-15 + Ruby 3.3.11 + OpenSSL 3.6.x where Token.create raises
+  # "OpenSSL::PKey::ECError: invalid curve name" inside the action wrapper
+  # (despite Spaceship::ConnectAPI::Token.create succeeding when called
+  # directly with the same args). The file path route bypasses the buggy
+  # gsub + Base64.decode64 path inside the action. See
+  # docs/CONTINUOUS-VALIDATION.md G11.
+  require "base64"
+  require "tmpdir"
+  @asc_p8_path ||= begin
+    path = File.join(Dir.tmpdir, "asc_api_key_#{ENV.fetch('ASC_API_KEY_ID')}.p8")
+    File.write(path, Base64.decode64(ENV.fetch("ASC_API_KEY_P8_BASE64")))
+    File.chmod(0600, path)
+    path
+  end
   app_store_connect_api_key(
-    key_id:                ENV["ASC_API_KEY_ID"],
-    issuer_id:             ENV["ASC_API_KEY_ISSUER_ID"],
-    key_content:           ENV["ASC_API_KEY_P8_BASE64"],
-    is_key_content_base64: true
+    key_id:       ENV["ASC_API_KEY_ID"],
+    issuer_id:    ENV["ASC_API_KEY_ISSUER_ID"],
+    key_filepath: @asc_p8_path
   )
 end
 

@@ -20,6 +20,10 @@ help:
 	@echo "  screenshots      Capture App Store screenshots (iOS + macOS) to fastlane/screenshots/"
 	@echo "  release-dryrun   fastlane release tag:v0.0.0 skip_upload:true skip_tag:true"
 	@echo "  setup-github     Apply branch protection settings to current repo"
+	@echo "  doctor           Read .bootstrap.env, validate Apple+GH credentials, print pipeline status"
+	@echo "  bootstrap-fork   Idempotent: drive every programmatic fork-bootstrap step from .bootstrap.env"
+	@echo "  ship             Trigger release.yml workflow_dispatch + tail until the run completes"
+	@echo "  verify           Confirm the latest tagged build appeared in App Store Connect"
 	@echo "  phase-checklist  Print the GSD canonical per-phase checklist (usage: make phase-checklist N=3.1)"
 	@echo "  milestone-checklist  Print the GSD milestone wrap-up checklist (usage: make milestone-checklist M=1)"
 
@@ -58,6 +62,18 @@ release-dryrun:
 
 setup-github:
 	bin/setup-github.sh
+
+doctor:
+	@bundle exec ruby bin/doctor.rb
+
+bootstrap-fork:
+	@bundle exec ruby bin/bootstrap-fork.rb
+
+ship:
+	@bundle exec ruby bin/ship.rb
+
+verify:
+	@bundle exec ruby bin/verify-testflight.rb
 
 phase-checklist:
 	@if [ -z "$(N)" ]; then echo "usage: make phase-checklist N=<phase>  (e.g. N=3.1)"; exit 2; fi

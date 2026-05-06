@@ -57,11 +57,11 @@ The template ships with a working `HelloApp` stub that builds green on both iOS 
 
 ![HelloApp template running natively on macOS — same hammer icon, title, and rename instruction](docs/screenshots/macos-home.png)
 
-## Quickstart in 5 minutes
+## Quickstart — fork to TestFlight in ~15 minutes
 
-**Prereqs:** macOS with Xcode (the full app, not just Command Line Tools), Homebrew, and `gh` authenticated.
+**Prereqs:** macOS with Xcode (the full app, not just Command Line Tools), Homebrew, `gh` authenticated, and an Apple Developer Program membership.
 
-**Don't have all of those?** Run `bin/preflight.sh` first — it checks every prereq and walks you through installing the missing ones (Homebrew, gh CLI, gh auth, bundler). One-time setup, then you're ready:
+**Missing some?** Run `bin/preflight.sh` first — it checks every prereq and walks you through installing the missing ones:
 
 ```bash
 git clone https://github.com/indiagrams/ios-macos-template.git /tmp/preflight \
@@ -69,34 +69,50 @@ git clone https://github.com/indiagrams/ios-macos-template.git /tmp/preflight \
   && rm -rf /tmp/preflight
 ```
 
-**Apple Developer account?** See [`docs/APPLE-PREREQS.md`](docs/APPLE-PREREQS.md) — a free Apple ID is enough to build and run on Simulator; the paid Developer Program ($99/yr) is required for TestFlight + App Store. The doc covers Team ID, App Store Connect API keys, and code-signing artifacts to keep out of git.
+Apple side: see [`docs/APPLE-PREREQS.md`](docs/APPLE-PREREQS.md) for Team ID, App Store Connect API key, and the one-time human ASC App record creation.
 
-**5 minutes from `gh repo create` to a green build:**
-
-```bash
-gh repo create my-app --template indiagrams/ios-macos-template --public --clone && cd my-app   # ~30s — fork from template + clone
-bin/rename.sh YourApp com.your-org.yourapp 'Your App' --email=you@example.com   # ~30s — substitute identity surfaces (app name, bundle ID, display, maintainer email; repo slug auto-derived from git remote)
-                                                                                # add --generator=tuist (default: xcodegen) for a Tuist-driven fork; both manifests ship on main, the flag picks one.
-make bootstrap   # ~3min — brew bundle + lefthook + xcodegen (or tuist) + bundle install (warm Homebrew cache)
-make check   # ~1.5min — iOS device build (primary signal)
-```
-
-Want branch protection + push to a fresh remote? See [Renaming the stub](#renaming-the-stub) for the full 5-command flow.
-
-## Renaming the stub
-
-Run these five commands from the cloned repo:
+### The flow
 
 ```bash
-bin/rename.sh YourApp com.your-org.yourapp 'Your App' --email=you@example.com    # substitute identity surfaces (app name, bundle ID, display, maintainer email, repo slug)
-                                                                                 # append --generator=tuist (default: xcodegen) to drive the fork from app/Project.swift instead of app/project.yml.
-bin/verify-rename.sh                                                              # assert no leftover originals (run BEFORE commit so a bad rename never lands in git history)
-git add -A && git commit -m "Rename app stub"                                    # record the rename (rename.sh mutates the tree but does not commit)
-git push -u origin main                                                          # publish your renamed fork BEFORE branch protection is enabled
-bin/setup-github.sh                                                              # branch protection + auto-merge + squash-only (runs LAST so it doesn't gate the initial publish)
+# 1. Fork from template
+gh repo create my-app --template indiagrams/ios-macos-template --public --clone && cd my-app
+
+# 2. Fill in .bootstrap.env — see docs/BOOTSTRAP.md for what each field is
+cp .bootstrap.env.example .bootstrap.env
+$EDITOR .bootstrap.env
+
+# 3. Validate config + probe Apple/GH
+make doctor
+
+# 4. Run every programmatic step idempotently (rename, push, branch protection,
+#    7 GH Secrets, certs repo, match for 4 cert types, optional icon swap)
+make bootstrap-fork
+
+# 5. Trigger release.yml + tail until done (~5 min)
+make ship
+
+# 6. Confirm TestFlight ingestion
+make verify
 ```
 
-That's it — your fork is renamed, verified, committed, pushed, and locked down with branch protection.
+`make doctor` is read-only — run it as often as you like. `make bootstrap-fork` is idempotent — re-run safely after partial failures. The only step that can require human action is creating the ASC App record (Apple disallows `POST /apps`); `make doctor` will tell you the exact form to fill in if it's missing.
+
+Full walkthrough + config field reference: [`docs/BOOTSTRAP.md`](docs/BOOTSTRAP.md).
+
+### Manual flow (if you don't want to use `make bootstrap-fork`)
+
+The bootstrap is glue + idempotency over scripts that already exist; you can drive them yourself:
+
+```bash
+bin/rename.sh YourApp com.your-org.yourapp 'Your App' --email=you@example.com
+bin/verify-rename.sh
+make bootstrap   # toolchain only: brew + lefthook + xcodegen + bundler
+git add -A && git commit -m "Rename app stub"
+git push -u origin main
+bin/setup-github.sh
+```
+
+Then "Setting up signing + ASC" below for the certs + secrets dance.
 
 Prefer Tuist over XcodeGen? Re-run with `--generator=tuist` (e.g. `bin/rename.sh YourApp com.your-org.yourapp 'Your App' --email=you@example.com --generator=tuist`) and the flag invokes `bin/switch-to-tuist.sh` for you — `app/project.yml` is removed and Brewfile / Makefile / ci scripts / `.github/workflows/pr.yml` are flipped to drive `app/Project.swift` via `tuist generate`. Already renamed and want to switch later? Run `bin/switch-to-tuist.sh` standalone — see [`docs/MIGRATING-TO-TUIST.md`](docs/MIGRATING-TO-TUIST.md) for the in-place switch guide.
 

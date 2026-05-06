@@ -525,8 +525,14 @@ module Bootstrap
     end
 
     def do_it
-      env = asc_env(config).merge(match_env(config))
-      Sh.run!("bundle", "exec", "fastlane", "bootstrap_certs", env: env)
+      env = Bootstrap.asc_env(config).merge(Bootstrap.match_env(config))
+      out, ok = Sh.run("bundle", "exec", "fastlane", "bootstrap_certs", env: env)
+      return if ok
+      hint = Bootstrap.match_failure_hint(out)
+      UI.fail!(<<~MSG)
+        bootstrap_certs lane failed.
+        #{hint ? "Likely cause: #{hint}" : "See full output above."}
+      MSG
     end
 
     private
@@ -549,8 +555,12 @@ module Bootstrap
     end
 
     def do_it
-      env = asc_env(config).merge(match_env(config))
-      out = Sh.run!("bundle", "exec", "ruby", "bin/mint-installer-cert.rb", env: env)
+      env = Bootstrap.asc_env(config).merge(Bootstrap.match_env(config))
+      out, ok = Sh.run("bundle", "exec", "ruby", "bin/mint-installer-cert.rb", env: env)
+      unless ok
+        hint = Bootstrap.match_failure_hint(out)
+        UI.fail!("mint-installer-cert.rb failed.\n#{hint ? "Likely cause: #{hint}" : ''}")
+      end
       cert_id = out.lines.grep(/^Cert id:/).first&.split(":", 2)&.last&.strip
       UI.fail!("could not parse INSTALLER_CERT_ID from mint-installer-cert.rb output") if cert_id.to_s.empty?
       env2 = env.merge("INSTALLER_CERT_ID" => cert_id)
@@ -566,7 +576,9 @@ module Bootstrap
     end
 
     def check
-      return :done unless config.set?("ICON_1024_PATH") # optional
+      unless config.set?("ICON_1024_PATH")
+        return [:warn, "ICON_1024_PATH unset; the template hammer icon will ship. Required for App Store review (not TestFlight)."]
+      end
       src = config.expand_path("ICON_1024_PATH")
       return [:blocked, "ICON_1024_PATH does not exist: #{src}"] unless src.file?
       return :pending unless icon_target.file?
@@ -595,6 +607,51 @@ module Bootstrap
     end
   end
 
+  class ScanMetadata < Step
+    def name; "App Store metadata text files"; end
+
+    def metadata_dir; REPO_ROOT.join("fastlane", "metadata", "en-US"); end
+    def review_dir;   REPO_ROOT.join("fastlane", "metadata", "review_information"); end
+
+    def check
+      todos = []
+      [metadata_dir, review_dir].each do |dir|
+        next unless dir.directory?
+        Dir.glob(dir.join("*.txt")).each do |f|
+          content = File.read(f)
+          if content.match?(/\bTODO\b|REPLACE_ME|com\.example\.helloapp|HelloApp/i)
+            todos << Pathname.new(f).relative_path_from(REPO_ROOT).to_s
+          elsif content.strip.empty?
+            todos << "#{Pathname.new(f).relative_path_from(REPO_ROOT)} (empty)"
+          end
+        end
+      end
+      return :done if todos.empty?
+      [:warn, "#{todos.length} files need attention before App Store review:\n  - #{todos.join("\n  - ")}"]
+    end
+
+    def do_it
+      # No-op; check returns :warn or :done, never :pending.
+    end
+  end
+
+  class ScanScreenshots < Step
+    def name; "App Store screenshots"; end
+
+    def screenshot_dir; REPO_ROOT.join("fastlane", "screenshots", "en-US"); end
+
+    def check
+      return [:warn, "No fastlane/screenshots/en-US/ — capture via `ci/take-screenshots.sh` before App Store review (not TestFlight)."] unless screenshot_dir.directory?
+      pngs = Dir.glob(screenshot_dir.join("*.png"))
+      return [:warn, "No screenshots in #{screenshot_dir.relative_path_from(REPO_ROOT)} — capture via `ci/take-screenshots.sh` before App Store review."] if pngs.empty?
+      :done
+    end
+
+    def do_it
+      # No-op; check returns :warn or :done.
+    end
+  end
+
   # ─── Pipeline ───────────────────────────────────────────────────────────────
 
   class Runner
@@ -604,6 +661,8 @@ module Bootstrap
       RenameStub,
       EditMatchfile,
       BrewBootstrap,
+      Icon1024,           # tree mutations finish before InitialPush
+      MakeIcons,
       InitialPush,
       BranchProtection,
       CreateCertsRepo,
@@ -612,8 +671,8 @@ module Bootstrap
       VerifyAscApp,
       BootstrapCerts,
       MintInstaller,
-      Icon1024,
-      MakeIcons
+      ScanMetadata,       # informational; never blocks
+      ScanScreenshots
     ].freeze
 
     def initialize(config)
@@ -640,9 +699,16 @@ module Bootstrap
           puts "  #{(idx + 1).to_s.rjust(2)}. #{UI.miss step.name}#{UI.dim ' — will run on bootstrap'}"
           results << :pending
         when Array
-          puts "  #{(idx + 1).to_s.rjust(2)}. #{UI.warn step.name}"
-          puts result[1].lines.map { |l| "      #{l}" }.join
-          results << :blocked
+          severity, msg = result
+          if severity == :warn
+            puts "  #{(idx + 1).to_s.rjust(2)}. #{UI.warn step.name}"
+            puts msg.lines.map { |l| "      #{UI.dim l.chomp}" }.join("\n")
+            results << :warn
+          else
+            puts "  #{(idx + 1).to_s.rjust(2)}. #{UI.warn step.name}"
+            puts msg.lines.map { |l| "      #{l}" }.join
+            results << :blocked
+          end
         end
       end
 
@@ -650,7 +716,12 @@ module Bootstrap
       done    = results.count(:done)
       pending = results.count(:pending)
       blocked = results.count(:blocked)
-      puts "  #{UI.ok "#{done} done"}    #{UI.miss "#{pending} pending"}    #{UI.warn "#{blocked} blocked"}"
+      warned  = results.count(:warn)
+      cells = ["#{UI.ok "#{done} done"}"]
+      cells << UI.miss("#{pending} pending") if pending > 0
+      cells << UI.warn("#{warned} advisory") if warned > 0
+      cells << UI.warn("#{blocked} blocked") if blocked > 0
+      puts "  #{cells.join('    ')}"
 
       if blocked > 0
         puts
@@ -658,11 +729,12 @@ module Bootstrap
         exit 2
       elsif pending > 0
         puts
-        puts UI.bold "Run `make bootstrap` to close the ✗ items."
+        puts UI.bold "Run `make bootstrap-fork` to close the ✗ items."
         exit 0
       else
         puts
-        puts UI.bold "All steps complete. Run `make ship` to trigger a release."
+        puts UI.bold "All bootstrap steps complete. Run `make ship` to trigger a release."
+        puts UI.dim("(#{warned} advisory items above are App-Store-review-only and don't block TestFlight)") if warned > 0
         exit 0
       end
     end
@@ -680,7 +752,12 @@ module Bootstrap
           step.do_it
           puts "  #{UI.ok 'done'}"
         when Array
-          UI.fail!(result[1])
+          severity, msg = result
+          if severity == :warn
+            puts "  #{UI.warn msg.lines.first.chomp}"
+          else
+            UI.fail!(msg)
+          end
         end
       end
       puts
@@ -701,6 +778,31 @@ module Bootstrap
       issuer_id: config["ASC_API_KEY_ISSUER_ID"],
       filepath:  p8_path.to_s
     )
+  end
+
+  def self.match_failure_hint(output)
+    case output
+    when /Could not create another (Distribution|Development) certificate, reached the maximum/i
+      "Apple cert quota exhausted (3/team for Distribution). Find an unused cert via\n" \
+      "  bundle exec fastlane list_certs\n" \
+      "and revoke it via\n" \
+      "  bundle exec fastlane revoke_cert id:<CERT_ID>\n" \
+      "then re-run `make bootstrap-fork`."
+    when /Could not find the newly generated certificate installed/i
+      "fastlane match's keychain verification quirk on populated login keychains.\n" \
+      "See docs/CONTINUOUS-VALIDATION.md G11 + the workaround uses CERT_KEYCHAIN_PATH (set automatically by Bootstrap.match_env)."
+    when /Authentication credentials are missing or invalid/i
+      "ASC API key was rejected. Verify ASC_API_KEY_ID + ASC_API_KEY_ISSUER_ID match\n" \
+      "the .p8 in ASC_API_KEY_P8_PATH. ASC keys can be revoked at\n" \
+      "  https://appstoreconnect.apple.com/access/api"
+    when /Error cloning certificates git repo/i
+      "fastlane match couldn't access #{config_or_unknown(output, 'GH_CERTS_REPO')}.\n" \
+      "Check that MATCH_GIT_BASIC_AUTHORIZATION's PAT has access (G12 in CONTINUOUS-VALIDATION.md)."
+    end
+  end
+
+  def self.config_or_unknown(_output, _key)
+    "the certs repo"
   end
 
   def asc_env(config)

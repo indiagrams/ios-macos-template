@@ -6,7 +6,7 @@
 # The stub app is named "HelloApp" with bundle id "com.example.helloapp".
 # Rename for your project: see README.md → "Renaming the stub".
 
-.PHONY: all go bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help doctor bootstrap-fork ship verify
+.PHONY: all go bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help init doctor bootstrap-fork ship verify
 
 help:
 	@echo "Targets:"
@@ -20,6 +20,7 @@ help:
 	@echo "  screenshots      Capture App Store screenshots (iOS + macOS) to fastlane/screenshots/"
 	@echo "  release-dryrun   fastlane release tag:v0.0.0 skip_upload:true skip_tag:true"
 	@echo "  setup-github     Apply branch protection settings to current repo"
+	@echo "  init             Scaffold .bootstrap.env from .bootstrap.env.example, auto-fill GH_ORG/GH_APP_REPO from origin remote"
 	@echo "  all              One-shot: doctor → bootstrap-fork → ship → verify (the full forker journey)"
 	@echo "  doctor           Read .bootstrap.env, validate Apple+GH credentials, print pipeline status"
 	@echo "  bootstrap-fork   Idempotent: drive every programmatic fork-bootstrap step from .bootstrap.env"
@@ -63,6 +64,9 @@ release-dryrun:
 
 setup-github:
 	bin/setup-github.sh
+
+init:
+	@bin/init-bootstrap-env.sh
 
 doctor:
 	@bundle exec ruby bin/doctor.rb

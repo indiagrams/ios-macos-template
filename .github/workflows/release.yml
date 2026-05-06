@@ -35,9 +35,14 @@ on:
         required: false
         type: boolean
         default: false
-  # UNCOMMENT after configuring all 7 GH Secrets above. Until then, manual
-  # workflow_dispatch is the only trigger; cron runs would fail with clear
-  # "secret not set" errors that are noisy on your Actions tab.
+  # workflow_dispatch only by default. Two ways to enable weekly releases:
+  #   A. Self-schedule: configure all 7 GH Secrets above and uncomment the
+  #      schedule block below. Until secrets are set, cron runs would fail
+  #      noisily with "secret not set" errors on your Actions tab.
+  #   B. Upstream canary dispatcher: rely on apple-shipkit's canary-trigger.yml
+  #      (which dispatches this workflow weekly against the
+  #      indiagrams/ios-macos-smoketest fork) and leave the block below
+  #      commented out. This is the path the smoketest itself uses.
   # schedule:
   #   - cron: '0 9 * * 1'   # Mondays 09:00 UTC
 

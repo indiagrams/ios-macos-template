@@ -48,12 +48,27 @@ jobs:
     if: github.repository == 'indiagrams/apple-shipkit'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      # Run both generators every Monday so distribution-signing regressions
+      # specific to one generator surface here. fail-fast=false ensures the
+      # tuist cell still runs if xcodegen fails (or vice versa) — useful when
+      # one cell breaks and you want to know if the other does too.
+      # max-parallel=1 forces sequential dispatch so the timestamp-based
+      # locate step in each cell finds an unambiguous "dispatched-after-our-baseline"
+      # run. The dispatched release.yml's concurrency:group:release would
+      # serialize anyway, but explicit serialization keeps the trigger logic
+      # simpler.
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        generator: [xcodegen, tuist]
 
     env:
       TARGET_REPO: indiagrams/ios-macos-smoketest
       TARGET_WORKFLOW: release.yml
       TARGET_REF: main
       GH_TOKEN: ${{ secrets.SMOKETEST_DISPATCH_PAT }}
+      GENERATOR: ${{ matrix.generator }}
 
     steps:
       - name: Verify dispatch PAT is set
@@ -76,16 +91,17 @@ jobs:
           echo "baseline=${baseline}" >> "${GITHUB_OUTPUT}"
           echo "Baseline (only runs created after this count): ${baseline}"
 
-      - name: Dispatch smoketest release
+      - name: Dispatch smoketest release (${{ matrix.generator }})
         run: |
           dry_run='${{ inputs.dry_run }}'
           dry_run="${dry_run:-false}"
-          echo "Dispatching ${TARGET_REPO} ${TARGET_WORKFLOW} on ref=${TARGET_REF} dry_run=${dry_run}"
+          echo "Dispatching ${TARGET_REPO} ${TARGET_WORKFLOW} on ref=${TARGET_REF} dry_run=${dry_run} generator=${GENERATOR}"
           gh workflow run "${TARGET_WORKFLOW}" \
             --repo "${TARGET_REPO}" \
             --ref "${TARGET_REF}" \
             -f version='' \
-            -f "dry_run=${dry_run}"
+            -f "dry_run=${dry_run}" \
+            -f "generator=${GENERATOR}"
 
       - name: Locate the dispatched run
         id: locate

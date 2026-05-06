@@ -195,14 +195,17 @@ One-time bootstrap:
    ```bash
    set -a; source ~/.config/secrets.env; set +a
    bundle exec fastlane register_app_id
-   bundle exec fastlane match appstore --app_identifier <bundle-id>
-   bundle exec fastlane match appstore --app_identifier <bundle-id> --platform macos
-   bundle exec fastlane match development --app_identifier <bundle-id>
+   bundle exec fastlane bootstrap_certs              # iOS dist + macOS dist + iOS dev (3 match calls in one process)
    # macOS .pkg installer cert (separate cert type, see G1 in docs/CONTINUOUS-VALIDATION.md):
    bundle exec ruby bin/mint-installer-cert.rb
    export INSTALLER_CERT_ID=<id-printed-by-mint-script>
    bundle exec ruby bin/import-installer-to-match.rb
    ```
+
+   `bootstrap_certs` wraps the 3 raw match calls in a single fastlane lane so
+   `before_all` runs once and the ASC API key is loaded for every call.
+   Running raw `fastlane match` from the CLI skips `before_all` and dies with
+   "Missing username, and running in non-interactive shell".
 7. **Create the ASC App record once** via [appstoreconnect.apple.com/apps](https://appstoreconnect.apple.com/apps)
    (Apple's public API does not allow `POST /apps`; one-time human step
    unblocks all future automated runs). Then run

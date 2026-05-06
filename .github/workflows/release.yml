@@ -40,6 +40,11 @@ on:
         required: false
         type: string
         default: ''
+      platforms:
+        description: 'Platforms to ship (comma-separated subset of ios,macos). Empty = use repo default. Mirrors .bootstrap.env PLATFORMS.'
+        required: false
+        type: string
+        default: ''
   # workflow_dispatch only by default. Two ways to enable weekly releases:
   #   A. Self-schedule: configure all 7 GH Secrets above and uncomment the
   #      schedule block below. Until secrets are set, cron runs would fail
@@ -204,6 +209,9 @@ jobs:
           # per ASC upload — required when CFBundleShortVersionString repeats
           # (e.g. two cron runs in the same ISO week, or manual re-dispatch).
           RELEASE_BUILD_NUMBER: ${{ github.run_number }}
+          # PLATFORMS gates which targets the release lane builds + uploads.
+          # Empty input → fastlane defaults to 'ios,macos' (current behavior).
+          PLATFORMS: ${{ inputs.platforms }}
         # dry_run is workflow_dispatch-only (cron runs always go full path).
         # When true: build + sign succeed, pilot upload + tag push are skipped.
         # The release lane reads skip_upload / skip_tag from its options hash.

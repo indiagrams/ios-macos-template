@@ -12,10 +12,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Reads .bootstrap.env's PLATFORMS field (defaults to 'ios,macos' if unset).
+  # Subsequent jobs gate themselves on the resulting outputs so iOS-only forks
+  # don't waste runner minutes on macOS builds, etc.
+  config:
+    name: read .bootstrap.env
+    runs-on: ubuntu-latest
+    outputs:
+      do_ios:   ${{ steps.parse.outputs.do_ios }}
+      do_macos: ${{ steps.parse.outputs.do_macos }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: parse
+        run: |
+          set -euo pipefail
+          # Default PLATFORMS=ios,macos if not present in .bootstrap.env
+          # (e.g. the upstream apple-shipkit template itself, which has no
+          # .bootstrap.env on main).
+          if [ -f .bootstrap.env ]; then
+            platforms=$(awk -F= '/^PLATFORMS[[:space:]]*=/ { gsub(/^[[:space:]"'\'']+|[[:space:]"'\'']+$/, "", $2); print $2; exit }' .bootstrap.env)
+          else
+            platforms=""
+          fi
+          [ -z "$platforms" ] && platforms="ios,macos"
+          echo "Resolved PLATFORMS=$platforms"
+          echo "do_ios=$(echo "$platforms" | grep -qw 'ios'   && echo true || echo false)"   >> "$GITHUB_OUTPUT"
+          echo "do_macos=$(echo "$platforms" | grep -qw 'macos' && echo true || echo false)" >> "$GITHUB_OUTPUT"
   # iOS device build is the primary signal — it uses the iphoneos SDK and the
   # real entitlements pathway. Catches bugs the Simulator doesn't (SDK header
   # drift, missing device-only APIs, wrong xcframework slice, etc.).
   app-ios-device:
+    needs: config
+    if: needs.config.outputs.do_ios == 'true'
     name: app (iOS device)
     runs-on: macos-15
     timeout-minutes: 30
@@ -45,6 +73,8 @@ jobs:
 
   # iOS Simulator — backup signal (different SDK + xcframework slice).
   app-ios-sim:
+    needs: config
+    if: needs.config.outputs.do_ios == 'true'
     name: app (iOS Simulator)
     runs-on: macos-15
     timeout-minutes: 30
@@ -73,6 +103,8 @@ jobs:
             2>&1 | xcbeautify --renderer github-actions
 
   app-macos:
+    needs: config
+    if: needs.config.outputs.do_macos == 'true'
     name: app (macOS)
     runs-on: macos-15
     timeout-minutes: 30
@@ -108,6 +140,8 @@ jobs:
   # commands as the XcodeGen jobs above. Keeps both manifests in sync
   # on every PR — drift fails CI immediately.
   app-tuist-ios-device:
+    needs: config
+    if: needs.config.outputs.do_ios == 'true'
     name: app (Tuist iOS device)
     runs-on: macos-15
     timeout-minutes: 30
@@ -141,6 +175,8 @@ jobs:
             2>&1 | xcbeautify --renderer github-actions
 
   app-tuist-ios-sim:
+    needs: config
+    if: needs.config.outputs.do_ios == 'true'
     name: app (Tuist iOS Simulator)
     runs-on: macos-15
     timeout-minutes: 30
@@ -174,6 +210,8 @@ jobs:
             2>&1 | xcbeautify --renderer github-actions
 
   app-tuist-macos:
+    needs: config
+    if: needs.config.outputs.do_macos == 'true'
     name: app (Tuist macOS)
     runs-on: macos-15
     timeout-minutes: 30

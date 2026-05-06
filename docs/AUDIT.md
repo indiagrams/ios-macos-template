@@ -42,9 +42,9 @@ BRAND='india''gram'
 # Step 1: Identifier grep (untracked-also scan).
 # Catches files-accidentally-not-yet-committed leak mode.
 grep -ri "$WATCHLIST" --exclude-dir=.git --exclude-dir=.planning .
-# Expected: exactly 1 hit on `.env.local.example:1` -- the intentional
-# format-example placeholder for forkers (the canonical 10-char Apple Team ID
-# format string, NOT the maintainer's actual Team ID).
+# Expected: 0 hits. The previous `.env.local.example` placeholder file was
+# removed in v1.1.0; no remaining file should contain a literal Team ID
+# format placeholder. Any hit is a leak — investigate immediately.
 
 # Step 2: Brand-token surface match (tracked-files scan).
 # CRITICAL: -i flag is mandatory -- the LICENSE Copyright line is capitalized
@@ -75,11 +75,12 @@ find . -path ./.git -prune -o -name '*.p8' -print
 The audit is expected to surface the following INTENTIONAL hits -- these are NOT
 leaks, they are locked per `.planning/STATE.md` and ROADMAP M5 P1:
 
-### Identifier hits (expected: 1 path)
+### Identifier hits (expected: 0 paths)
 
-| File                  | Hit                                          | Why intentional                                                  |
-|-----------------------|----------------------------------------------|------------------------------------------------------------------|
-| `.env.local.example`  | The Team ID format placeholder on line 1     | Format-example placeholder for forkers (10-char Apple Team ID format) |
+As of v1.1.0 there are no expected identifier hits. The previous
+`.env.local.example` placeholder was removed (superseded by
+`.bootstrap.env.example` which uses field-comment hints instead of a
+literal placeholder Team ID). Any new hit is a leak — see "Failure modes".
 
 ### Brand-token surface (expected: 9 paths)
 
@@ -124,7 +125,7 @@ over time. Any 10th path is a NEW unexpected leak -- investigate per "Failure mo
    - **Leak** (an actual identifier slipped through): scrub the file (replace with
      the substitution-template form: `<owner>/<slug>` placeholder), commit.
 
-### A new identifier hit appears outside `.env.local.example`
+### A new identifier hit appears
 
 **Action:**
 1. The 5-identifier set (defined in `$WATCHLIST` above) is locked per ROADMAP. A

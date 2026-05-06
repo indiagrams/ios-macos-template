@@ -11,7 +11,7 @@
 #   build/HelloApp-<version>.ipa
 #   build/HelloApp-<version>.pkg
 #
-# Reads .env.local for:
+# Reads .bootstrap.env (or .env.local if present) for:
 #   FASTLANE_TEAM_ID  (or APPLE_TEAM_ID as a fallback name)
 #
 # Distribution cert + Mac Installer Distribution cert must be in the login
@@ -49,14 +49,14 @@ done
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-if [ -f .env.local ]; then
+if [ -f .bootstrap.env ]; then
   # shellcheck disable=SC1091
-  source .env.local
+  set -a; source .bootstrap.env; set +a
 fi
 
 TEAM_ID="${FASTLANE_TEAM_ID:-${APPLE_TEAM_ID:-}}"
 if [ -z "$TEAM_ID" ] && { $SIGN_IOS || $SIGN_MACOS; }; then
-  echo "FAIL: FASTLANE_TEAM_ID (or APPLE_TEAM_ID) not set in .env.local" >&2
+  echo "FAIL: FASTLANE_TEAM_ID (or APPLE_TEAM_ID) not set; populate via .bootstrap.env or env-export before running" >&2
   exit 1
 fi
 
@@ -140,7 +140,7 @@ mkdir -p "$REPO_ROOT/build"
 # ─────────────────────────────────────────────────────────────────────────────
 # App Store Connect API auth for xcodebuild (-authenticationKeyPath etc.)
 # ─────────────────────────────────────────────────────────────────────────────
-# When the three ASC_API_KEY_* env vars are set (locally via .env.local /
+# When the three ASC_API_KEY_* env vars are set (locally via .bootstrap.env /
 # secrets.env, in CI via GH Secrets), decode the .p8 to a temp file and
 # thread it through every xcodebuild invocation. -allowProvisioningUpdates
 # then resolves match-installed profiles via API key auth — no Apple ID

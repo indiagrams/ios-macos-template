@@ -19,7 +19,7 @@
 #   ci/bump-asc-version.sh v0.0.11 --macos-only       # only macOS
 #
 # Prerequisites:
-#   - .env.local with ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID, ASC_API_KEY_P8_BASE64
+#   - .bootstrap.env with ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID, ASC_API_KEY_P8_BASE64
 #   - A TestFlight build at the target version for each platform (run
 #     `fastlane release tag:vX.Y.Z` first if not).
 #
@@ -53,11 +53,11 @@ done
 # brew Ruby — system Ruby fails on bundler version mismatch
 export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
 
-# .env.local for ASC API key
-if [ -f .env.local ]; then
+# .bootstrap.env for ASC API key (legacy .env.local supported as fallback)
+if [ -f .bootstrap.env ]; then
   set -a
   # shellcheck disable=SC1091
-  source .env.local
+  set -a; source .bootstrap.env; set +a
   set +a
 fi
 

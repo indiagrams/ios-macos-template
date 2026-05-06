@@ -42,7 +42,7 @@
 #   Pre-flight Gate 4 (clean tree) ensures HEAD == working tree
 #   pre-mutation. Any failure during the mutation phase triggers an
 #   ERR/EXIT/INT/TERM trap that runs `git reset --hard HEAD` +
-#   `git clean -fd` (NOT -fdx — forker's .env.local is precious).
+#   `git clean -fd` (NOT -fdx — forker's .bootstrap.env / .env.local is precious).
 #   MUTATION_STARTED guards the destructive-op path so a pre-mutation
 #   gate failure does not destroy a forker's dirty working tree.
 #

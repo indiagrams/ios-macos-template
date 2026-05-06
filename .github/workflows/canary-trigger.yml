@@ -1,0 +1,142 @@
+name: canary-trigger
+
+# Weekly canary release of indiagrams/ios-macos-smoketest, driven from upstream.
+#
+# Why this lives here (apple-shipkit) instead of in the smoketest itself:
+#   The smoketest is a "living reference implementation" that fresh forks copy.
+#   Putting an active `schedule:` cron in the smoketest's release.yml would
+#   make it diverge from a fresh fork's shape. The trigger logically belongs
+#   with the upstream maintainer (where the goal-setting happens); the actual
+#   ship still happens on the smoketest (where the credentials, bundle ID,
+#   ASC app record, and certs live).
+#
+# Failure semantics:
+#   This workflow polls the dispatched run to completion and inherits its
+#   conclusion. If the smoketest's release goes red, this workflow goes red,
+#   so the failure surfaces on apple-shipkit's Actions tab — where the
+#   maintainer is watching.
+#
+# Secret required:
+#   SMOKETEST_DISPATCH_PAT — fine-grained PAT scoped to indiagrams/ios-macos-smoketest
+#                            with `Actions: Read and write` only.
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'   # Mondays 09:00 UTC (2h after bootstrap-doctor-matrix)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dispatch with dry_run=true on the smoketest (build+sign only, no upload, no tag)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: canary-trigger
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      TARGET_REPO: indiagrams/ios-macos-smoketest
+      TARGET_WORKFLOW: release.yml
+      TARGET_REF: main
+      GH_TOKEN: ${{ secrets.SMOKETEST_DISPATCH_PAT }}
+
+    steps:
+      - name: Verify dispatch PAT is set
+        run: |
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::SMOKETEST_DISPATCH_PAT secret is not set on this repo."
+            echo "Mint a fine-grained PAT scoped to ${TARGET_REPO} with Actions: Read and write,"
+            echo "then store it as SMOKETEST_DISPATCH_PAT."
+            exit 1
+          fi
+          echo "PAT present (${#GH_TOKEN} chars)"
+
+      - name: Capture dispatch baseline timestamp
+        id: baseline
+        run: |
+          # Used to filter the runs list — we look for runs created strictly
+          # after this point. Runner UTC vs api.github.com is NTP-synced to
+          # within seconds, well inside our 5s poll window.
+          baseline=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "baseline=${baseline}" >> "${GITHUB_OUTPUT}"
+          echo "Baseline (only runs created after this count): ${baseline}"
+
+      - name: Dispatch smoketest release
+        run: |
+          dry_run='${{ inputs.dry_run }}'
+          dry_run="${dry_run:-false}"
+          echo "Dispatching ${TARGET_REPO} ${TARGET_WORKFLOW} on ref=${TARGET_REF} dry_run=${dry_run}"
+          gh workflow run "${TARGET_WORKFLOW}" \
+            --repo "${TARGET_REPO}" \
+            --ref "${TARGET_REF}" \
+            -f version='' \
+            -f "dry_run=${dry_run}"
+
+      - name: Locate the dispatched run
+        id: locate
+        env:
+          BASELINE: ${{ steps.baseline.outputs.baseline }}
+        run: |
+          # Poll up to 60s for the dispatched run to register. release.yml has
+          # `concurrency: group: release` so a queued state is normal — the
+          # run is still created, just not executing yet.
+          for i in $(seq 1 12); do
+            run_id=$(gh run list \
+              --repo "${TARGET_REPO}" \
+              --workflow "${TARGET_WORKFLOW}" \
+              --event workflow_dispatch \
+              --limit 1 \
+              --json databaseId,createdAt \
+              --jq ".[0] | select(.createdAt > \"${BASELINE}\") | .databaseId" \
+              || true)
+            if [ -n "${run_id}" ] && [ "${run_id}" != "null" ]; then
+              run_url="https://github.com/${TARGET_REPO}/actions/runs/${run_id}"
+              echo "Found dispatched run: ${run_url}"
+              {
+                echo "run_id=${run_id}"
+                echo "run_url=${run_url}"
+              } >> "${GITHUB_OUTPUT}"
+              exit 0
+            fi
+            echo "No run yet (attempt ${i}/12), sleeping 5s..."
+            sleep 5
+          done
+          echo "::error::Dispatched workflow but could not locate the resulting run within 60s."
+          exit 1
+
+      - name: Wait for dispatched run to finish
+        env:
+          RUN_ID: ${{ steps.locate.outputs.run_id }}
+          RUN_URL: ${{ steps.locate.outputs.run_url }}
+        run: |
+          echo "Tailing run: ${RUN_URL}"
+          # Up to 50 minutes (release pipeline typically completes in 5-7m;
+          # 50m absorbs any GitHub Actions queue backpressure).
+          for i in $(seq 1 100); do
+            payload=$(gh run view "${RUN_ID}" --repo "${TARGET_REPO}" --json status,conclusion)
+            status=$(echo "${payload}" | jq -r '.status')
+            conclusion=$(echo "${payload}" | jq -r '.conclusion // ""')
+            ts=$(date -u +%H:%M:%S)
+            echo "[${ts}] poll ${i}/100 — status=${status} conclusion=${conclusion:-pending}"
+            if [ "${status}" = "completed" ]; then
+              if [ "${conclusion}" = "success" ]; then
+                echo "::notice::Smoketest release succeeded: ${RUN_URL}"
+                exit 0
+              else
+                echo "::error::Smoketest release concluded with: ${conclusion} (${RUN_URL})"
+                exit 1
+              fi
+            fi
+            sleep 30
+          done
+          echo "::error::Dispatched run did not complete within 50 minutes (${RUN_URL})"
+          exit 1

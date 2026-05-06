@@ -18,10 +18,9 @@
 #        stays compatible with the XcodeGen one on every PR.
 #
 #   Factoring the surgery out of bin/rename.sh into a standalone script
-#   keeps both call-sites testable in isolation. The
-#   `--generator=xcodegen` direction (the default) does nothing — no
-#   matching switch-to-xcodegen.sh exists yet because no audience for
-#   that direction has surfaced.
+#   keeps both call-sites testable in isolation. The inverse direction
+#   is bin/switch-to-xcodegen.sh (added later for the canary-trigger
+#   `generator=xcodegen` override against tuist-permanent forks).
 #
 # Usage:
 #   bin/switch-to-tuist.sh                       # apply the switch

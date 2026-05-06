@@ -19,7 +19,7 @@
 #   ci/bump-asc-version.sh v0.0.11 --macos-only       # only macOS
 #
 # Prerequisites:
-#   - .env.local with ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID, ASC_API_KEY_BASE64
+#   - .env.local with ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID, ASC_API_KEY_P8_BASE64
 #   - A TestFlight build at the target version for each platform (run
 #     `fastlane release tag:vX.Y.Z` first if not).
 #

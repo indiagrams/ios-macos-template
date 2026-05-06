@@ -18,7 +18,7 @@
 # Prerequisites:
 #   - Distribution cert + iOS provisioning profile in login Keychain
 #   - macOS provisioning profile + Mac Installer Distribution cert
-#   - .env.local with ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID, ASC_API_KEY_BASE64,
+#   - .env.local with ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID, ASC_API_KEY_P8_BASE64,
 #     FASTLANE_TEAM_ID
 #
 # Per-platform metadata + submission lanes:
@@ -34,6 +34,15 @@
 
 default_platform(:ios)
 
+# In CI: provision a temporary keychain for match (via setup_ci) and switch
+# match to readonly mode. Locally: no-op. Always: ensure ASC API token is set
+# so any Spaceship calls (BundleId.create, App.create, Certificate.delete)
+# authenticate without 2FA.
+before_all do
+  setup_ci if ENV["CI"]
+  asc_api_key
+end
+
 # ─── Shared helpers ───────────────────────────────────────────────────────────
 
 APP_IDENTIFIER     = "com.example.helloapp"
@@ -46,7 +55,7 @@ def asc_api_key
   app_store_connect_api_key(
     key_id:                ENV["ASC_API_KEY_ID"],
     issuer_id:             ENV["ASC_API_KEY_ISSUER_ID"],
-    key_content:           ENV["ASC_API_KEY_BASE64"],
+    key_content:           ENV["ASC_API_KEY_P8_BASE64"],
     is_key_content_base64: true
   )
 end
@@ -130,6 +139,107 @@ def do_submit_for_review(platform:)
   UI.success("Submitted to App Review (#{platform}).")
 end
 
+# ─── App ID + ASC bootstrap ───────────────────────────────────────────────────
+
+desc "Register App ID in Apple Developer Portal (idempotent)"
+desc "Used once locally before fastlane match runs. ASC app record (TestFlight"
+desc "/ App Store side) is created later via the bootstrap_asc lane."
+lane :register_app_id do
+  asc_api_key  # sets Spaceship::ConnectAPI.token globally
+
+  bundle_id_str = APP_IDENTIFIER
+  bundle_name   = "HelloApp"
+
+  existing = Spaceship::ConnectAPI::BundleId.all(filter: { identifier: bundle_id_str }).first
+
+  if existing
+    UI.success("App ID #{bundle_id_str} already registered (id=#{existing.id}, platform=#{existing.platform})")
+  else
+    # platform: IOS — match's --platform macos path will register the
+    # macOS bundle ID separately when generating the macOS provisioning
+    # profile. (BundleIdPlatform::UNIVERSAL is not exposed by spaceship
+    # in fastlane 2.230 even though Apple's API supports it.)
+    created = Spaceship::ConnectAPI::BundleId.create(
+      name:       bundle_name,
+      identifier: bundle_id_str,
+      platform:   Spaceship::ConnectAPI::BundleIdPlatform::IOS,
+    )
+    UI.success("App ID #{bundle_id_str} registered: id=#{created.id} (IOS)")
+  end
+end
+
+desc "Enumerate all certificates in the team (debug helper)"
+lane :list_certs do
+  asc_api_key
+  certs = Spaceship::ConnectAPI::Certificate.all
+  UI.message("#{certs.length} certificate(s) in team:")
+  certs.each do |c|
+    UI.message("  #{c.id} type=#{c.certificate_type} display='#{c.display_name}' expires=#{c.expiration_date}")
+  end
+end
+
+desc "Revoke a certificate by ASC certificate ID (one-time cleanup)"
+desc "Usage: fastlane revoke_cert id:XN82HWM7L8"
+lane :revoke_cert do |options|
+  cert_id = options[:id] or UI.user_error!("id: required (ASC certificate ID)")
+  asc_api_key
+
+  cert = Spaceship::ConnectAPI::Certificate.all.find { |c| c.id == cert_id }
+  UI.user_error!("Certificate #{cert_id} not found in team") unless cert
+
+  UI.message("Revoking #{cert.id} type=#{cert.certificate_type} expires=#{cert.expiration_date}")
+  Spaceship::ConnectAPI.delete_certificate(certificate_id: cert.id)
+  UI.success("Revoked #{cert.id}")
+end
+
+desc "Idempotently verify Dev Portal App ID + ASC App record exist."
+desc ""
+desc "Calls register_app_id (creates the Dev Portal App ID via Spaceship if"
+desc "missing), then verifies the App Store Connect App record exists. The"
+desc "ASC App record CANNOT be created via API key — Apple's public ASC API"
+desc "exposes only GET/UPDATE on /apps, never POST. fastlane's `produce`"
+desc "action falls back to Apple-ID + 2FA login for app creation, which we"
+desc "deliberately don't carry in CI secrets. So this lane verifies and"
+desc "fails fast with instructions if the App is missing — a one-time"
+desc "human step against appstoreconnect.apple.com unblocks all future"
+desc "automated runs."
+lane :bootstrap_asc do
+  # 1. Ensure App ID exists in Apple Developer Portal (idempotent; uses
+  #    Spaceship::ConnectAPI::BundleId which DOES allow POST).
+  register_app_id
+
+  # 2. Verify ASC App record exists (TestFlight / App Store side).
+  bundle_id_str = APP_IDENTIFIER
+  existing = Spaceship::ConnectAPI::App.find(bundle_id_str)
+
+  if existing
+    UI.success("ASC app for #{bundle_id_str} exists (id=#{existing.id}).")
+  else
+    # `return` inside a fastlane lane block is a LocalJumpError. UI.user_error!
+    # raises FastlaneError, which fastlane catches and prints — same end result
+    # as a hard failure but compatible with the lane DSL.
+    UI.user_error!(<<~MSG)
+      ASC App record for #{bundle_id_str} not found.
+
+      The App Store Connect API does not allow POST /apps. Create the App
+      once via the web UI:
+
+        1. https://appstoreconnect.apple.com/apps  →  + (New App)
+        2. Platforms: iOS + macOS
+           Name:      HelloApp  (or whatever; verify uses bundle_id, not name)
+           Primary language: English (U.S.)
+           Bundle ID: #{bundle_id_str}
+           SKU:       any-unique-string
+           User Access: Full Access
+        3. Re-run this lane — it will succeed and never block again.
+
+      Apple ref: https://developer.apple.com/documentation/appstoreconnectapi/apps
+      fastlane workaround (produce) requires Apple ID + 2FA, which we
+      deliberately don't carry in CI. One-time human step is the cleanest path.
+    MSG
+  end
+end
+
 # ─── iOS lanes ────────────────────────────────────────────────────────────────
 platform :ios do
   desc "Sign + upload to TestFlight + push tag"
@@ -146,8 +256,52 @@ platform :ios do
 
     UI.header("Release #{tag}#{dry_run ? " [DRY RUN]" : ""}")
 
-    UI.message("Step 1/4: building signed iOS .ipa + macOS .pkg for v#{version}…")
-    sh("cd #{repo_root} && ci/local-release-check.sh #{tag} --sign-ios --sign-macos")
+    # When fastlane/Matchfile exists, sync signing material from your certs
+    # repo BEFORE invoking xcodebuild — this is what enables CI signing without
+    # an Apple ID logged in. readonly: true → CI never mints new certs/profiles;
+    # we only consume what`s already in the certs repo. The release lane reads
+    # match`s emitted profile-name env vars and threads them into the script,
+    # which switches xcodebuild to MANUAL signing (avoids "Cloud signing
+    # permission error" during exportArchive — automatic signing tries Apple`s
+    # cloud-signing endpoint which API-key auth cant access).
+    #
+    # When Matchfile is absent (e.g. you haven`t configured match yet), the lane
+    # falls through to the legacy automatic-signing path: requires Xcode logged
+    # into Apple ID + cert/profile in login.keychain. Works locally, fails in CI.
+    matchfile_present = File.exist?(File.join(__dir__, "Matchfile"))
+    sh_env            = {}
+
+    if matchfile_present
+      UI.message("Step 1/5: syncing signing material via match (iOS + macOS + installer)…")
+      match(type: "appstore", app_identifier: APP_IDENTIFIER, readonly: true,
+            platform: "ios", api_key: asc_api_key)
+      match(type: "appstore", app_identifier: APP_IDENTIFIER, readonly: true,
+            platform: "macos", api_key: asc_api_key)
+      # macOS .pkg requires a separate "Mac Installer Distribution" cert
+      # (productbuild signs the .pkg installer wrapper with this — distinct
+      # from the Apple Distribution cert that signs the .app inside).
+      match(type: "mac_installer_distribution", app_identifier: APP_IDENTIFIER,
+            readonly: true, platform: "macos", skip_provisioning_profiles: true,
+            api_key: asc_api_key)
+
+      # match's profile names include a timestamp suffix per generation
+      # (e.g. "match AppStore com.example.helloapp 1778027568") — read from
+      # the env vars match emits at runtime; do NOT hardcode.
+      ios_profile_name   = ENV["sigh_#{APP_IDENTIFIER}_appstore_profile-name"]
+      macos_profile_name = ENV["sigh_#{APP_IDENTIFIER}_appstore_macos_profile-name"]
+      UI.user_error!("match didn't set sigh_#{APP_IDENTIFIER}_appstore_profile-name — did the iOS match call run?") unless ios_profile_name
+      UI.user_error!("match didn't set sigh_#{APP_IDENTIFIER}_appstore_macos_profile-name — did the macOS match call run?") unless macos_profile_name
+      sh_env = {
+        "RELEASE_IOS_PROFILE_NAME"   => ios_profile_name,
+        "RELEASE_MACOS_PROFILE_NAME" => macos_profile_name,
+        "RELEASE_BUNDLE_ID"          => APP_IDENTIFIER,
+      }
+    else
+      UI.message("Step 1/5: no fastlane/Matchfile — skipping match sync. Using local Xcode-managed signing.")
+    end
+
+    UI.message("Step 2/5: building signed iOS .ipa + macOS .pkg for v#{version}…")
+    sh(sh_env, "cd #{repo_root} && ci/local-release-check.sh #{tag} --sign-ios --sign-macos")
 
     ipa_path = File.join(repo_root, "build", IPA_NAME_PATTERN % version)
     pkg_path = File.join(repo_root, "build", PKG_NAME_PATTERN % version)
@@ -157,19 +311,19 @@ platform :ios do
     api_key = asc_api_key
 
     if skip_upload
-      UI.important("Step 2/4: Skipping iOS TestFlight upload (skip_upload:true)")
-      UI.important("Step 3/4: Skipping macOS TestFlight upload (skip_upload:true)")
+      UI.important("Step 3/5: Skipping iOS TestFlight upload (skip_upload:true)")
+      UI.important("Step 4/5: Skipping macOS TestFlight upload (skip_upload:true)")
     else
-      UI.message("Step 2/4: Uploading iOS .ipa to TestFlight…")
+      UI.message("Step 3/5: Uploading iOS .ipa to TestFlight…")
       pilot(api_key: api_key, ipa: ipa_path, skip_waiting_for_build_processing: true)
-      UI.message("Step 3/4: Uploading macOS .pkg to TestFlight…")
+      UI.message("Step 4/5: Uploading macOS .pkg to TestFlight…")
       pilot(api_key: api_key, pkg: pkg_path, skip_waiting_for_build_processing: true)
     end
 
     if skip_tag
-      UI.important("Step 4/4: Skipping tag push (skip_tag:true). Run 'git tag #{tag} && git push origin #{tag}' manually when ready.")
+      UI.important("Step 5/5: Skipping tag push (skip_tag:true). Run 'git tag #{tag} && git push origin #{tag}' manually when ready.")
     else
-      UI.message("Step 4/4: Tagging and pushing #{tag}…")
+      UI.message("Step 5/5: Tagging and pushing #{tag}…")
       sh("cd #{repo_root} && git tag #{tag} && git push origin #{tag}")
     end
 

@@ -18,11 +18,20 @@ submission tooling.
   device build) runs locally before every `git push`. CI on GitHub is a
   confirmation, not a discovery channel — broken builds don't reach `main`'s
   PR queue.
-- **Signed fastlane releases run locally, not in CI.** Apple cert
-  provisioning in GitHub Actions is hard, project-specific, and fragile.
-  `fastlane release tag:vX.Y.Z` runs from your laptop with the certs already
-  in your login Keychain. The pattern is documented (see "Setting up signing
-  + ASC" below); the CI burden is not adopted.
+- **Signed releases run locally OR in CI.** The default flow keeps signing
+  on your laptop (`fastlane release tag:vX.Y.Z` reads certs from your login
+  Keychain) — easy first-run, no CI secrets to manage. The opt-in flow uses
+  [`fastlane match`](https://docs.fastlane.tools/actions/match/) + a private
+  certs repo to enable CI signing via a weekly TestFlight cron in
+  [`.github/workflows/release.yml`](.github/workflows/release.yml). Same
+  `fastlane/Fastfile` drives both — see "Setting up signing + ASC" below.
+- **Continuously validated downstream.** A public smoketest fork
+  ([`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest))
+  runs the full release cron weekly to TestFlight against this template's
+  signing pattern. Bugs in fastlane / match / Apple's signing infra surface
+  there before they hit your fork. The `release.yml` and `bin/mint-installer-cert.rb`
+  helpers in this template were validated end-to-end against `macos-15` in
+  that fork before landing.
 
 What you get out of the box:
 
@@ -152,16 +161,68 @@ Required Apple artifacts (one-time setup):
 1. **Apple Distribution cert** in your login Keychain (developer.apple.com → Certificates → +).
 2. **Mac Installer Distribution cert** in your login Keychain (for macOS .pkg signing).
 3. **App Store Connect API key** with App Manager role (download the `.p8`,
-   base64-encode into `ASC_API_KEY_BASE64`).
+   base64-encode into `ASC_API_KEY_P8_BASE64`).
 
 The first time you run `fastlane release`, Xcode auto-creates the iOS + macOS
 provisioning profiles via `-allowProvisioningUpdates`. Subsequent runs reuse them.
+
+### Optional: enable CI signing via fastlane match
+
+The default `fastlane release` flow signs from your laptop. To run the same
+release pipeline weekly from GitHub Actions (catches code-signing rot
+automatically), opt in to the match-driven pattern. The smoketest
+([`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest))
+exercises this every Monday against macos-15 — patterns + fixes there land
+back in this template before they bite forkers.
+
+One-time bootstrap:
+
+1. **Create a private certs repo** (convention: `<your-org>/<your-repo>-certs`).
+   Match stores AES-256-CBC-encrypted certs + profiles there. Both your
+   laptop and CI consume readonly.
+2. **Edit `fastlane/Matchfile`** — replace `CHANGE-ME-ORG/CHANGE-ME-REPO-certs.git`
+   with your real URL.
+3. **Generate `MATCH_PASSWORD`** (32+ char random). Store in
+   `~/.config/secrets.env` (mode 0600) and as a GH Secret on your repo.
+4. **Generate a fine-grained PAT** with read+write access to the certs repo.
+   Build `MATCH_GIT_BASIC_AUTHORIZATION = base64("<gh-user>:<PAT>")`. Store
+   locally and as a GH Secret.
+5. **Set 7 GH Secrets total** on your app repo:
+   `MATCH_PASSWORD`, `MATCH_GIT_BASIC_AUTHORIZATION`, `ASC_API_KEY_ID`,
+   `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `KEYCHAIN_PASSWORD`,
+   `FASTLANE_TEAM_ID`.
+6. **Bootstrap certs** locally (one-time), pushing each to the certs repo:
+   ```bash
+   set -a; source ~/.config/secrets.env; set +a
+   bundle exec fastlane register_app_id
+   bundle exec fastlane match appstore --app_identifier <bundle-id>
+   bundle exec fastlane match appstore --app_identifier <bundle-id> --platform macos
+   bundle exec fastlane match development --app_identifier <bundle-id>
+   # macOS .pkg installer cert (separate cert type, see G1 in docs/CONTINUOUS-VALIDATION.md):
+   bundle exec ruby bin/mint-installer-cert.rb
+   export INSTALLER_CERT_ID=<id-printed-by-mint-script>
+   bundle exec ruby bin/import-installer-to-match.rb
+   ```
+7. **Create the ASC App record once** via [appstoreconnect.apple.com/apps](https://appstoreconnect.apple.com/apps)
+   (Apple's public API does not allow `POST /apps`; one-time human step
+   unblocks all future automated runs). Then run
+   `bundle exec fastlane bootstrap_asc` to verify.
+8. **Enable the cron** by uncommenting the `schedule:` block in
+   `.github/workflows/release.yml`. Until then, only manual
+   `workflow_dispatch` is enabled — useful for one-off dry runs (`dry_run: true`).
+
+Once configured, the `release` lane in `fastlane/Fastfile` automatically
+runs match readonly (gated on `File.exist?(fastlane/Matchfile)`) and threads
+match's profile names to `ci/local-release-check.sh`, which switches
+xcodebuild to manual signing. No further changes needed in CI vs local.
 
 ## Repo layout
 
 ```
 .
-├── .github/workflows/pr.yml         # 6 jobs: 3 XcodeGen + 3 Tuist parity (iOS device, iOS Sim, macOS each)
+├── .github/workflows/
+│   ├── pr.yml                       # 6 jobs: 3 XcodeGen + 3 Tuist parity (iOS device, iOS Sim, macOS each)
+│   └── release.yml                  # opt-in weekly TestFlight cron + manual workflow_dispatch (schedule commented out by default — see README "Optional: enable CI signing via fastlane match")
 ├── Tuist.swift                      # Tuist 4 config (Tuist alternative to XcodeGen — pick at fork time via --generator)
 ├── Brewfile                         # xcodegen + tuist, fastlane, lefthook, …
 ├── Makefile                         # bootstrap | check | generate | icons | screenshots | release-dryrun
@@ -183,6 +244,7 @@ provisioning profiles via `-allowProvisioningUpdates`. Subsequent runs reuse the
 │   ├── Fastfile                     # release | take_screenshots | upload_screenshots | upload_metadata | submit_for_review
 │   ├── Appfile                      # bundle ID + team
 │   ├── Snapfile / MacSnapfile       # screenshot capture config
+│   ├── Matchfile                    # fastlane match config — placeholder URL; replace before running match (see "Optional: enable CI signing")
 │   └── metadata/                    # App Store listing copy + review info (TODO markers)
 └── app/
     ├── project.yml                  # XcodeGen manifest — iOS + macOS targets + UITest targets

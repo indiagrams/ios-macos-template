@@ -3,6 +3,8 @@
 [![CI](https://github.com/indiagrams/apple-shipkit/actions/workflows/pr.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/pr.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org)
+[![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/sExv9eKdA)
+[![Weekly canary](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)
 
 > **Goal of this README:** if you've never shipped an iOS or Mac app before, by the end of it you will have one running on your phone via TestFlight. About 30–60 minutes of focused time, $99/year for Apple Developer Program, a Mac.
 
@@ -394,11 +396,20 @@ Each step is its own fastlane lane in `fastlane/Fastfile`. Read the file — it'
 
 ## Continuous validation
 
-This template is **continuously validated** against real Apple infrastructure. A separate fork ([indiagrams/ios-macos-smoketest](https://github.com/indiagrams/ios-macos-smoketest)) runs the entire release pipeline weekly to TestFlight, with both XcodeGen and Tuist generators. Bugs in fastlane / match / Apple's signing infra surface there before they bite forkers — and patches land in this template before being broken in your repo.
+[![Weekly canary](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)
+
+The badge above reflects the most recent weekly canary run, which exercises **both** the xcodegen and tuist dispatch cells against real Apple infrastructure on the [indiagrams/ios-macos-smoketest](https://github.com/indiagrams/ios-macos-smoketest) fork. Reads as:
+
+- 🟢 green — the most recent run had **both** `dispatch (xcodegen)` and `dispatch (tuist)` ship successfully to TestFlight.
+- 🔴 red — at least one cell failed. [Click the badge](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml) to see which one (and why).
+
+Per-cell history (xcodegen vs tuist) lives in the workflow's run-by-run breakdown — each run lists two jobs (`dispatch (xcodegen)` + `dispatch (tuist)`) with independent green/red status.
 
 The validation infrastructure:
-- **Mondays 07:00 UTC**: read-only doctor matrix (4 cells: xcodegen|tuist × ci|local)
-- **Mondays 09:00 UTC**: full release ship to TestFlight, both generators in sequence
+- **Mondays 07:00 UTC**: read-only doctor matrix (4 cells: xcodegen|tuist × ci|local) — covers bootstrap toolchain.
+- **Mondays 09:00 UTC**: full release ship to TestFlight, both generators in sequence — covers signing pipeline + Apple infrastructure.
+
+Bugs in fastlane / match / Apple's signing infra surface there before they bite forkers — patches land in this template before they hit your repo.
 
 If you fork this template and your build breaks Monday morning out of the blue, [check the smoketest's Actions tab](https://github.com/indiagrams/ios-macos-smoketest/actions) — it's probably broken there too, and a fix is in flight.
 
@@ -470,6 +481,20 @@ If you're curious why the template is structured the way it is, every choice cam
 - **macOS icons need a postCompileScript overwrite.** actool emits a 4-size .icns regardless of catalog input; `gen-macos-icons.swift` produces the full 10-size .icns the build then overwrites with.
 
 Full catalog of CI-specific gotchas: [docs/CONTINUOUS-VALIDATION.md](docs/CONTINUOUS-VALIDATION.md).
+
+---
+
+## Community
+
+Got stuck on Step 4? Apple rejected your build with a cryptic error code? Want to know if anyone else hit the same gotcha? **Come hang out in Discord.**
+
+[![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/sExv9eKdA)
+
+- **Discord** — quick questions, "is this a known issue", showing off what you shipped: [discord.gg/sExv9eKdA](https://discord.gg/sExv9eKdA)
+- **GitHub Issues** — actionable bugs in the template (failed `make doctor`, missing prereq check, broken script): [github.com/indiagrams/apple-shipkit/issues](https://github.com/indiagrams/apple-shipkit/issues)
+- **GitHub Discussions** — design decisions, "should the template do X", longer threads: [github.com/indiagrams/apple-shipkit/discussions](https://github.com/indiagrams/apple-shipkit/discussions)
+
+First-time shippers especially welcome. Most of the people in this template's lineage learned by getting stuck on the same things you're about to get stuck on.
 
 ---
 

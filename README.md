@@ -220,7 +220,9 @@ xcodebuild to manual signing. No further changes needed in CI vs local.
 
 ```
 .
-├── .github/workflows/pr.yml         # 6 jobs: 3 XcodeGen + 3 Tuist parity (iOS device, iOS Sim, macOS each)
+├── .github/workflows/
+│   ├── pr.yml                       # 6 jobs: 3 XcodeGen + 3 Tuist parity (iOS device, iOS Sim, macOS each)
+│   └── release.yml                  # opt-in weekly TestFlight cron + manual workflow_dispatch (schedule commented out by default — see README "Optional: enable CI signing via fastlane match")
 ├── Tuist.swift                      # Tuist 4 config (Tuist alternative to XcodeGen — pick at fork time via --generator)
 ├── Brewfile                         # xcodegen + tuist, fastlane, lefthook, …
 ├── Makefile                         # bootstrap | check | generate | icons | screenshots | release-dryrun
@@ -242,6 +244,7 @@ xcodebuild to manual signing. No further changes needed in CI vs local.
 │   ├── Fastfile                     # release | take_screenshots | upload_screenshots | upload_metadata | submit_for_review
 │   ├── Appfile                      # bundle ID + team
 │   ├── Snapfile / MacSnapfile       # screenshot capture config
+│   ├── Matchfile                    # fastlane match config — placeholder URL; replace before running match (see "Optional: enable CI signing")
 │   └── metadata/                    # App Store listing copy + review info (TODO markers)
 └── app/
     ├── project.yml                  # XcodeGen manifest — iOS + macOS targets + UITest targets

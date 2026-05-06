@@ -208,6 +208,9 @@ GENERATOR=xcodegen                          # xcodegen | tuist
 # How releases run: ci = GitHub Actions builds + ships; local = your laptop ships
 RELEASE_MODE=local                          # local is easier for first-time. Switch to ci later.
 
+# Which platforms you ship: ios, macos, or both. Default 'ios,macos'.
+PLATFORMS=ios,macos                         # 'ios' or 'macos' to ship just one
+
 # Apple credentials (from Steps 3 + 4)
 FASTLANE_TEAM_ID=A1B2C3D4E5                 # from Step 3
 ASC_API_KEY_ID=ABC1234567                   # from Step 4 — Key ID
@@ -223,6 +226,8 @@ ASC_APP_NAME='My Cool App'                   # what shows on the App Store
 > **Pick BUNDLE_ID carefully.** It's the unique fingerprint of your app, and you can't change it later without losing your TestFlight history. If you own a domain, use it (`com.yourdomain.appname`). If you don't, `com.yourgithubusername.appname` is fine.
 
 > **Why two modes?** `RELEASE_MODE=local` signs from your laptop using certs in your Keychain — easy first-run, no server config needed. `RELEASE_MODE=ci` runs the full pipeline on GitHub Actions every time you push a tag — more setup, but it means you can ship from any machine. Start with `local`. You can switch later.
+
+> **Why pick a platform subset?** If you're shipping an iPhone-only app and don't care about Mac, set `PLATFORMS=ios` — `make doctor` will stop probing for the Mac Installer cert, `make ship` skips the macOS .pkg build/upload, and CI on PRs will run 4 jobs instead of 6 (saving ~2-4 min/PR of macOS runner time). Same in reverse for `PLATFORMS=macos`. Switchable later: change the value, re-run `make bootstrap-fork`.
 
 ---
 

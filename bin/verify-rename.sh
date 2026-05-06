@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bin/verify-rename.sh — forker self-check for the ios-macos-template rename.
+# bin/verify-rename.sh — forker self-check for the apple-shipkit rename.
 #
 # Greps tracked files for the 4 original-template identity literals
 # (APP_NAME, BUNDLE_ID, EMAIL, SLUG) and exits 0 silent if none remain,
@@ -77,7 +77,7 @@ git rev-parse --is-inside-work-tree >/dev/null 2>&1 || \
 APP_NAME_ORIG="HelloApp"
 BUNDLE_ID_ORIG="com.example.helloapp"
 EMAIL_ORIG="maintainers@indiagram.com"
-SLUG_ORIG="indiagrams/ios-macos-template"
+SLUG_ORIG="indiagrams/apple-shipkit"
 YEAR_ORIG="<year>"
 
 # check_surface LABEL LITERAL

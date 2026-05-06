@@ -132,7 +132,7 @@ else
 fi
 
 echo "=== 5/5: re-fork smoketest from template ==="
-gh repo create "$APP_REPO" --template "$ORG/ios-macos-template" --public --clone -- --quiet 2>&1 | tail -1
+gh repo create "$APP_REPO" --template "$ORG/apple-shipkit" --public --clone -- --quiet 2>&1 | tail -1
 mv ios-macos-smoketest ../ios-macos-smoketest
 echo "  fresh fork at ../ios-macos-smoketest"
 

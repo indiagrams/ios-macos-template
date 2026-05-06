@@ -1,4 +1,4 @@
-// Tuist.swift — top-level Tuist 4 configuration for the ios-macos-template.
+// Tuist.swift — top-level Tuist 4 configuration for the apple-shipkit.
 //
 // Lives at repo root (Tuist 4 default; pre-4.0 used Tuist/Config.swift).
 // Companion to app/Project.swift; both ship alongside app/project.yml so

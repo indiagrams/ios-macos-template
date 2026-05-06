@@ -5,6 +5,7 @@ import XCTest
 //
 // Output: fastlane/screenshots/en-US/<device>-<NN>-<name>.png
 
+@MainActor
 final class AppStoreScreenshotTests: XCTestCase {
     override func setUp() {
         super.setUp()

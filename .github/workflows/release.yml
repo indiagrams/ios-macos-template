@@ -1,0 +1,160 @@
+name: release
+
+# Continuous validation of the signing pipeline. By default this only fires on
+# manual dispatch — uncomment the `schedule:` block below once you've configured
+# the 7 GH Secrets (see README → "Continuous validation" section). Once
+# enabled, every Monday 09:00 UTC the runner builds signed iOS .ipa + macOS
+# .pkg and uploads to TestFlight, catching code-signing rot in fastlane,
+# match, Apple's signing infra, or ASC API faster than quarterly manual
+# releases would.
+#
+# The downstream reference smoketest (indiagrams/ios-macos-smoketest) runs
+# this workflow with the schedule active. Patterns + fixes here were
+# validated end-to-end against macos-15 in that fork before landing in this
+# template.
+#
+# Required GH Secrets (all 7 must be set before the workflow can succeed):
+#   MATCH_PASSWORD                  — match encryption passphrase
+#   MATCH_GIT_BASIC_AUTHORIZATION   — base64(<gh-user>:<PAT>) for certs repo
+#   ASC_API_KEY_ID                  — App Store Connect API key id
+#   ASC_API_KEY_ISSUER_ID           — ASC API key issuer UUID
+#   ASC_API_KEY_P8_BASE64           — base64 of the .p8 file contents
+#   KEYCHAIN_PASSWORD               — random; used by match's setup_ci
+#   FASTLANE_TEAM_ID                — Apple Developer team ID
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag (e.g. v0.1.0) — leave blank for auto CalVer'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Build + sign only; skip TestFlight upload + tag push'
+        required: false
+        type: boolean
+        default: false
+  # UNCOMMENT after configuring all 7 GH Secrets above. Until then, manual
+  # workflow_dispatch is the only trigger; cron runs would fail with clear
+  # "secret not set" errors that are noisy on your Actions tab.
+  # schedule:
+  #   - cron: '0 9 * * 1'   # Mondays 09:00 UTC
+
+# Serialize releases. We never want two cron runs racing on the same TestFlight
+# build number. cancel-in-progress: false → if a manual dispatch lands during
+# a cron run, the dispatch waits rather than aborting the cron mid-upload.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # needed to push the release tag back to origin
+
+jobs:
+  release:
+    name: Signed release to TestFlight (iOS + macOS)
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    env:
+      MATCH_PASSWORD:                ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      ASC_API_KEY_ID:                ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_KEY_ISSUER_ID:         ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64:         ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+      KEYCHAIN_PASSWORD:             ${{ secrets.KEYCHAIN_PASSWORD }}
+      FASTLANE_TEAM_ID:              ${{ secrets.FASTLANE_TEAM_ID }}
+      FASTLANE_HIDE_CHANGELOG:       '1'
+      FASTLANE_SKIP_UPDATE_CHECK:    '1'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tag push at end of release lane needs full history; setting 0 also
+          # gives fastlane access to all prior tags for changelog/rev parsing.
+          fetch-depth: 0
+
+      - name: Select Xcode (use macos-15 default; pin if drift bites)
+        # Use the runner's default Xcode (currently 16.4 on macos-15), which
+        # has matching iOS Simulator runtimes installed. Pinning to a specific
+        # Xcode (e.g. /Applications/Xcode_16.app = 16.0) breaks asset
+        # compilation when the iOS Simulator runtime for that SDK is missing.
+        # Logging version+SDK so future drift is visible at the top of the log.
+        run: |
+          xcodebuild -version
+          xcrun --show-sdk-path --sdk iphoneos
+
+      - name: Set up Ruby + bundler cache
+        uses: ruby/setup-ruby@v1
+        with:
+          # Pinned here so local dev keeps using whatever ruby you have while
+          # CI runs on a maintained release. 3.3 is fastlane-tested and ships
+          # preinstalled on macos-15 runners.
+          ruby-version: '3.3'
+          # bundler-cache restores vendor/bundle keyed on Gemfile.lock SHA.
+          bundler-cache: true
+
+      - name: Bootstrap toolchain (xcodegen via Homebrew)
+        run: make bootstrap
+
+      - name: Compute release version (CalVer if not provided)
+        id: ver
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            # CalVer: vYYYY.WW.<run_number>. ISO week (%V) sidesteps year-boundary
+            # ambiguity; run_number gives a unique third segment per workflow run.
+            CALVER="v$(date -u +%Y.%V).${{ github.run_number }}"
+            echo "version=$CALVER" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pre-install Apple WWDR intermediate certs
+        # fastlane match's auto-install path can hang for ~5min and then fail
+        # with "Could not install WWDR certificate" on GH Actions runners
+        # (known issue: fastlane/fastlane#20960; CircleCI confirms same).
+        # Install the active WWDR Intermediate (G6) into the system keychain
+        # ourselves so match's import has a valid chain to validate against.
+        run: |
+          curl -fsSL --retry 3 -o /tmp/AppleWWDRCAG6.cer \
+            https://www.apple.com/certificateauthority/AppleWWDRCAG6.cer
+          sudo security add-trusted-cert -d -r trustRoot \
+            -k /Library/Keychains/System.keychain \
+            /tmp/AppleWWDRCAG6.cer
+
+      - name: Bootstrap ASC + Dev Portal records (idempotent)
+        # First run on a fresh repo: creates Dev Portal App ID + verifies
+        # the ASC App record exists (must be created via web UI once — see
+        # bootstrap_asc lane's `desc` for instructions). Subsequent runs:
+        # no-op (lane checks existence before doing anything).
+        run: bundle exec fastlane bootstrap_asc
+
+      - name: fastlane release (build, sign, upload, tag)
+        env:
+          # Threaded into ci/local-release-check.sh so CFBundleVersion is unique
+          # per ASC upload — required when CFBundleShortVersionString repeats
+          # (e.g. two cron runs in the same ISO week, or manual re-dispatch).
+          RELEASE_BUILD_NUMBER: ${{ github.run_number }}
+        # dry_run is workflow_dispatch-only (cron runs always go full path).
+        # When true: build + sign succeed, pilot upload + tag push are skipped.
+        # The release lane reads skip_upload / skip_tag from its options hash.
+        run: |
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            bundle exec fastlane release \
+              tag:${{ steps.ver.outputs.version }} \
+              skip_upload:true \
+              skip_tag:true
+          else
+            bundle exec fastlane release tag:${{ steps.ver.outputs.version }}
+          fi
+
+      - name: Upload artifacts (.ipa + .pkg + .sha256)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: signed-builds-${{ steps.ver.outputs.version }}
+          path: |
+            build/*.ipa
+            build/*.pkg
+            build/*.sha256
+          retention-days: 30

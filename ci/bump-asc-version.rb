@@ -26,7 +26,7 @@ target = ARGV[0].sub(/^v/, '')
 token = Spaceship::ConnectAPI::Token.create(
   key_id:    ENV.fetch("ASC_API_KEY_ID"),
   issuer_id: ENV.fetch("ASC_API_KEY_ISSUER_ID"),
-  key:       Base64.strict_decode64(ENV.fetch("ASC_API_KEY_BASE64"))
+  key:       Base64.strict_decode64(ENV.fetch("ASC_API_KEY_P8_BASE64"))
 )
 Spaceship::ConnectAPI.token = token
 

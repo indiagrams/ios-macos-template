@@ -3,7 +3,7 @@
 # iOS and macOS records on App Store Connect, and select the matching
 # TestFlight build for each.
 #
-# Run via ci/bump-asc-version.sh (which sources .env.local and uses brew Ruby).
+# Run via ci/bump-asc-version.sh (which sources .bootstrap.env and uses brew Ruby).
 # Direct invocation:
 #   bundle exec ruby ci/bump-asc-version.rb v0.0.11
 #

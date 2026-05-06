@@ -64,7 +64,7 @@ The `.gitignore` already blocks the common ones, but be aware:
 | `*.p8` | App Store Connect API private key | `~/.appstoreconnect/` |
 | `*.mobileprovision` | Provisioning profiles (manual signing) | `~/Library/MobileDevice/Provisioning Profiles/` (Xcode manages) |
 | `*.cer`, `*.p12` | Distribution certificates | macOS Keychain |
-| `.env.local` | Local secrets (API keys, paths) | repo root, gitignored |
+| `.bootstrap.env` | Local fork config (paths, identifiers; secrets stay outside repo) | repo root, gitignored |
 
 If you accidentally commit any of these, treat it as a credential leak: revoke the key/cert immediately on Apple's side, then `git rm --cached` + force-rotate.
 

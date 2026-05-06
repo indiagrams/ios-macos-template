@@ -4,7 +4,7 @@
 # pipelines used in real App Store submissions.
 #
 # Usage:
-#   set -a; source .env.local; set +a; fastlane release tag:v0.1.0
+#   make ship   # auto-exports env from .bootstrap.env, then invokes fastlane release tag:v0.1.0
 #
 # Dry run (no upload, no tag push):
 #   fastlane release tag:v0.1.0 skip_upload:true skip_tag:true
@@ -18,7 +18,7 @@
 # Prerequisites:
 #   - Distribution cert + iOS provisioning profile in login Keychain
 #   - macOS provisioning profile + Mac Installer Distribution cert
-#   - .env.local with ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID, ASC_API_KEY_P8_BASE64,
+#   - .bootstrap.env with ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID, ASC_API_KEY_P8_PATH,
 #     FASTLANE_TEAM_ID
 #
 # Per-platform metadata + submission lanes:
@@ -266,7 +266,7 @@ desc "release pipeline (which only does match readonly:true) finds everything"
 desc "in the certs repo and never has to mint."
 desc ""
 desc "Run after editing fastlane/Matchfile (git_url) and setting the 7 GH"
-desc "Secrets / .env.local. The Mac Installer Distribution cert is bootstrapped"
+desc "Secrets / .bootstrap.env. The Mac Installer Distribution cert is bootstrapped"
 desc "separately via bin/mint-installer-cert.rb + bin/import-installer-to-match.rb"
 desc "(see Matchfile header for why)."
 lane :bootstrap_certs do

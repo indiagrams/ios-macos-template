@@ -141,10 +141,19 @@ jobs:
               if [ -f app/project.yml ]; then
                 echo "Repo is already in xcodegen shape (app/project.yml present); no-op."
               else
-                echo "::error::generator=xcodegen requested but repo is in tuist shape." \
-                  "No bin/switch-to-xcodegen.sh exists. To run with xcodegen, the repo" \
-                  "must already be xcodegen-shaped on the dispatched ref."
-                exit 1
+                if [ -x ./bin/switch-to-xcodegen.sh ]; then
+                  # bin/switch-to-xcodegen.sh's preflight requires xcodegen on PATH.
+                  # `make bootstrap` would install it via Brewfile, but that runs
+                  # AFTER this step. Install eagerly here; brew is idempotent.
+                  echo "Installing xcodegen (required by switch-to-xcodegen.sh preflight)"
+                  brew install xcodegen
+                  echo "Switching workspace to xcodegen via bin/switch-to-xcodegen.sh"
+                  ./bin/switch-to-xcodegen.sh
+                else
+                  echo "::error::generator=xcodegen requested but repo is in tuist shape" \
+                    "and bin/switch-to-xcodegen.sh is not available on the dispatched ref."
+                  exit 1
+                fi
               fi
               ;;
             tuist)

@@ -35,6 +35,11 @@ on:
         required: false
         type: boolean
         default: false
+      generator:
+        description: 'Generator override (xcodegen | tuist | empty for repo default). Used by canary-trigger to exercise both generators against the same Apple identity.'
+        required: false
+        type: string
+        default: ''
   # workflow_dispatch only by default. Two ways to enable weekly releases:
   #   A. Self-schedule: configure all 7 GH Secrets above and uncomment the
   #      schedule block below. Until secrets are set, cron runs would fail
@@ -110,6 +115,47 @@ jobs:
           ruby-version: '3.3'
           # bundler-cache restores vendor/bundle keyed on Gemfile.lock SHA.
           bundler-cache: true
+
+      - name: Apply generator override (if requested)
+        # When workflow_dispatch supplies a `generator` input that differs from
+        # the repo's current generator (detected via app/project.yml presence),
+        # mutate the workspace BEFORE `make bootstrap` so the project gets
+        # generated with the requested tool. This is a workspace-only mutation
+        # — nothing is pushed back. Lets canary-trigger.yml exercise both
+        # generators against the same Apple identity without maintaining
+        # parallel branches.
+        #
+        # Empty input → no-op (preserves manual `make ship` behavior).
+        if: inputs.generator != ''
+        env:
+          REQUESTED_GENERATOR: ${{ inputs.generator }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_GENERATOR" in
+            xcodegen)
+              if [ -f app/project.yml ]; then
+                echo "Repo is already in xcodegen shape (app/project.yml present); no-op."
+              else
+                echo "::error::generator=xcodegen requested but repo is in tuist shape." \
+                  "No bin/switch-to-xcodegen.sh exists. To run with xcodegen, the repo" \
+                  "must already be xcodegen-shaped on the dispatched ref."
+                exit 1
+              fi
+              ;;
+            tuist)
+              if [ -f app/project.yml ]; then
+                echo "Switching workspace to tuist via bin/switch-to-tuist.sh"
+                ./bin/switch-to-tuist.sh
+              else
+                echo "Repo is already in tuist shape (no app/project.yml); no-op."
+              fi
+              ;;
+            *)
+              echo "::error::Invalid generator='$REQUESTED_GENERATOR'." \
+                "Must be 'xcodegen', 'tuist', or empty."
+              exit 1
+              ;;
+          esac
 
       - name: Bootstrap toolchain (xcodegen via Homebrew)
         run: make bootstrap

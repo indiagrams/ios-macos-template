@@ -40,11 +40,14 @@ module Bootstrap
   # ─── Config loader ──────────────────────────────────────────────────────────
 
   class Config
-    REQUIRED = %w[
-      APP_NAME BUNDLE_ID DISPLAY_NAME APP_EMAIL GENERATOR
+    REQUIRED_ALWAYS = %w[
+      APP_NAME BUNDLE_ID DISPLAY_NAME APP_EMAIL GENERATOR RELEASE_MODE
       FASTLANE_TEAM_ID ASC_API_KEY_ID ASC_API_KEY_ISSUER_ID ASC_API_KEY_P8_PATH
-      GH_ORG GH_APP_REPO GH_CERTS_REPO GH_PAT_FILE
-      MATCH_PASSWORD_FILE KEYCHAIN_PASSWORD_FILE
+      GH_ORG GH_APP_REPO
+    ].freeze
+
+    REQUIRED_CI_ONLY = %w[
+      GH_CERTS_REPO GH_PAT_FILE MATCH_PASSWORD_FILE KEYCHAIN_PASSWORD_FILE
     ].freeze
 
     OPTIONAL = %w[ICON_1024_PATH ASC_APP_SKU ASC_APP_NAME].freeze
@@ -104,15 +107,28 @@ module Bootstrap
     end
 
     def validate!
-      missing = REQUIRED.reject { |k| set?(k) }
+      mode = release_mode
+      unless %w[ci local].include?(mode)
+        UI.fail!(".bootstrap.env: RELEASE_MODE must be 'ci' or 'local' (got: #{mode.inspect})")
+      end
+      required = REQUIRED_ALWAYS + (mode == "ci" ? REQUIRED_CI_ONLY : [])
+      missing = required.reject { |k| set?(k) }
       return if missing.empty?
       UI.fail!(<<~MSG)
-        .bootstrap.env is missing required fields:
+        .bootstrap.env is missing required fields (RELEASE_MODE=#{mode}):
         #{missing.map { |k| "  - #{k}" }.join("\n")}
 
         Edit .bootstrap.env and re-run.
       MSG
     end
+
+    def release_mode
+      m = self["RELEASE_MODE"]
+      m.empty? ? "ci" : m
+    end
+
+    def ci_mode?;    release_mode == "ci";    end
+    def local_mode?; release_mode == "local"; end
 
     def repo_slug
       "#{self["GH_ORG"]}/#{self["GH_APP_REPO"]}"
@@ -203,10 +219,20 @@ module Bootstrap
   # ─── Step base class ────────────────────────────────────────────────────────
 
   class Step
+    # Each subclass may override MODES to restrict applicability:
+    #   class EditMatchfile < Step; MODES = %w[ci]; end
+    #   class LocalKeychainCerts < Step; MODES = %w[local]; end
+    # Default: run in both modes.
+    MODES = %w[ci local].freeze
+
     attr_reader :config
 
     def initialize(config)
       @config = config
+    end
+
+    def applicable?(mode)
+      self.class.const_get(:MODES).include?(mode)
     end
 
     # Subclasses override.
@@ -263,16 +289,17 @@ module Bootstrap
     def category; "preflight"; end
 
     def check
+      return :done if config.local_mode? # PAT not used in local mode
       pat_file = config.expand_path("GH_PAT_FILE")
       return [:blocked, "GH_PAT_FILE doesn't exist: #{pat_file}"] unless pat_file && pat_file.file?
       pat = pat_file.read.strip
       return [:blocked, "GH_PAT_FILE is empty"] if pat.empty?
 
       # Probe certs repo via PAT
-      out, success = Sh.run("curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-                            "-H", "Authorization: Bearer #{pat}",
-                            "-H", "Accept: application/vnd.github+json",
-                            "https://api.github.com/repos/#{config.certs_slug}")
+      out, _ok = Sh.run("curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+                        "-H", "Authorization: Bearer #{pat}",
+                        "-H", "Accept: application/vnd.github+json",
+                        "https://api.github.com/repos/#{config.certs_slug}")
       case out
       when "200" then :done
       when "404"
@@ -318,6 +345,7 @@ module Bootstrap
   end
 
   class EditMatchfile < Step
+    MODES = %w[ci].freeze
     def name; "Wire fastlane/Matchfile to certs repo"; end
 
     def matchfile; REPO_ROOT.join("fastlane", "Matchfile"); end
@@ -386,6 +414,7 @@ module Bootstrap
   end
 
   class GHSecrets < Step
+    MODES = %w[ci].freeze
     def name; "Set 7 GH Secrets on app repo"; end
 
     def check
@@ -444,6 +473,7 @@ module Bootstrap
   end
 
   class CreateCertsRepo < Step
+    MODES = %w[ci].freeze
     def name; "Private certs repo"; end
 
     def check
@@ -511,6 +541,7 @@ module Bootstrap
   end
 
   class BootstrapCerts < Step
+    MODES = %w[ci].freeze
     def name; "Mint iOS dist + dev + macOS dist certs (via match)"; end
 
     def check
@@ -545,6 +576,7 @@ module Bootstrap
   end
 
   class MintInstaller < Step
+    MODES = %w[ci].freeze
     def name; "Mint Mac Installer Distribution cert"; end
 
     def check
@@ -652,40 +684,106 @@ module Bootstrap
     end
   end
 
+  class RemoteMatches < Step
+    def name; "GH_APP_REPO matches origin git remote"; end
+    def category; "preflight"; end
+
+    def check
+      out, ok = Sh.run("git", "remote", "get-url", "origin")
+      return [:warn, "no origin remote yet (initial push hasn't happened — that's fine)"] unless ok
+      url = out.strip
+      expected = "https://github.com/#{config.repo_slug}.git"
+      expected_ssh = "git@github.com:#{config.repo_slug}.git"
+      return :done if url == expected || url == expected_ssh
+      [:blocked, <<~MSG]
+        .bootstrap.env GH_APP_REPO=#{config['GH_APP_REPO']} (#{config.repo_slug})
+        but git remote points at: #{url}
+
+        Fix one or the other:
+          - update GH_ORG/GH_APP_REPO in .bootstrap.env, or
+          - run: git remote set-url origin #{expected}
+      MSG
+    end
+
+    def do_it
+      UI.fail!("git remote and .bootstrap.env GH_APP_REPO disagree; fix manually.")
+    end
+  end
+
+  class LocalKeychainCerts < Step
+    MODES = %w[local].freeze
+    def name; "Local keychain has signing identities"; end
+
+    REQUIRED_IDENTITIES = [
+      "Apple Distribution",
+      "Apple Development",
+      "3rd Party Mac Developer Installer"
+    ].freeze
+
+    def check
+      return :done if config.ci_mode? # only relevant in local mode
+      out, _ok = Sh.run("security", "find-identity", "-v", "-p", "codesigning",
+                        File.expand_path("~/Library/Keychains/login.keychain-db"))
+      missing = REQUIRED_IDENTITIES.reject { |id| out.include?(id) }
+      return :done if missing.empty?
+      [:blocked, <<~MSG]
+        Login keychain is missing #{missing.length} signing identit#{missing.length == 1 ? 'y' : 'ies'}:
+        #{missing.map { |m| "  - #{m}" }.join("\n")}
+
+        Add via Xcode → Settings → Accounts → (your team) → Manage Certificates → +.
+        Or via Apple Developer Portal → Certificates → + (then double-click the .cer).
+      MSG
+    end
+
+    def do_it
+      UI.fail!("Local mode requires signing identities in your login keychain. Add them and re-run.")
+    end
+  end
+
   # ─── Pipeline ───────────────────────────────────────────────────────────────
 
   class Runner
+    # Single source of truth. Each Step subclass sets MODES = %w[ci]
+    # / %w[local] / both (default). Runner filters at construction time.
     PIPELINE = [
       CheckAppleCreds,
       CheckGHCreds,
+      RemoteMatches,
       RenameStub,
-      EditMatchfile,
+      EditMatchfile,        # ci-only
       BrewBootstrap,
-      Icon1024,           # tree mutations finish before InitialPush
+      Icon1024,              # tree mutations land before InitialPush
       MakeIcons,
       InitialPush,
       BranchProtection,
-      CreateCertsRepo,
-      GHSecrets,
+      CreateCertsRepo,       # ci-only
+      GHSecrets,             # ci-only
       RegisterAppId,
       VerifyAscApp,
-      BootstrapCerts,
-      MintInstaller,
-      ScanMetadata,       # informational; never blocks
+      BootstrapCerts,        # ci-only
+      MintInstaller,         # ci-only
+      LocalKeychainCerts,    # local-only
+      ScanMetadata,          # informational
       ScanScreenshots
     ].freeze
 
     def initialize(config)
       @config = config
-      @steps = PIPELINE.map { |klass| klass.new(config) }
+      mode = config.release_mode
+      @steps = PIPELINE
+        .map { |klass| klass.new(config) }
+        .select { |step| step.applicable?(mode) }
     end
 
     def doctor
       @config.validate!
       UI.section "Configuration"
-      puts "  app:    #{@config['APP_NAME']} (#{@config['BUNDLE_ID']})"
-      puts "  apple:  team #{@config['FASTLANE_TEAM_ID']}, ASC key #{@config['ASC_API_KEY_ID']}"
-      puts "  gh:     app=#{@config.repo_slug} certs=#{@config.certs_slug}"
+      puts "  app:     #{@config['APP_NAME']} (#{@config['BUNDLE_ID']})"
+      puts "  mode:    RELEASE_MODE=#{UI.bold @config.release_mode}"
+      puts "  apple:   team #{@config['FASTLANE_TEAM_ID']}, ASC key #{@config['ASC_API_KEY_ID']}"
+      gh_line = "  gh:      app=#{@config.repo_slug}"
+      gh_line += " certs=#{@config.certs_slug}" if @config.ci_mode?
+      puts gh_line
 
       UI.section "Pipeline status"
       results = []

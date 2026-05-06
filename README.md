@@ -77,21 +77,24 @@ Apple side: see [`docs/APPLE-PREREQS.md`](docs/APPLE-PREREQS.md) for Team ID, Ap
 # 1. Fork from template
 gh repo create my-app --template indiagrams/ios-macos-template --public --clone && cd my-app
 
-# 2. Fill in .bootstrap.env — see docs/BOOTSTRAP.md for what each field is
-cp .bootstrap.env.example .bootstrap.env
+# 2. Scaffold .bootstrap.env (auto-fills GH_ORG/GH_APP_REPO from your origin remote)
+make init
+
+# 3. Edit .bootstrap.env — fill APP_NAME, BUNDLE_ID, Apple credentials,
+#    and RELEASE_MODE (ci for GH workflow signing, local for laptop signing)
 $EDITOR .bootstrap.env
 
-# 3. Validate config + probe Apple/GH
+# 4. Validate config + probe Apple/GH
 make doctor
 
-# 4. Run every programmatic step idempotently (rename, push, branch protection,
-#    7 GH Secrets, certs repo, match for 4 cert types, optional icon swap)
+# 5. Run every programmatic step idempotently
 make bootstrap-fork
 
-# 5. Trigger release.yml + tail until done (~5 min)
+# 6. Trigger a release. RELEASE_MODE=ci triggers .github/workflows/release.yml;
+#    RELEASE_MODE=local runs `bundle exec fastlane release` on this machine.
 make ship
 
-# 6. Confirm TestFlight ingestion
+# 7. Confirm TestFlight ingestion
 make verify
 ```
 

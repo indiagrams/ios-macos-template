@@ -8,9 +8,11 @@
 
 > **Goal of this README:** if you've never shipped an iOS or Mac app before, by the end of it you will have one running on your phone via TestFlight. About 30–60 minutes of focused time, $99/year for Apple Developer Program, a Mac.
 
-![HelloApp template running on iOS Simulator — hammer icon, "HelloApp" title, and 'Rename me' instruction visible](docs/screenshots/ios-home.png)
-
-![HelloApp template running natively on macOS — same hammer icon, title, and rename instruction](docs/screenshots/macos-home.png)
+<p align="center">
+  <img src="docs/screenshots/ios-home.png"   alt="HelloApp template running on iOS Simulator — hammer icon, 'HelloApp' title, and 'Rename me' instruction visible" width="260">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/macos-home.png" alt="HelloApp template running natively on macOS — same hammer icon, title, and rename instruction"                       width="500">
+</p>
 
 That's the starter app you'll customize into yours.
 

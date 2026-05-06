@@ -414,6 +414,68 @@ ok "--generator=tuist: make check exit 0 (Tuist-driven build green)"
 
 step "--generator=tuist end-to-end: PASSED"
 
+# ── --platforms substitution (PLATFORMS-aware stub label) ─────────────────
+#
+# bin/rename.sh's --platforms flag substitutes the SwiftUI stub's subtitle
+# in app/Shared/ContentView.swift. Verify the 3 valid values produce the
+# expected literal in the source, plus the invalid case fails loudly.
+#
+# No make check here — the substitution is a pure-text edit; if the input
+# tree compiled, the output (with a different string literal) compiles.
+# The earlier `make check` phases above prove the pipeline; this phase
+# just verifies the right string lands.
+
+step "--platforms substitution"
+
+# Reset to clean main; the prior --generator=tuist phase left a tuist-shaped
+# tree, so reset all the way back.
+git reset --hard --quiet HEAD
+git clean -fd --quiet
+
+run_platform_case() {
+  local label="$1"
+  local platforms_arg="$2"
+  local expected_substring="$3"
+
+  # Spawn a sibling tmpdir clone so we don't accumulate state across cases.
+  local case_dir
+  case_dir="$(mktemp -d -t test-rename-platforms-XXXXXX)"
+  git clone --no-hardlinks --quiet "$REPO_ROOT" "$case_dir"
+  ( cd "$case_dir" && git checkout --quiet -B main HEAD )
+
+  ( cd "$case_dir" && bin/rename.sh "$TEST_APP" "$TEST_BUNDLE" "$TEST_DISPLAY" \
+      --email=test@example.com --slug=test/myapp $platforms_arg ) >/dev/null \
+      || fail "--platforms case '$label' ($platforms_arg): bin/rename.sh exited non-zero"
+
+  grep -qF "$expected_substring" "$case_dir/app/Shared/ContentView.swift" || \
+    fail "--platforms case '$label': ContentView.swift missing expected literal '$expected_substring'
+Got:
+$(grep -E 'Text\("' "$case_dir/app/Shared/ContentView.swift")"
+  ok "--platforms=$label → ContentView.swift contains '$expected_substring'"
+
+  rm -rf "$case_dir"
+}
+
+run_platform_case "ios"       "--platforms=ios"       'Text("iOS template")'
+run_platform_case "macos"     "--platforms=macos"     'Text("macOS template")'
+run_platform_case "ios,macos" "--platforms=ios,macos" 'Text("iOS + macOS template")'
+run_platform_case "default"   ""                      'Text("iOS + macOS template")'
+
+# Invalid value must fail loud.
+bad_dir=$(mktemp -d -t test-rename-platforms-bad-XXXXXX)
+git clone --no-hardlinks --quiet "$REPO_ROOT" "$bad_dir"
+( cd "$bad_dir" && git checkout --quiet -B main HEAD )
+set +e
+( cd "$bad_dir" && bin/rename.sh "$TEST_APP" "$TEST_BUNDLE" "$TEST_DISPLAY" \
+    --email=test@example.com --slug=test/myapp --platforms=tvos ) >/dev/null 2>&1
+bad_exit=$?
+set -e
+test "$bad_exit" -ne 0 || fail "--platforms=tvos should have failed with non-zero exit; got $bad_exit"
+ok "--platforms=tvos rejected with non-zero exit ($bad_exit)"
+rm -rf "$bad_dir"
+
+step "--platforms substitution: PASSED"
+
 # ── Done ──────────────────────────────────────────────────────────────────
 
 step "ci/test-rename.sh: all assertions passed"

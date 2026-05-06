@@ -379,7 +379,8 @@ module Bootstrap
         "bin/rename.sh",
         config["APP_NAME"], config["BUNDLE_ID"], config["DISPLAY_NAME"],
         "--email=#{config['APP_EMAIL']}",
-        "--generator=#{config['GENERATOR']}"
+        "--generator=#{config['GENERATOR']}",
+        "--platforms=#{config.platforms.join(',')}"
       ]
       Sh.run!(*args)
       Sh.run!("bin/verify-rename.sh")
@@ -563,6 +564,16 @@ module Bootstrap
 
     private
 
+    # Human-readable label of the active platforms — for display in the
+    # ASC creation hint. Mirrors bin/rename.sh's PLATFORMS_LABEL.
+    def platforms_label
+      ios   = config.ios?
+      macos = config.macos?
+      return "iOS + macOS" if ios && macos
+      return "iOS"         if ios
+      return "macOS"       if macos
+      "iOS + macOS"  # defensive: shouldn't happen given Config.validate_platforms!
+    end
     def asc_creation_msg
       <<~MSG
         ASC App record for #{config['BUNDLE_ID']} not found.
@@ -571,7 +582,7 @@ module Bootstrap
         record once via the web UI:
 
           1. Open https://appstoreconnect.apple.com/apps  →  + (New App)
-          2. Platforms:        iOS + macOS
+          2. Platforms:        #{platforms_label}
              Name:             #{config['ASC_APP_NAME'].to_s.empty? ? config['DISPLAY_NAME'] : config['ASC_APP_NAME']}
              Primary Language: English (U.S.)
              Bundle ID:        #{config['BUNDLE_ID']}

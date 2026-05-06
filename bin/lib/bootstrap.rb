@@ -50,7 +50,7 @@ module Bootstrap
       GH_CERTS_REPO GH_PAT_FILE MATCH_PASSWORD_FILE KEYCHAIN_PASSWORD_FILE
     ].freeze
 
-    OPTIONAL = %w[ICON_1024_PATH ASC_APP_SKU ASC_APP_NAME].freeze
+    OPTIONAL = %w[ICON_1024_PATH ASC_APP_SKU ASC_APP_NAME PLATFORMS].freeze
 
     attr_reader :values
 
@@ -111,6 +111,7 @@ module Bootstrap
       unless %w[ci local].include?(mode)
         UI.fail!(".bootstrap.env: RELEASE_MODE must be 'ci' or 'local' (got: #{mode.inspect})")
       end
+      validate_platforms!
       required = REQUIRED_ALWAYS + (mode == "ci" ? REQUIRED_CI_ONLY : [])
       missing = required.reject { |k| set?(k) }
       return if missing.empty?
@@ -126,6 +127,41 @@ module Bootstrap
       m = self["RELEASE_MODE"]
       m.empty? ? "ci" : m
     end
+
+    # Returns the active platforms as an array of strings.
+    # PLATFORMS=ios          → %w[ios]
+    # PLATFORMS=macos        → %w[macos]
+    # PLATFORMS=ios,macos    → %w[ios macos]
+    # PLATFORMS unset/empty  → %w[ios macos] (default: both, current behavior)
+    def platforms
+      raw = self["PLATFORMS"].strip
+      return %w[ios macos] if raw.empty?
+      raw.split(",").map(&:strip).reject(&:empty?)
+    end
+
+    def platform_enabled?(platform)
+      platforms.include?(platform.to_s)
+    end
+
+    def ios?;   platform_enabled?("ios");   end
+    def macos?; platform_enabled?("macos"); end
+
+    private
+
+    def validate_platforms!
+      valid = %w[ios macos]
+      bad = platforms.reject { |p| valid.include?(p) }
+      return if bad.empty? && !platforms.empty?
+      if platforms.empty?
+        UI.fail!(".bootstrap.env: PLATFORMS cannot be empty. Use 'ios', 'macos', or 'ios,macos'.")
+      end
+      UI.fail!(<<~MSG)
+        .bootstrap.env: PLATFORMS contains invalid value(s): #{bad.inspect}
+        Valid values: 'ios', 'macos', or comma-separated like 'ios,macos'.
+      MSG
+    end
+
+    public
 
     def ci_mode?;    release_mode == "ci";    end
     def local_mode?; release_mode == "local"; end
@@ -219,11 +255,13 @@ module Bootstrap
   # ─── Step base class ────────────────────────────────────────────────────────
 
   class Step
-    # Each subclass may override MODES to restrict applicability:
-    #   class EditMatchfile < Step; MODES = %w[ci]; end
-    #   class LocalKeychainCerts < Step; MODES = %w[local]; end
-    # Default: run in both modes.
+    # Each subclass may override MODES + PLATFORMS to restrict applicability:
+    #   class EditMatchfile < Step; MODES = %w[ci]; end           # ci only
+    #   class LocalKeychainCerts < Step; MODES = %w[local]; end   # local only
+    #   class MintInstaller < Step; PLATFORMS = %w[macos]; end    # macOS only
+    # Default: run in any mode and any platform combination.
     MODES = %w[ci local].freeze
+    PLATFORMS = %w[ios macos].freeze
 
     attr_reader :config
 
@@ -231,8 +269,12 @@ module Bootstrap
       @config = config
     end
 
-    def applicable?(mode)
-      self.class.const_get(:MODES).include?(mode)
+    # Step is applicable iff (a) the active mode is in MODES AND
+    # (b) at least one of the active platforms is in PLATFORMS.
+    def applicable?(mode, active_platforms)
+      return false unless self.class.const_get(:MODES).include?(mode)
+      step_platforms = self.class.const_get(:PLATFORMS)
+      (step_platforms & active_platforms).any?
     end
 
     # Subclasses override.
@@ -542,17 +584,33 @@ module Bootstrap
 
   class BootstrapCerts < Step
     MODES = %w[ci].freeze
-    def name; "Mint iOS dist + dev + macOS dist certs (via match)"; end
+    def name
+      bits = []
+      bits << "iOS dist + dev" if config.ios?
+      bits << "macOS dist"     if config.macos?
+      "Mint #{bits.join(' + ')} certs (via match)"
+    end
 
     def check
       tree = certs_tree
       return :pending if tree.empty?
       has_dist  = tree.any? { |p| p.start_with?("certs/distribution/") && p.end_with?(".cer") }
       has_dev   = tree.any? { |p| p.start_with?("certs/development/") && p.end_with?(".cer") }
-      has_ios   = tree.any? { |p| p.match?(%r{^profiles/appstore/.*\.mobileprovision$}) }
-      has_macos = tree.any? { |p| p.match?(%r{^profiles/appstore/.*\.provisionprofile$}) }
-      has_devp  = tree.any? { |p| p.match?(%r{^profiles/development/.*\.mobileprovision$}) }
-      (has_dist && has_dev && has_ios && has_macos && has_devp) ? :done : :pending
+      # Apple Distribution + Apple Development certs are required regardless of
+      # platforms — both iOS and macOS distribution signing rely on them.
+      return :pending unless has_dist && has_dev
+      # Provisioning profiles are platform-specific. Only require those for the
+      # platforms the fork actually ships.
+      if config.ios?
+        has_ios  = tree.any? { |p| p.match?(%r{^profiles/appstore/.*\.mobileprovision$}) }
+        has_devp = tree.any? { |p| p.match?(%r{^profiles/development/.*\.mobileprovision$}) }
+        return :pending unless has_ios && has_devp
+      end
+      if config.macos?
+        has_macos = tree.any? { |p| p.match?(%r{^profiles/appstore/.*\.provisionprofile$}) }
+        return :pending unless has_macos
+      end
+      :done
     end
 
     def do_it
@@ -577,6 +635,7 @@ module Bootstrap
 
   class MintInstaller < Step
     MODES = %w[ci].freeze
+    PLATFORMS = %w[macos].freeze
     def name; "Mint Mac Installer Distribution cert"; end
 
     def check
@@ -624,6 +683,7 @@ module Bootstrap
   end
 
   class MakeIcons < Step
+    PLATFORMS = %w[macos].freeze
     def name; "Regenerate macOS icon set + .icns"; end
 
     def check
@@ -714,17 +774,32 @@ module Bootstrap
     MODES = %w[local].freeze
     def name; "Local keychain has signing identities"; end
 
-    REQUIRED_IDENTITIES = [
+    # Required by all forks regardless of platforms — Apple Distribution is the
+    # signing identity for both iOS .ipa and macOS .pkg/.app archives, and
+    # Apple Development covers device + Mac development signing.
+    REQUIRED_IDENTITIES_ALWAYS = [
       "Apple Distribution",
-      "Apple Development",
+      "Apple Development"
+    ].freeze
+
+    # Required only when shipping macOS — used by productbuild to sign the
+    # .pkg installer wrapper.
+    REQUIRED_IDENTITIES_MACOS = [
       "3rd Party Mac Developer Installer"
     ].freeze
+
+    def required_identities
+      ids = REQUIRED_IDENTITIES_ALWAYS.dup
+      ids.concat(REQUIRED_IDENTITIES_MACOS) if config.macos?
+      ids
+    end
 
     def check
       return :done if config.ci_mode? # only relevant in local mode
       out, _ok = Sh.run("security", "find-identity", "-v", "-p", "codesigning",
                         File.expand_path("~/Library/Keychains/login.keychain-db"))
-      missing = REQUIRED_IDENTITIES.reject { |id| out.include?(id) }
+      ids = required_identities
+      missing = ids.reject { |id| out.include?(id) }
       return :done if missing.empty?
       [:blocked, <<~MSG]
         Login keychain is missing #{missing.length} signing identit#{missing.length == 1 ? 'y' : 'ies'}:
@@ -772,7 +847,7 @@ module Bootstrap
       mode = config.release_mode
       @steps = PIPELINE
         .map { |klass| klass.new(config) }
-        .select { |step| step.applicable?(mode) }
+        .select { |step| step.applicable?(mode, config.platforms) }
     end
 
     def doctor

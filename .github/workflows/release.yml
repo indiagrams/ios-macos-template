@@ -74,13 +74,24 @@ jobs:
           # gives fastlane access to all prior tags for changelog/rev parsing.
           fetch-depth: 0
 
-      - name: Select Xcode (use macos-15 default; pin if drift bites)
-        # Use the runner's default Xcode (currently 16.4 on macos-15), which
-        # has matching iOS Simulator runtimes installed. Pinning to a specific
-        # Xcode (e.g. /Applications/Xcode_16.app = 16.0) breaks asset
-        # compilation when the iOS Simulator runtime for that SDK is missing.
-        # Logging version+SDK so future drift is visible at the top of the log.
+      - name: Select Xcode 26+ for iOS 26 SDK requirement
+        # Apple began enforcing iOS 26 SDK minimum for ASC uploads in 2026
+        # (altool rejects with "SDK version issue. This app was built with the
+        # iOS X.Y SDK. All iOS and iPadOS apps must be built with the iOS 26
+        # SDK or later, included in Xcode 26 or later."). The macos-15 runner
+        # default is currently Xcode 16.4 (iOS 18.5 SDK) — too old. Pick the
+        # highest-numbered /Applications/Xcode_26*.app available.
+        # See: docs/CONTINUOUS-VALIDATION.md G8.
         run: |
+          set -euo pipefail
+          XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_APP" ]; then
+            echo "::error::No Xcode 26+ found on runner. Available:" >&2
+            ls -d /Applications/Xcode*.app 2>/dev/null >&2 || true
+            exit 1
+          fi
+          echo "Selecting $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           xcodebuild -version
           xcrun --show-sdk-path --sdk iphoneos
 

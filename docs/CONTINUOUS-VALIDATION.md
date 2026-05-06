@@ -65,13 +65,3 @@ The smoketest also surfaced two ecosystem-level constraints:
 See [README → Setting up signing + ASC → Optional: enable CI signing via fastlane match](../README.md#optional-enable-ci-signing-via-fastlane-match)
 for the 8-step bootstrap. Once configured, the same `release.yml` runs
 weekly against your fork.
-
-## Relationship to `docs/SMOKE-TEST.md`
-
-`docs/SMOKE-TEST.md` describes a **disposable, manual smoke test** — create
-an ephemeral fork, run the Quickstart, verify, delete — done before each
-template release. It validates the **fork-time UX** (clone → rename → build).
-
-This document describes a **persistent, continuous smoke test** — a public
-fork that exercises the **release pipeline** weekly. The two are
-complementary; both gate template releases at different layers.

@@ -6,7 +6,7 @@
 # The stub app is named "HelloApp" with bundle id "com.example.helloapp".
 # Rename for your project: see README.md → "Renaming the stub".
 
-.PHONY: bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help
+.PHONY: all go bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help doctor bootstrap-fork ship verify
 
 help:
 	@echo "Targets:"
@@ -20,6 +20,7 @@ help:
 	@echo "  screenshots      Capture App Store screenshots (iOS + macOS) to fastlane/screenshots/"
 	@echo "  release-dryrun   fastlane release tag:v0.0.0 skip_upload:true skip_tag:true"
 	@echo "  setup-github     Apply branch protection settings to current repo"
+	@echo "  all              One-shot: doctor → bootstrap-fork → ship → verify (the full forker journey)"
 	@echo "  doctor           Read .bootstrap.env, validate Apple+GH credentials, print pipeline status"
 	@echo "  bootstrap-fork   Idempotent: drive every programmatic fork-bootstrap step from .bootstrap.env"
 	@echo "  ship             Trigger release.yml workflow_dispatch + tail until the run completes"
@@ -74,6 +75,9 @@ ship:
 
 verify:
 	@bundle exec ruby bin/verify-testflight.rb
+
+all: doctor bootstrap-fork ship verify
+go: all
 
 phase-checklist:
 	@if [ -z "$(N)" ]; then echo "usage: make phase-checklist N=<phase>  (e.g. N=3.1)"; exit 2; fi

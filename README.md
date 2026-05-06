@@ -6,7 +6,7 @@
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/sExv9eKdA)
 [![Weekly canary](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)
 
-> **Goal of this README:** if you've never shipped an iOS or Mac app before, by the end of it you will have one running on your phone via TestFlight. About 30–60 minutes of focused time, $99/year for Apple Developer Program, a Mac.
+> **Goal of this README:** if you've never shipped an iOS or Mac app before, by the end of it you will have one running on your phone (or Mac) via TestFlight. About 30–60 minutes of focused time, $99/year for Apple Developer Program, and a Mac to build on (Xcode and the rest of Apple's build tools only run on macOS — you need a Mac even for an iPhone-only app).
 
 <p align="center">
   <img src="docs/screenshots/ios-home.png"   alt="HelloApp template running on iOS Simulator — hammer icon, 'HelloApp' title, and 'Rename me' instruction visible" width="260">
@@ -55,7 +55,7 @@ You don't need to memorize these — refer back as you hit each.
 ## What you need before you start
 
 ### Hardware
-- **A Mac.** Any Mac running macOS Sonoma (14) or newer. iPad/iPhone works for testing the final app but not for building.
+- **A Mac.** Any Mac running macOS Sonoma (14) or newer. **Required even for iOS-only apps** — Xcode, xcodebuild, fastlane, and the iOS Simulator only run on macOS. There is no supported way to build iOS or Mac apps on Windows or Linux.
 - **(Optional) An iPhone or iPad** to install your app via TestFlight at the end. Not strictly required — TestFlight also works on Mac.
 
 ### Money

@@ -27,8 +27,8 @@ is the only section you really need.
 > manifests (`Tuist.swift` + `app/Project.swift` alongside
 > `app/project.yml`) and CI verifies both stay in sync on every PR
 > via the 6-job matrix (3 XcodeGen + 3 Tuist parity). Tracked in
-> [#34](https://github.com/indiagrams/ios-macos-template/issues/34) +
-> [#38](https://github.com/indiagrams/ios-macos-template/issues/38).
+> [#34](https://github.com/indiagrams/apple-shipkit/issues/34) +
+> [#38](https://github.com/indiagrams/apple-shipkit/issues/38).
 >
 > Validated end-to-end against this repo: a throwaway clone, ran
 > `bin/switch-to-tuist.sh`, then `make check` / `make check-sim` /
@@ -328,7 +328,7 @@ the script already covers. No edit required.
 ## Step 4 — Validate end-to-end
 
 The acceptance criterion for this migration (per
-[issue #34](https://github.com/indiagrams/ios-macos-template/issues/34))
+[issue #34](https://github.com/indiagrams/apple-shipkit/issues/34))
 is "`make check` passing post-migration on a fresh fork." Run all
 three signal paths:
 

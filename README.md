@@ -1,10 +1,10 @@
-# ios-macos-template
+# apple-shipkit
 
-[![CI](https://github.com/indiagrams/ios-macos-template/actions/workflows/pr.yml/badge.svg)](https://github.com/indiagrams/ios-macos-template/actions/workflows/pr.yml)
+[![CI](https://github.com/indiagrams/apple-shipkit/actions/workflows/pr.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/pr.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org)
 
-> **v1.0.0 released** — [release notes](https://github.com/indiagrams/ios-macos-template/releases/tag/v1.0.0). The "Use this template" button is live; fork it and ship.
+> **v1.0.0 released** — [release notes](https://github.com/indiagrams/apple-shipkit/releases/tag/v1.0.0). The "Use this template" button is live; fork it and ship.
 
 Opinionated boilerplate for iOS + macOS apps.
 Distilled from production iOS + macOS apps shipping on the App Store —
@@ -64,7 +64,7 @@ The template ships with a working `HelloApp` stub that builds green on both iOS 
 **Missing some?** Run `bin/preflight.sh` first — it checks every prereq and walks you through installing the missing ones:
 
 ```bash
-git clone https://github.com/indiagrams/ios-macos-template.git /tmp/preflight \
+git clone https://github.com/indiagrams/apple-shipkit.git /tmp/preflight \
   && bash /tmp/preflight/bin/preflight.sh \
   && rm -rf /tmp/preflight
 ```
@@ -75,7 +75,7 @@ Apple side: see [`docs/APPLE-PREREQS.md`](docs/APPLE-PREREQS.md) for Team ID, Ap
 
 ```bash
 # 1. Fork from template
-gh repo create my-app --template indiagrams/ios-macos-template --public --clone && cd my-app
+gh repo create my-app --template indiagrams/apple-shipkit --public --clone && cd my-app
 
 # 2. Scaffold .bootstrap.env (auto-fills GH_ORG/GH_APP_REPO from your origin remote)
 make init

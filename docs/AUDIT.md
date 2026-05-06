@@ -1,7 +1,7 @@
 # Pre-Public-Flip Secret + Identifier Audit
 
 This runbook documents how to re-run the secret + identifier audit before each
-major release of this `ios-macos-template` source repo. It is the last verification
+major release of this `apple-shipkit` source repo. It is the last verification
 gate before flipping visibility public (M5 P3) and before tagging v1.0.0+ releases
 (M5 P4 onward).
 

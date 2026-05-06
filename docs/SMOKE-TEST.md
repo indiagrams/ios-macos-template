@@ -12,7 +12,7 @@ Before starting:
 - **Homebrew** (`brew --version` ≥ 4.x)
 - **Xcode CLI** (`xcodebuild -version` returns valid output)
 - **`git config user.name` + `user.email`** set (rename produces a commit; identity must be configured)
-- **`is_template=true`** on the source repo (`gh api repos/indiagrams/ios-macos-template --jq '.is_template'` returns `true`). The template flag is set during M4 P4 and persists. M5 P3 will inherit it when flipping visibility public.
+- **`is_template=true`** on the source repo (`gh api repos/indiagrams/apple-shipkit --jq '.is_template'` returns `true`). The template flag is set during M4 P4 and persists. M5 P3 will inherit it when flipping visibility public.
 - **Working tree clean** in your local checkout; smoke-test clone goes into a sibling directory
 
 ## Procedure
@@ -23,7 +23,7 @@ The smoke test creates a real public repo (`indiagrams/ios-macos-smoke-test`), r
 # 1. From this repo's parent directory, create a smoke-test repo from the template.
 cd ..
 SMOKE_REPO="indiagrams/ios-macos-smoke-test"
-SOURCE_REPO="indiagrams/ios-macos-template"
+SOURCE_REPO="indiagrams/apple-shipkit"
 SMOKE_DIR_ABS="$(pwd)/$(basename "$SMOKE_REPO")"
 
 gh repo create "$SMOKE_REPO" \
@@ -153,7 +153,7 @@ rm -f ../bootstrap.log ../check.log ../setup-github.log ../smoke-cleanup.log
 ## Cross-org verification
 
 The smoke test above validates the same-org template-fork path
-(`indiagrams/ios-macos-template` → `indiagrams/ios-macos-smoke-test`).
+(`indiagrams/apple-shipkit` → `indiagrams/ios-macos-smoke-test`).
 The cross-org verification adds two coverage axes — a different org
 (`prakashrj/`) and the no-arg auto-detect form of `bin/setup-github.sh` —
 to confirm the script has no hardcoded org assumptions. Run this before
@@ -182,13 +182,13 @@ gh repo view prakashrj/ios-macos-cross-org-test 2>&1 | grep -q 'Could not resolv
 cd ..
 INDIAGRAMS_DIR_ABS="$(pwd)/ios-macos-smoke-test"
 gh repo create indiagrams/ios-macos-smoke-test \
-  --template indiagrams/ios-macos-template \
+  --template indiagrams/apple-shipkit \
   --public --clone
 sleep 5
 ( cd "$INDIAGRAMS_DIR_ABS" && git checkout HEAD -- . 2>/dev/null || true )
 
 # 2. Run setup-github.sh (explicit form, same-org). Verify protection.
-cd ios-macos-template
+cd apple-shipkit
 bin/setup-github.sh indiagrams/ios-macos-smoke-test
 sleep 2
 gh api repos/indiagrams/ios-macos-smoke-test/branches/main/protection \
@@ -216,7 +216,7 @@ sleep 2
 
 # 5. Run setup-github.sh (explicit form, cross-org). Verify protection +
 #    state-vector.
-cd ios-macos-template
+cd apple-shipkit
 bin/setup-github.sh prakashrj/ios-macos-cross-org-test
 sleep 2
 gh api repos/prakashrj/ios-macos-cross-org-test/branches/main/protection \
@@ -228,7 +228,7 @@ gh api repos/prakashrj/ios-macos-cross-org-test \
 # 6. No-arg auto-detect form: run setup-github.sh from inside the
 #    cross-org clone with no arguments.
 cd "$CROSS_ORG_DIR_ABS"
-"$(pwd)/../ios-macos-template/bin/setup-github.sh"   # no args
+"$(pwd)/../apple-shipkit/bin/setup-github.sh"   # no args
 cd -
 
 # 7. Cleanup (trap-on-EXIT in the orchestration; this is the manual form):

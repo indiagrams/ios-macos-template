@@ -10,7 +10,7 @@ the ones Apple and GitHub deliberately don't expose to APIs.
 
 ```bash
 # 1. Fork from template
-gh repo create my-app --template indiagrams/ios-macos-template --public --clone
+gh repo create my-app --template indiagrams/apple-shipkit --public --clone
 cd my-app
 
 # 2. Scaffold .bootstrap.env from the example, auto-filling GH_ORG/GH_APP_REPO

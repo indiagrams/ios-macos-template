@@ -30,6 +30,11 @@ on:
         required: false
         type: boolean
         default: false
+      platforms:
+        description: 'Platforms to ship (comma-separated subset of ios,macos). Threaded to release.yml as the platforms input.'
+        required: false
+        type: string
+        default: 'ios,macos'
 
 permissions:
   contents: read
@@ -69,6 +74,7 @@ jobs:
       TARGET_REF: main
       GH_TOKEN: ${{ secrets.SMOKETEST_DISPATCH_PAT }}
       GENERATOR: ${{ matrix.generator }}
+      PLATFORMS: ${{ inputs.platforms || 'ios,macos' }}
 
     steps:
       - name: Verify dispatch PAT is set
@@ -95,13 +101,14 @@ jobs:
         run: |
           dry_run='${{ inputs.dry_run }}'
           dry_run="${dry_run:-false}"
-          echo "Dispatching ${TARGET_REPO} ${TARGET_WORKFLOW} on ref=${TARGET_REF} dry_run=${dry_run} generator=${GENERATOR}"
+          echo "Dispatching ${TARGET_REPO} ${TARGET_WORKFLOW} on ref=${TARGET_REF} dry_run=${dry_run} generator=${GENERATOR} platforms=${PLATFORMS}"
           gh workflow run "${TARGET_WORKFLOW}" \
             --repo "${TARGET_REPO}" \
             --ref "${TARGET_REF}" \
             -f version='' \
             -f "dry_run=${dry_run}" \
-            -f "generator=${GENERATOR}"
+            -f "generator=${GENERATOR}" \
+            -f "platforms=${PLATFORMS}"
 
       - name: Locate the dispatched run
         id: locate

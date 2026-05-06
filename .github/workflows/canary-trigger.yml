@@ -40,6 +40,12 @@ concurrency:
 
 jobs:
   dispatch:
+    # Skip on forks: this workflow dispatches release.yml on
+    # indiagrams/ios-macos-smoketest using SMOKETEST_DISPATCH_PAT — both
+    # specific to this repo. Forks have neither the target repo permissions
+    # nor the secret, so a fork run would fail at the PAT-verify step.
+    # Skipped runs surface as a single grey check, not red errors.
+    if: github.repository == 'indiagrams/apple-shipkit'
     runs-on: ubuntu-latest
     timeout-minutes: 60
 

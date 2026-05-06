@@ -39,6 +39,11 @@ permissions:
 
 jobs:
   doctor:
+    # Skip on forks: this workflow references indiagrams/ios-macos-smoketest
+    # by hardcoded path and uses secrets configured only on this repo. On any
+    # other repo it would fail at the secrets-write step or produce meaningless
+    # results. Skipped runs surface as a single grey check, not red errors.
+    if: github.repository == 'indiagrams/apple-shipkit'
     runs-on: macos-15
     timeout-minutes: 15
     strategy:

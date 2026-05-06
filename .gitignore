@@ -68,3 +68,4 @@ ehthumbs.db
 
 # Generated artifacts (regenerable from CHANGELOG.md)
 release-notes.md
+.bootstrap.env

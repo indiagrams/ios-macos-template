@@ -13,22 +13,43 @@ the ones Apple and GitHub deliberately don't expose to APIs.
 gh repo create my-app --template indiagrams/ios-macos-template --public --clone
 cd my-app
 
-# 2. Fill in .bootstrap.env (see "Config reference" below)
-cp .bootstrap.env.example .bootstrap.env
+# 2. Scaffold .bootstrap.env from the example, auto-filling GH_ORG/GH_APP_REPO
+#    from `git remote get-url origin`
+make init
+
+# 3. Edit .bootstrap.env — fill APP_NAME, BUNDLE_ID, Apple credentials,
+#    RELEASE_MODE (ci or local). See "Config reference" below.
 $EDITOR .bootstrap.env
 
-# 3. Validate — see what's done, what's pending, what's blocked
+# 4. Validate config + probe Apple/GH
 make doctor
 
-# 4. Run the bootstrap (idempotent — re-run safely)
+# 5. Run every programmatic step idempotently
 make bootstrap-fork
 
-# 5. Trigger the release pipeline
-make ship          # tails the workflow run until success
+# 6. Trigger a release (CI workflow if RELEASE_MODE=ci, fastlane locally if =local)
+make ship
 
-# 6. Confirm TestFlight ingestion
+# 7. Confirm TestFlight ingestion
 make verify
 ```
+
+## Two release modes
+
+`.bootstrap.env` has a `RELEASE_MODE` field. Choose one:
+
+| | `ci` (default) | `local` |
+|---|---|---|
+| **Setup includes** | Private certs repo, fastlane match, 7 GH Secrets, branch protection, ASC App | Login keychain identities check, branch protection, ASC App |
+| **`make ship` does** | Triggers `.github/workflows/release.yml` on the app repo | Runs `bundle exec fastlane release tag:vYYYY.WW.HHMM` on this machine |
+| **Signing material lives** | Encrypted in the certs repo; CI decrypts via `MATCH_PASSWORD` | In your login keychain (Apple Distribution + Apple Development + 3rd Party Mac Developer Installer) |
+| **Who can release** | Anyone with `GH_PAT_FILE` (and ASC API key) | Only this laptop |
+| **Best for** | Teams, weekly TestFlight cron, repeatable builds | Solo devs, fast iteration, no shared CI |
+| **Cost to bootstrap** | ~10 min (PAT + certs repo + 7 secrets + match) | ~3 min (just verify keychain has the certs) |
+
+The same `fastlane/Fastfile` drives both — the release lane gates the `match` calls on `File.exist?(fastlane/Matchfile)`, so a `local`-mode fork that never touches Matchfile uses local Keychain signing automatically.
+
+You can switch modes later by editing `RELEASE_MODE` and re-running `make bootstrap-fork`. Going `local → ci`: bootstrap will set up the certs repo + secrets. Going `ci → local`: bootstrap won't tear down the existing certs repo (you'd remove that manually); CI just stops running.
 
 ## Config reference
 
@@ -44,15 +65,16 @@ actual secret bytes. The dotenv itself is low-blast-radius.
 | `APP_EMAIL` | Maintainer email for Appfile, CHANGELOG, fastlane metadata | You decide |
 | `GENERATOR` | `xcodegen` (default) or `tuist` | Pick whichever project format you want to drive your fork |
 | `FASTLANE_TEAM_ID` | 10-char Apple Developer Team ID | <https://developer.apple.com/account/#/membership> |
+| `RELEASE_MODE` | `ci` or `local`. See [Two release modes](#two-release-modes) above | You decide |
 | `ASC_API_KEY_ID` | 10-char ASC API key ID | <https://appstoreconnect.apple.com/access/api> → Users and Access → Integrations → App Store Connect API |
 | `ASC_API_KEY_ISSUER_ID` | UUID format issuer ID | Same page, shown above the keys table |
 | `ASC_API_KEY_P8_PATH` | Path to the `.p8` file Apple gave you when you created the API key | Apple shows it once at creation time. If lost, generate a new key + revoke old |
 | `GH_ORG` | GitHub user/org that owns both repos | You decide |
-| `GH_APP_REPO` | App repo name (you already created this via `gh repo create --template`) | Already done if you ran the quickstart |
-| `GH_CERTS_REPO` | Private certs repo name (created by `make bootstrap-fork` if absent) | Convention: `<app-repo>-certs` |
-| `GH_PAT_FILE` | Path to a file containing a fine-grained PAT scoped to `GH_CERTS_REPO` (Contents: read+write) | <https://github.com/settings/tokens?type=beta>. See [PAT scope tradeoff](#pat-scope-tradeoff) below |
-| `MATCH_PASSWORD_FILE` | Path to a file containing the certs-repo encryption password. Auto-generated as 32 random chars if absent | Created on first `make bootstrap-fork` |
-| `KEYCHAIN_PASSWORD_FILE` | Path to a file containing the CI keychain password. Auto-generated if absent | Created on first `make bootstrap-fork` |
+| `GH_APP_REPO` | App repo name (already created via `gh repo create --template`; auto-filled by `make init` from origin remote) | The name you used in `gh repo create` |
+| `GH_CERTS_REPO` *(ci-only)* | Private certs repo name (created by `make bootstrap-fork` if absent) | Convention: `<app-repo>-certs` |
+| `GH_PAT_FILE` *(ci-only)* | Path to a file containing a fine-grained PAT scoped to `GH_CERTS_REPO` (Contents: read+write) | <https://github.com/settings/tokens?type=beta>. See [PAT scope tradeoff](#pat-scope-tradeoff) below |
+| `MATCH_PASSWORD_FILE` *(ci-only)* | Path to a file containing the certs-repo encryption password. Auto-generated as 32 random chars if absent | Created on first `make bootstrap-fork` |
+| `KEYCHAIN_PASSWORD_FILE` *(ci-only)* | Path to a file containing the CI keychain password. Auto-generated if absent | Created on first `make bootstrap-fork` |
 | `ICON_1024_PATH` (optional) | Path to your 1024×1024 PNG. If set, replaces the template hammer icon and runs `make icons` | Designer artifact |
 | `ASC_APP_SKU` (optional) | Documentation hint for the manual ASC App creation step | Any unique string |
 | `ASC_APP_NAME` (optional) | Documentation hint — defaults to `DISPLAY_NAME` | The human-readable name you want shown in the App Store |

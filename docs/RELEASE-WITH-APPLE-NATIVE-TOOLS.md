@@ -84,7 +84,7 @@ The conventions below assume:
 
 - Bundle ID: `com.example.helloapp` (substitute yours)
 - Scheme: `HelloApp-iOS` / `HelloApp-macOS`
-- Team ID: read from `.env.local` as `FASTLANE_TEAM_ID` (the existing convention)
+- Team ID: read from `.bootstrap.env` as `FASTLANE_TEAM_ID` (set by `make init` + your edits)
 - Build artifacts: `build/HelloApp-<version>.ipa`, `build/HelloApp-<version>.pkg`
 - ASC API key path: `~/.appstoreconnect/AuthKey_<KEYID>.p8` (per
   [`docs/APPLE-PREREQS.md`](APPLE-PREREQS.md))

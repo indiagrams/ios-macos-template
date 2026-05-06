@@ -282,7 +282,7 @@ validate_args() {
 #   - rm -rf app/$APP_NAME.xcodeproj  (regenerated dir is gitignored;
 #     `git clean -fd` without -x won't touch it)
 #   - git clean -fd                    (removes new untracked files;
-#     NEVER -fdx — forker's .env.local would be deleted)
+#     NEVER -fdx — forker's .bootstrap.env / .env.local would be deleted)
 #
 # No git stash. No SNAPSHOT_REF. No snapshot_drop_on_success.
 #
@@ -324,7 +324,7 @@ rollback() {
   # git mv staging back to HEAD.
   if git reset --hard HEAD --quiet 2>/dev/null; then
     # Step 3: git clean -fd removes any NEW untracked files xcodegen
-    # may have created alongside. NOT -fdx — forker's .env.local etc.
+    # may have created alongside. NOT -fdx — forker's .bootstrap.env etc.
     # are precious. Pre-flight Gate 7 already required clean tree, so
     # there should be nothing else to clean except what THIS script
     # introduced.
@@ -645,7 +645,7 @@ gate_tuist_present_if_needed() {
 gate_clean_tree() {
   # NOTE: We deliberately DO NOT pass --untracked-files=no here.
   # Forker-facing script must catch untracked files (e.g.
-  # .env.local, notes.md, WIP edits) so they don't get touched
+  # .bootstrap.env, notes.md, WIP edits) so they don't get touched
   # by reset-hard rollback.
   if [ "$(git status --short | wc -l | tr -d ' ')" != "0" ]; then
     fail "working tree not clean — commit, stash, or remove untracked files before running rename"

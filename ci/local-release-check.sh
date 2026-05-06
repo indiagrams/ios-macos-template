@@ -73,11 +73,52 @@ step() { printf '\n==> %s\n' "$*"; }
 ok()   { printf '    ✓ %s\n' "$*"; }
 fail() { printf '    ✗ %s\n' "$*" >&2; exit 1; }
 
+
+# timestamp.apple.com (Apple's RFC 3161 timestamp service used by codesign
+# --timestamp and productbuild --timestamp) has known transient unavailability
+# on CI runners. Wrap calls so a single blip during the weekly cron doesn't
+# fail the whole release.
+with_timestamp_retry() {
+  local label="$1"; shift
+  local out
+  for attempt in 1 2 3 4 5; do
+    if out=$("$@" 2>&1); then
+      echo "$out"
+      return 0
+    fi
+    if echo "$out" | grep -q "timestamp service is not available"; then
+      echo "$out" >&2
+      echo "    ⚠  $label: timestamp.apple.com blip (attempt $attempt/5); retrying in $((attempt * 5))s…" >&2
+      sleep $((attempt * 5))
+      continue
+    fi
+    echo "$out" >&2
+    return 1
+  done
+  echo "    ✗ $label: timestamp.apple.com kept failing after 5 attempts" >&2
+  return 1
+}
 # Apple Distribution cert SHA-1 resolver — shared library; SHA-pinned across consumer repos.
 . "$(dirname "${BASH_SOURCE[0]}")/lib/resolve-dist-cert-sha.sh"
 
 VERSION="${TAG#v}"
 MARKETING_VERSION="${RELEASE_MARKETING_VERSION:-${VERSION%%-*}}"
+# ASC requires CFBundleVersion to be unique per CFBundleShortVersionString
+# across uploads. RELEASE_BUILD_NUMBER lets CI threading (e.g. github.run_number)
+# guarantee uniqueness across weekly cron runs. Default 0 preserves the prior
+# local-only behavior for one-shot manual builds.
+BUILD_NUMBER="${RELEASE_BUILD_NUMBER:-0}"
+
+# Bundle id is required when building manual-signing ExportOptions plists
+# (provisioningProfiles dict maps bundle_id → profile name). Pulled from
+# project.yml's first PRODUCT_BUNDLE_IDENTIFIER line so it stays in sync
+# with the canonical source; overridable via RELEASE_BUNDLE_ID env.
+if [ -n "${RELEASE_BUNDLE_ID:-}" ]; then
+  BUNDLE_ID="$RELEASE_BUNDLE_ID"
+else
+  BUNDLE_ID="$(grep -m 1 -E '^[[:space:]]+PRODUCT_BUNDLE_IDENTIFIER:' app/project.yml | awk -F': ' '{print $2}' | tr -d '" ')"
+fi
+[ -z "$BUNDLE_ID" ] && fail "Could not determine BUNDLE_ID — set RELEASE_BUNDLE_ID env or check app/project.yml"
 
 # ── Tag format check ──────────────────────────────────────────────────────────
 
@@ -97,6 +138,72 @@ ok "HelloApp.xcodeproj regenerated"
 mkdir -p "$REPO_ROOT/build"
 
 # ─────────────────────────────────────────────────────────────────────────────
+# App Store Connect API auth for xcodebuild (-authenticationKeyPath etc.)
+# ─────────────────────────────────────────────────────────────────────────────
+# When the three ASC_API_KEY_* env vars are set (locally via .env.local /
+# secrets.env, in CI via GH Secrets), decode the .p8 to a temp file and
+# thread it through every xcodebuild invocation. -allowProvisioningUpdates
+# then resolves match-installed profiles via API key auth — no Apple ID
+# account, no interactive login. Without these flags on a CI runner,
+# xcodebuild prints "No Accounts: Add a new account in Accounts settings."
+# and aborts.
+#
+# When the env vars aren't set (purely-local dev with profiles already
+# in the login keychain), ASC_AUTH_ARGS stays empty and xcodebuild falls
+# back to keychain-based account lookup as before.
+ASC_AUTH_ARGS=()
+if [ -n "${ASC_API_KEY_ID:-}" ] && [ -n "${ASC_API_KEY_ISSUER_ID:-}" ] && [ -n "${ASC_API_KEY_P8_BASE64:-}" ]; then
+  ASC_KEY_PATH="$WORK_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
+  printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 -d > "$ASC_KEY_PATH"
+  chmod 600 "$ASC_KEY_PATH"
+  ASC_AUTH_ARGS=(
+    -authenticationKeyPath "$ASC_KEY_PATH"
+    -authenticationKeyID "$ASC_API_KEY_ID"
+    -authenticationKeyIssuerID "$ASC_API_KEY_ISSUER_ID"
+  )
+  ok "xcodebuild ASC API key auth enabled (key id ${ASC_API_KEY_ID})"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Manual signing overrides (CI-driven; via match's profile name env vars)
+# ─────────────────────────────────────────────────────────────────────────────
+# When RELEASE_IOS_PROFILE_NAME / RELEASE_MACOS_PROFILE_NAME are set
+# (release lane reads them from match's `sigh_<bundle>_<type>_profile-name`
+# env vars and threads them through), switch xcodebuild to MANUAL signing.
+#
+# Why: xcodebuild's `automatic` signing path tries Apple's "cloud signing"
+# during exportArchive, which fails on CI runners with API-key-only auth:
+#   error: exportArchive Cloud signing permission error
+#   error: exportArchive No profiles for '...' were found
+# Manual signing skips cloud signing entirely and uses the match-installed
+# profile by name. Required for the iOS / macOS export steps.
+#
+# When the env vars are absent (legacy local dev where Xcode is logged into
+# Apple ID), arrays stay empty and the existing automatic flow runs unchanged.
+IOS_SIGN_ARGS=()
+MACOS_SIGN_ARGS=()
+PATCH_IOS_PLIST=false
+PATCH_MACOS_PLIST=false
+if [ -n "${RELEASE_IOS_PROFILE_NAME:-}" ]; then
+  IOS_SIGN_ARGS=(
+    CODE_SIGN_STYLE=Manual
+    "PROVISIONING_PROFILE_SPECIFIER=$RELEASE_IOS_PROFILE_NAME"
+    "CODE_SIGN_IDENTITY=Apple Distribution"
+  )
+  PATCH_IOS_PLIST=true
+  ok "iOS manual signing → '$RELEASE_IOS_PROFILE_NAME'"
+fi
+if [ -n "${RELEASE_MACOS_PROFILE_NAME:-}" ]; then
+  MACOS_SIGN_ARGS=(
+    CODE_SIGN_STYLE=Manual
+    "PROVISIONING_PROFILE_SPECIFIER=$RELEASE_MACOS_PROFILE_NAME"
+    "CODE_SIGN_IDENTITY=Apple Distribution"
+  )
+  PATCH_MACOS_PLIST=true
+  ok "macOS manual signing → '$RELEASE_MACOS_PROFILE_NAME'"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
 # iOS archive + IPA export
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -110,16 +217,28 @@ if $SIGN_IOS; then
   cp ci/ExportOptions-iOS.plist "$EXPORT_OPTS"
   sed -i '' "s/TEAM_ID_PLACEHOLDER/$TEAM_ID/g" "$EXPORT_OPTS"
 
+  if $PATCH_IOS_PLIST; then
+    plutil -replace signingStyle -string manual "$EXPORT_OPTS"
+    plutil -replace provisioningProfiles -xml \
+      "<dict><key>$BUNDLE_ID</key><string>$RELEASE_IOS_PROFILE_NAME</string></dict>" \
+      "$EXPORT_OPTS" 2>/dev/null || \
+    plutil -insert provisioningProfiles -xml \
+      "<dict><key>$BUNDLE_ID</key><string>$RELEASE_IOS_PROFILE_NAME</string></dict>" \
+      "$EXPORT_OPTS"
+  fi
+
   xcodebuild archive \
     -project app/HelloApp.xcodeproj \
     -scheme HelloApp-iOS \
     -configuration Release \
     -destination 'generic/platform=iOS' \
     -archivePath "$IOS_ARCHIVE" \
+    "${ASC_AUTH_ARGS[@]}" \
+    "${IOS_SIGN_ARGS[@]}" \
     -allowProvisioningUpdates \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     MARKETING_VERSION="$MARKETING_VERSION" \
-    CURRENT_PROJECT_VERSION="0" \
+    CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
     2>&1 | "${XCBEAUTIFY[@]}"
 
   step "iOS export (App Store)"
@@ -127,6 +246,7 @@ if $SIGN_IOS; then
     -archivePath "$IOS_ARCHIVE" \
     -exportOptionsPlist "$EXPORT_OPTS" \
     -exportPath "$IOS_EXPORT" \
+    "${ASC_AUTH_ARGS[@]}" \
     -allowProvisioningUpdates \
     2>&1 | "${XCBEAUTIFY[@]}"
 
@@ -154,17 +274,38 @@ if $SIGN_MACOS; then
   cp ci/ExportOptions-macOS-AppStore.plist "$EXPORT_OPTS_MACOS"
   sed -i '' "s/TEAM_ID_PLACEHOLDER/$TEAM_ID/g" "$EXPORT_OPTS_MACOS"
 
+  if $PATCH_MACOS_PLIST; then
+    plutil -replace signingStyle -string manual "$EXPORT_OPTS_MACOS"
+    plutil -replace provisioningProfiles -xml \
+      "<dict><key>$BUNDLE_ID</key><string>$RELEASE_MACOS_PROFILE_NAME</string></dict>" \
+      "$EXPORT_OPTS_MACOS" 2>/dev/null || \
+    plutil -insert provisioningProfiles -xml \
+      "<dict><key>$BUNDLE_ID</key><string>$RELEASE_MACOS_PROFILE_NAME</string></dict>" \
+      "$EXPORT_OPTS_MACOS"
+    # The .pkg installer wrapper is signed with a SEPARATE cert from the .app
+    # inside it: "3rd Party Mac Developer Installer" (Apple's name for the
+    # MAC_INSTALLER_DISTRIBUTION cert type). Match installs it readonly from
+    # the certs repo. Specifying the prefix-only string lets Xcode find any
+    # valid installer cert in the keychain — robust against team-id drift.
+    plutil -replace installerSigningCertificate -string '3rd Party Mac Developer Installer' \
+      "$EXPORT_OPTS_MACOS" 2>/dev/null || \
+    plutil -insert installerSigningCertificate -string '3rd Party Mac Developer Installer' \
+      "$EXPORT_OPTS_MACOS"
+  fi
+
   xcodebuild archive \
     -project app/HelloApp.xcodeproj \
     -scheme HelloApp-macOS \
     -configuration Release \
     -destination 'generic/platform=macOS' \
     -archivePath "$MACOS_ARCHIVE" \
+    "${ASC_AUTH_ARGS[@]}" \
+    "${MACOS_SIGN_ARGS[@]}" \
     -allowProvisioningUpdates \
-    CODE_SIGN_STYLE=Automatic \
+    $($PATCH_MACOS_PLIST && echo "" || echo "CODE_SIGN_STYLE=Automatic") \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     MARKETING_VERSION="$MARKETING_VERSION" \
-    CURRENT_PROJECT_VERSION="0" \
+    CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
     2>&1 | "${XCBEAUTIFY[@]}"
 
   step "macOS export"
@@ -172,6 +313,7 @@ if $SIGN_MACOS; then
     -archivePath "$MACOS_ARCHIVE" \
     -exportPath "$MACOS_EXPORT" \
     -exportOptionsPlist "$EXPORT_OPTS_MACOS" \
+    "${ASC_AUTH_ARGS[@]}" \
     -allowProvisioningUpdates \
     2>&1 | "${XCBEAUTIFY[@]}"
 
@@ -219,7 +361,8 @@ if $SIGN_MACOS; then
   #   _set com.apple.security.network.server  true
   #   _set com.apple.security.device.camera   true
 
-  codesign --force --sign "$APPLE_DIST_SHA" \
+  with_timestamp_retry "codesign macOS .app (sandbox re-sign)" \
+    codesign --force --sign "$APPLE_DIST_SHA" \
     --entitlements "$MERGED_ENTITLEMENTS" \
     --timestamp \
     "$EXPANDED_APP"
@@ -231,7 +374,8 @@ if $SIGN_MACOS; then
   [ -z "$INSTALLER_CERT" ] && fail "Mac Installer Distribution cert not found in keychain — install one from developer.apple.com → Certificates → '+' → Mac Installer Distribution"
 
   PKG_DEST="$REPO_ROOT/build/HelloApp-${VERSION}.pkg"
-  productbuild --component "$EXPANDED_APP" /Applications \
+  with_timestamp_retry "productbuild .pkg" \
+    productbuild --component "$EXPANDED_APP" /Applications \
     --sign "$INSTALLER_CERT" \
     --timestamp \
     "$PKG_DEST"

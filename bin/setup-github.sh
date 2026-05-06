@@ -77,21 +77,41 @@ ok "squash-only merge, auto-delete head branches, auto-merge enabled"
 
 step "Branch protection on main"
 
-# Use a heredoc JSON body — gh api -F doesn't gracefully nest the required_status_checks
-# array of objects. Required check names must match the job 'name:' attributes
-# in .github/workflows/pr.yml.
-PROTECTION_JSON=$(cat <<'JSON'
+# Derive the required-checks list from .bootstrap.env's PLATFORMS field.
+# Defaults to 'ios,macos' if the file or field is absent. The PR workflow
+# (.github/workflows/pr.yml) only runs the iOS jobs when do_ios=true and
+# the macOS jobs when do_macos=true, so the required checks must match.
+PLATFORMS_VAL=""
+if [ -f "$REPO_ROOT/.bootstrap.env" ]; then
+  PLATFORMS_VAL=$(awk -F= '/^PLATFORMS[[:space:]]*=/ { gsub(/^[[:space:]"\047]+|[[:space:]"\047]+$/, "", $2); print $2; exit }' "$REPO_ROOT/.bootstrap.env")
+fi
+[ -z "$PLATFORMS_VAL" ] && PLATFORMS_VAL="ios,macos"
+
+CHECKS=()
+if echo "$PLATFORMS_VAL" | grep -qw 'ios'; then
+  CHECKS+=( "app (iOS device)" "app (iOS Simulator)" "app (Tuist iOS device)" "app (Tuist iOS Simulator)" )
+fi
+if echo "$PLATFORMS_VAL" | grep -qw 'macos'; then
+  CHECKS+=( "app (macOS)" "app (Tuist macOS)" )
+fi
+
+if [ ${#CHECKS[@]} -eq 0 ]; then
+  echo "ERROR: PLATFORMS=$PLATFORMS_VAL produced no required checks. Must include 'ios', 'macos', or both." >&2
+  exit 1
+fi
+
+echo "  → required CI checks (PLATFORMS=$PLATFORMS_VAL):"
+for c in "${CHECKS[@]}"; do echo "    - $c"; done
+
+# Build the JSON checks array from $CHECKS. printf %s\\n + jq -Rs build the
+# array — keeps it simple without arity-counting.
+CHECKS_JSON=$(printf '%s\n' "${CHECKS[@]}" | jq -R '{context: .}' | jq -s '.')
+
+PROTECTION_JSON=$(cat <<JSON
 {
   "required_status_checks": {
     "strict": true,
-    "checks": [
-      { "context": "app (iOS device)" },
-      { "context": "app (iOS Simulator)" },
-      { "context": "app (macOS)" },
-      { "context": "app (Tuist iOS device)" },
-      { "context": "app (Tuist iOS Simulator)" },
-      { "context": "app (Tuist macOS)" }
-    ]
+    "checks": $CHECKS_JSON
   },
   "enforce_admins": true,
   "required_pull_request_reviews": {

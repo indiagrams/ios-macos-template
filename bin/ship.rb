@@ -36,7 +36,7 @@ force   = ARGV.include?("--force")
 if config.local_mode?
   tag = "v#{Time.now.utc.strftime('%Y.%V.%H%M')}"
   puts Bootstrap::UI.bold("Running fastlane release locally — tag #{tag}")
-  env = Bootstrap.asc_env(config)
+  env = Bootstrap.asc_env(config).merge("PLATFORMS" => config.platforms.join(","))
   args = ["bundle", "exec", "fastlane", "release", "tag:#{tag}"]
   args << "skip_upload:true" if dry_run == "true"
 
@@ -77,10 +77,12 @@ def head_already_tagged?(repo)
   match ? [match["name"], head_sha] : nil
 end
 
-def trigger_new_run(repo, dry_run)
-  puts Bootstrap::UI.bold("Triggering release.yml on #{repo} (dry_run=#{dry_run})…")
+def trigger_new_run(repo, dry_run, platforms)
+  puts Bootstrap::UI.bold("Triggering release.yml on #{repo} (dry_run=#{dry_run}, platforms=#{platforms})…")
   out, ok = Bootstrap::Sh.run("gh", "workflow", "run", "release.yml", "--ref", "main",
-                              "-f", "dry_run=#{dry_run}", "--repo", repo)
+                              "-f", "dry_run=#{dry_run}",
+                              "-f", "platforms=#{platforms}",
+                              "--repo", repo)
   Bootstrap::UI.fail!("gh workflow run failed:\n#{out}") unless ok
 
   sleep 5
@@ -113,7 +115,7 @@ unless force
   end
 end
 
-run_id ||= trigger_new_run(repo, dry_run)
+run_id ||= trigger_new_run(repo, dry_run, config.platforms.join(","))
 run_url = "https://github.com/#{repo}/actions/runs/#{run_id}"
 puts "  → #{run_url}"
 puts

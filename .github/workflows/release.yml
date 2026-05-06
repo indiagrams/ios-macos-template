@@ -144,6 +144,12 @@ jobs:
               ;;
             tuist)
               if [ -f app/project.yml ]; then
+                # bin/switch-to-tuist.sh's preflight requires tuist on PATH.
+                # `make bootstrap` would install it via Brewfile, but that runs
+                # AFTER this step. Install eagerly here; brew is idempotent so
+                # the later `make bootstrap` will skip the redundant install.
+                echo "Installing tuist (required by switch-to-tuist.sh preflight)"
+                brew install --cask tuist
                 echo "Switching workspace to tuist via bin/switch-to-tuist.sh"
                 ./bin/switch-to-tuist.sh
               else

@@ -8,10 +8,11 @@ name: release
 # match, Apple's signing infra, or ASC API faster than quarterly manual
 # releases would.
 #
-# The downstream reference smoketest (indiagrams/ios-macos-smoketest) runs
-# this workflow with the schedule active. Patterns + fixes here were
-# validated end-to-end against macos-15 in that fork before landing in this
-# template.
+# The downstream reference smoketest (indiagrams/ios-macos-smoketest) is
+# canary-validated weekly via apple-shipkit's own canary-trigger.yml workflow,
+# which dispatches this release.yml on the smoketest each Monday 09:00 UTC.
+# Patterns + fixes here were validated end-to-end against macos-15 in that
+# fork before landing in this template.
 #
 # Required GH Secrets (all 7 must be set before the workflow can succeed):
 #   MATCH_PASSWORD                  — match encryption passphrase

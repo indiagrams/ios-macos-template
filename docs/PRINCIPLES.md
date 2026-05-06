@@ -28,79 +28,88 @@ first and let's talk.
    across this template and downstream consumer projects that derive from it.
    `ci/lib/SHA256SUMS` is checked on every run; drift is a CI failure, not a
    warning.
+6. **The release pipeline is continuously validated by a public downstream.**
+   [`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)
+   runs `.github/workflows/release.yml` weekly to TestFlight against this
+   template's signing pattern. Because Apple's signing infra (certs,
+   profiles, `timestamp.apple.com`, ASC ingestion) and the fastlane / match
+   stack drift independently of this template, the smoketest catches rot
+   before forkers do. Patterns + fixes there land back here in PRs that cite
+   the failing smoketest run. See [`docs/CONTINUOUS-VALIDATION.md`](CONTINUOUS-VALIDATION.md)
+   for the seven canonical failure modes the smoketest has surfaced.
 
 ## Documentation
 
-6. **Every script has a header comment** explaining *why* it exists. Not just
+7. **Every script has a header comment** explaining *why* it exists. Not just
    *what* — the *what* is in the code. The *why* is the constraint, the
    incident, the gotcha that justified writing the script in the first place.
-7. **README answers "what / why / how" within the first 50 lines.** Beyond
+8. **README answers "what / why / how" within the first 50 lines.** Beyond
    that is reference material. A reader should know if this template is for
    them without scrolling.
-8. **Non-obvious patterns get a "Why this exists" section.** The macOS
+9. **Non-obvious patterns get a "Why this exists" section.** The macOS
    app-sandbox re-sign hack, the cert SHA-1 pinning, the PlistBuddy bool
    quirk — every one of these is documented in source comments AND in the
    README. If you remove one of these, you remove its explanation too.
-9. **CHANGELOG updated in the same PR as the change.** Not retroactively
+10. **CHANGELOG updated in the same PR as the change.** Not retroactively
    batched at release time. We follow [Keep a Changelog](https://keepachangelog.com/).
 
 ## Stability
 
-10. **Semver applies to template structure.** This template is a piece of
+11. **Semver applies to template structure.** This template is a piece of
     software with an API: directory layout, script names, Makefile targets,
     bundle ID conventions. Renaming `bin/setup-github.sh` is a breaking
     change → major version bump.
-11. **Deprecate before removing.** If a target or script goes away, it gets a
+12. **Deprecate before removing.** If a target or script goes away, it gets a
     deprecation note in CHANGELOG one minor release before deletion. Users
     of `gh repo create --template` should be able to skim the CHANGELOG and
     know what to update.
-12. **`bin/rename.sh` outputs a buildable project.** Always. If a rename
+13. **`bin/rename.sh` outputs a buildable project.** Always. If a rename
     produces a project that can't `make check` green, that's a P0 bug.
 
 ## Security
 
-13. **No secrets in any committed file.** `.gitignore` blocks `.env*`,
+14. **No secrets in any committed file.** `.gitignore` blocks `.env*`,
     `*.pem`, `*.p8`, `*.mobileprovision`, etc. Pre-release audits sweep for
     leaks. If you're adding a new secret-shaped file, add the pattern to
     `.gitignore` in the same PR.
-14. **Vulnerability disclosure is private.** Don't open public issues for
+15. **Vulnerability disclosure is private.** Don't open public issues for
     security bugs. Email the address in `SECURITY.md`. We follow a 90-day
     coordinated-disclosure window.
-15. **GitHub Actions versions auto-bump.** Dependabot is on for the
+16. **GitHub Actions versions auto-bump.** Dependabot is on for the
     `.github/workflows/` files. We don't manually pin OSS infrastructure.
-16. **2FA required for maintainers.** Org-level enforcement.
+17. **2FA required for maintainers.** Org-level enforcement.
 
 ## Community
 
-17. **CONTRIBUTING.md tells you exactly what's expected.** Fork → branch →
+18. **CONTRIBUTING.md tells you exactly what's expected.** Fork → branch →
     `make check` → PR. No surprises, no implicit norms, no "I assumed you'd
     know to..." — if it's expected, it's written down.
-18. **Code of Conduct: Contributor Covenant 2.1, verbatim.** No edits. No
+19. **Code of Conduct: Contributor Covenant 2.1, verbatim.** No edits. No
     custom carve-outs. The standard is the standard.
-19. **Issue templates have required fields.** Bug reports without
+20. **Issue templates have required fields.** Bug reports without
     reproduction steps and feature requests without a use case get gentle
     redirection to the template, not closure. The templates exist to help
     you write a useful issue, not to gate participation.
-20. **Every PR has a test plan.** Even docs-only PRs. Even single-character
+21. **Every PR has a test plan.** Even docs-only PRs. Even single-character
     typo fixes. "Verified the typo is fixed" is a valid test plan. The point
     is the muscle memory.
 
 ## Licensing
 
-21. **MIT, single-licensed.** No dual-licensing. No CLA. Inbound = outbound:
+22. **MIT, single-licensed.** No dual-licensing. No CLA. Inbound = outbound:
     contributors retain copyright on their changes; the project licenses
     everything under MIT.
-22. **Third-party code is vendored with its `LICENSE` preserved.** `ci/lib/`
+23. **Third-party code is vendored with its `LICENSE` preserved.** `ci/lib/`
     is the canonical example. If we ever vendor anything else (a GitHub
     Action, a Ruby snippet, a Swift utility), it ships with its own
     license file, untouched.
 
 ## Maintenance
 
-23. **Issues and PRs get a first response within ~7 days.** Even "looking
+24. **Issues and PRs get a first response within ~7 days.** Even "looking
     at it" or "this isn't the right fit, here's why" beats silence. We don't
     promise resolution timelines — but we do promise acknowledgement.
-24. **The "Use this template" flow is a tested invariant.** Smoke-tested
+25. **The "Use this template" flow is a tested invariant.** Smoke-tested
     against a fresh clone before each release. If the template can't be
     materialized into a working repo, no release happens.
 

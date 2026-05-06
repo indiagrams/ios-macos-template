@@ -184,9 +184,27 @@ One-time bootstrap:
    with your real URL.
 3. **Generate `MATCH_PASSWORD`** (32+ char random). Store in
    `~/.config/secrets.env` (mode 0600) and as a GH Secret on your repo.
-4. **Generate a fine-grained PAT** with read+write access to the certs repo.
+4. **Generate a fine-grained PAT** with read+write `Contents` access to the certs repo.
    Build `MATCH_GIT_BASIC_AUTHORIZATION = base64("<gh-user>:<PAT>")`. Store
    locally and as a GH Secret.
+
+   **PAT scope tradeoff** — pick one:
+
+   - **"Only select repositories" → just your certs repo** (most secure default).
+     Permission stays narrow, repo list stays narrow. Caveat: fine-grained PATs
+     are pinned to a specific repo's *database ID*. If you ever delete + recreate
+     the certs repo (e.g. to reset state, rotate after a leak, or rerun the
+     template's E2E refork test), the PAT 404s on the new repo even though
+     the name is identical. You'll need to edit the PAT's repo list on
+     [github.com/settings/tokens](https://github.com/settings/tokens) to add the
+     new repo.
+   - **"All repositories"** (defense in depth — recommended if you plan to
+     rerun the E2E refork test, rotate certs repos, or fork-and-recreate often).
+     Permission stays narrow (just Contents read+write), but the PAT is bound
+     to your user/org rather than a specific repo's database ID, so it
+     survives recreation.
+
+   See `docs/CONTINUOUS-VALIDATION.md` G12 for the full failure-mode walkthrough.
 5. **Set 7 GH Secrets total** on your app repo:
    `MATCH_PASSWORD`, `MATCH_GIT_BASIC_AUTHORIZATION`, `ASC_API_KEY_ID`,
    `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `KEYCHAIN_PASSWORD`,

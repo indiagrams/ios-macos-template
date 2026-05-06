@@ -36,7 +36,7 @@ First minor release after the public flip. Major themes:
 - `.github/workflows/bootstrap-doctor-matrix.yml` — 4-cell read-only matrix (xcodegen|tuist × ci|local) running `bin/doctor.rb` against an injected smoketest checkout. Fires Mondays 07:00 UTC + on PRs touching bootstrap code. Catches toolchain-level regressions before the canary's full ship. (#56, #60)
 - `bin/refork-smoketest.sh` — full-E2E refork of the smoketest with `--generator` + `--release-mode` flags. Auto-runs rename, bootstrap, push, branch protection, scaffolds `.bootstrap.env`. Maintainer tool; not synced to the smoketest. (#50, #58)
 - Discord community — invite at [discord.gg/sExv9eKdA](https://discord.gg/sExv9eKdA). README Community section + badge. (#65)
-- `ci/regen-readme-screenshots.sh` — reproduces the platform-aware README hero PNGs (iOS shot with "iOS template" subtitle, macOS shot with "macOS template") on demand. (#73)
+- `bin/take-readme-screenshots.sh --platform-aware` — captures platform-aware README hero PNGs (iOS shot with "iOS template" subtitle, macOS shot with "macOS template"). Forker default (no flag) captures the current source as-is. Subsumes the short-lived `ci/regen-readme-screenshots.sh` which was duplicate of this script. (#73)
 
 ### Changed
 

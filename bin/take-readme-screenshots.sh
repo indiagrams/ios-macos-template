@@ -6,6 +6,15 @@
 #   bin/take-readme-screenshots.sh                          # auto-detect scheme + bundle from app/*.xcodeproj
 #   bin/take-readme-screenshots.sh --device "iPhone 16 Pro" # override iOS Simulator device
 #   bin/take-readme-screenshots.sh --os 18.6                # pin iOS Simulator OS version
+#   bin/take-readme-screenshots.sh --platform-aware         # MAINTAINER MODE: temporarily
+#                                                           # patches the SwiftUI subtitle
+#                                                           # to "iOS template" (for the iOS
+#                                                           # capture) / "macOS template" (for
+#                                                           # the macOS capture). Restores the
+#                                                           # original subtitle via EXIT trap.
+#                                                           # Used to regenerate the upstream
+#                                                           # apple-shipkit's README hero shots
+#                                                           # whenever the stub UI changes.
 #
 # Why this exists:
 #   After `bin/rename.sh` substitutes the app's identity strings, the shipped
@@ -49,11 +58,13 @@ fail() { printf '    ✗ %s\n' "$*" >&2; exit 1; }
 # ── Defaults + CLI override ────────────────────────────────────────────
 DEVICE="iPhone 17 Pro"
 IOS_OS=""    # empty = default OS (latest installed); else pinned via -destination
+PLATFORM_AWARE=0       # --platform-aware enables maintainer subtitle-patching mode
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --device) DEVICE="$2"; shift 2 ;;
     --os)     IOS_OS="$2"; shift 2 ;;
+    --platform-aware) PLATFORM_AWARE=1; shift ;;
     -h|--help)
       sed -n '2,/^$/p' "$0" | sed 's/^# *//; s/^#$//'
       exit 0
@@ -61,6 +72,38 @@ while [ $# -gt 0 ]; do
     *) fail "unknown arg: $1 (see --help)" ;;
   esac
 done
+
+# ── Subtitle patching (--platform-aware mode) ─────────────────────────
+# In maintainer mode, we substitute app/Shared/ContentView.swift's
+# subtitle Text() literal to "iOS template" / "macOS template" before
+# each platform's capture. ORIGINAL_SUBTITLE captures the pre-script
+# state so we can restore via the EXIT trap (works even on Ctrl+C).
+ORIGINAL_SUBTITLE=""
+CONTENT_VIEW="app/Shared/ContentView.swift"
+
+capture_subtitle() {
+  ORIGINAL_SUBTITLE=$(grep -E 'Text\("(iOS template|macOS template|iOS \+ macOS template)"\)' "$CONTENT_VIEW" 2>/dev/null \
+    | head -1 | sed -E 's|.*Text\("([^"]+)"\).*|\1|')
+}
+
+patch_subtitle() {
+  local new="$1"
+  [ -n "$ORIGINAL_SUBTITLE" ] || return 0
+  # Restore first (idempotent across the iOS → macOS sequence)
+  git checkout -- "$CONTENT_VIEW" 2>/dev/null || true
+  sed -i '' "s|Text(\"$ORIGINAL_SUBTITLE\")|Text(\"$new\")|g" "$CONTENT_VIEW"
+  grep -q "Text(\"$new\")" "$CONTENT_VIEW" || fail "subtitle patch did not land — '$new' not found post-sed"
+  ( cd app && xcodegen generate >/dev/null )
+  ok "subtitle patched to '$new' + xcodeproj regenerated"
+}
+
+restore_subtitle() {
+  [ -n "$ORIGINAL_SUBTITLE" ] || return 0
+  git checkout -- "$CONTENT_VIEW" 2>/dev/null || true
+  ( cd app && xcodegen generate >/dev/null ) 2>/dev/null || true
+}
+
+trap 'restore_subtitle' EXIT INT TERM
 
 # ── Pre-flight ────────────────────────────────────────────────────────
 step "Pre-flight"
@@ -106,6 +149,14 @@ BUNDLE_ID=$(xcodebuild -showBuildSettings -project "$PROJECT" -scheme "$SCHEME_I
 ok "bundle id: $BUNDLE_ID"
 
 # ── iOS capture ───────────────────────────────────────────────────────
+# Optional --platform-aware patching for the iOS capture.
+if [ "$PLATFORM_AWARE" = "1" ]; then
+  capture_subtitle
+  [ -n "$ORIGINAL_SUBTITLE" ] || fail "could not detect existing subtitle in $CONTENT_VIEW"
+  ok "original subtitle: '$ORIGINAL_SUBTITLE'"
+  patch_subtitle "iOS template"
+fi
+
 step "Build $SCHEME_IOS for iOS Simulator (device: $DEVICE${IOS_OS:+, OS=$IOS_OS})"
 DEST="platform=iOS Simulator,name=$DEVICE"
 [ -n "$IOS_OS" ] && DEST="$DEST,OS=$IOS_OS"
@@ -134,6 +185,11 @@ xcrun simctl io booted screenshot docs/screenshots/ios-home.png
 ok "captured docs/screenshots/ios-home.png ($(wc -c < docs/screenshots/ios-home.png | tr -d ' ') bytes)"
 
 # ── macOS capture ─────────────────────────────────────────────────────
+# Optional --platform-aware patching for the macOS capture.
+if [ "$PLATFORM_AWARE" = "1" ]; then
+  patch_subtitle "macOS template"
+fi
+
 step "Build $SCHEME_MACOS (ad-hoc signing for sandbox bypass)"
 # CODE_SIGN_IDENTITY="-" = ad-hoc signing — satisfies macOS sandbox requirement
 # without needing a real Apple Development team. Bypasses the

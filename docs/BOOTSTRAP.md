@@ -96,7 +96,9 @@ actual secret bytes. The dotenv itself is low-blast-radius.
 
 ## What `make bootstrap-fork` does
 
-15 steps, in order. Each step has a `check` (no side effects) and a `do_it`.
+The pipeline has 19 step classes. CI mode (`RELEASE_MODE=ci`, the default) runs
+17 with default `PLATFORMS=ios,macos`; local mode runs 11. Each step has a
+`check` (no side effects) and a `do_it`.
 A step is skipped if its desired state is already reached, so re-running after
 a partial failure picks up where you left off.
 

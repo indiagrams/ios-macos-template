@@ -2,8 +2,8 @@
 
 # Shared library for `bin/doctor.rb` (read-only) and `bin/bootstrap-fork.rb`
 # (idempotent driver). Reads `.bootstrap.env`, validates config, exposes a
-# pipeline of 19 step classes. CI mode runs 17 steps with default
-# PLATFORMS=ios,macos; local mode runs 11. Each step has a `check`
+# pipeline of 19 step classes. CI mode runs 18 steps with default
+# PLATFORMS=ios,macos; local mode runs 14. Each step has a `check`
 # (returns bool, no side effects)
 # and a `do_it` (idempotent: safe to re-run on partial state).
 #
@@ -1076,7 +1076,7 @@ module Bootstrap
         exit 2
       elsif pending > 0
         puts
-        puts UI.bold "Run `make bootstrap-fork` to close the ✗ items."
+        puts UI.bold "Run `make bootstrap-fork` to close the ✗ pending items, or `make all` for the full forker journey (bootstrap-fork → ship → verify)."
         puts UI.dim("(#{warned} advisory ⚠ items above are App-Store-review-only and don't block TestFlight.)") if warned > 0
         exit 0
       else

@@ -27,6 +27,9 @@
 
 set -euo pipefail
 
+# Resolve repo root from this script's location (bin/setup-github.sh → repo root).
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
 step() { printf '\n==> %s\n' "$*"; }
 ok()   { printf '    ✓ %s\n' "$*"; }
 fail() { printf '    ✗ %s\n' "$*" >&2; exit 1; }

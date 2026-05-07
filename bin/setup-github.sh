@@ -84,11 +84,21 @@ step "Branch protection on main"
 # Defaults to 'ios,macos' if the file or field is absent. The PR workflow
 # (.github/workflows/pr.yml) only runs the iOS jobs when do_ios=true and
 # the macOS jobs when do_macos=true, so the required checks must match.
+# Read .bootstrap.env once for both PLATFORMS (which CI checks are required)
+# and RELEASE_MODE (whether enforce_admins blocks even-the-admin from pushing
+# directly to main). CI mode = team-shared default → enforce_admins=true, no
+# bypass even for admins. Local mode = solo first-time-shipper default →
+# enforce_admins=false, admin can push directly when needed (PR-required +
+# required-checks still gate normal flow; this just lets the solo dev escape
+# the lock-out trap). Forkers can flip later by re-running this script.
 PLATFORMS_VAL=""
+RELEASE_MODE_VAL=""
 if [ -f "$REPO_ROOT/.bootstrap.env" ]; then
   PLATFORMS_VAL=$(awk -F= '/^PLATFORMS[[:space:]]*=/ { gsub(/^[[:space:]"\047]+|[[:space:]"\047]+$/, "", $2); print $2; exit }' "$REPO_ROOT/.bootstrap.env")
+  RELEASE_MODE_VAL=$(awk -F= '/^RELEASE_MODE[[:space:]]*=/ { gsub(/^[[:space:]"\047]+|[[:space:]"\047]+$/, "", $2); print $2; exit }' "$REPO_ROOT/.bootstrap.env")
 fi
 [ -z "$PLATFORMS_VAL" ] && PLATFORMS_VAL="ios,macos"
+[ -z "$RELEASE_MODE_VAL" ] && RELEASE_MODE_VAL="ci"
 
 CHECKS=()
 if echo "$PLATFORMS_VAL" | grep -qw 'ios'; then
@@ -110,6 +120,18 @@ fi
 echo "  → required CI checks (PLATFORMS=$PLATFORMS_VAL):"
 for c in "${CHECKS[@]}"; do echo "    - $c"; done
 
+# Mode-aware admin enforcement. CI mode defaults to true (team safety net).
+# Local mode defaults to false so a solo first-time-shipper isn't locked out
+# of pushing fixes to their own fork. PR-required + required-checks still
+# gate the normal flow either way.
+if [ "$RELEASE_MODE_VAL" = "local" ]; then
+  ENFORCE_ADMINS_JSON="false"
+  echo "  → enforce_admins=false (RELEASE_MODE=local — admin can push directly)"
+else
+  ENFORCE_ADMINS_JSON="true"
+  echo "  → enforce_admins=true (RELEASE_MODE=$RELEASE_MODE_VAL — no admin bypass)"
+fi
+
 # Build the JSON checks array from $CHECKS. printf %s\\n + jq -Rs build the
 # array — keeps it simple without arity-counting.
 CHECKS_JSON=$(printf '%s\n' "${CHECKS[@]}" | jq -R '{context: .}' | jq -s '.')
@@ -120,7 +142,7 @@ PROTECTION_JSON=$(cat <<JSON
     "strict": true,
     "checks": $CHECKS_JSON
   },
-  "enforce_admins": true,
+  "enforce_admins": $ENFORCE_ADMINS_JSON,
   "required_pull_request_reviews": {
     "dismiss_stale_reviews": true,
     "require_code_owner_reviews": false,

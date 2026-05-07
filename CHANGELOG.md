@@ -7,11 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Audit-driven docs hardening + CI workflow refactor. Three themes:
+Audit-driven docs hardening, validation-driven bug fixes, and CI workflow refactor. Four themes:
 
   1. **First-time-shipper audit fixes** — read-only audit of the README + onboarding flow from a fresh first-time-iOS-developer's perspective surfaced 3 BLOCKERs (macOS Sonoma listed as min, but Xcode 26 needs Sequoia; `.bootstrap.env.example` defaulted to `RELEASE_MODE=ci` while the README walked users through `local`; example env block omitted 6 fields the actual file ships including `GH_ORG`/`GH_APP_REPO` from `REQUIRED_ALWAYS`) plus 4 HIGH-severity friction points. All verified against the codebase before fixing. (#106)
   2. **CI workflow consolidation** — `pr.yml`'s 6 platform jobs (xcodegen × {iOS device, iOS sim, macOS} + tuist × same) consolidated into a single matrix job. Halves the file (293 → 209 lines). Matrix is built dynamically from `.bootstrap.env`'s `PLATFORMS` field in the `config:` job, so iOS-only or macOS-only forks literally don't see the cells they don't need (preserving the runner-minutes savings static `if:` skipping wouldn't). Check names stay branch-protection-stable. Bonus: brew-speedup env vars (`HOMEBREW_NO_AUTO_UPDATE`, `HOMEBREW_NO_INSTALL_CLEANUP`, `HOMEBREW_NO_ANALYTICS`) on every macos-15 job. (#104)
   3. **Supply-chain hygiene** — every `actions/*` reference SHA-pinned with a `# v4.x.y` trailing comment. Tag pinning was already done for third-party `ruby/setup-ruby` (#96); this extends the pattern to first-party `actions/checkout` + `actions/upload-artifact`. Removes the tag-rewrite surface entirely. (#105)
+  4. **Real first-time-shipper validation findings** — actually running the local-mode onboarding cold from a fresh clone surfaced two blocker-class bugs the static audit (#106) couldn't catch: `make doctor` crashed on a fresh fork with a Bundler::GemNotFound stack trace (no path to `bundle install` in the README's flow); and the `.bootstrap.env` parser kept inline `# comments` as part of values, corrupting every fillable field with comment text. Plus 5 HIGH/MEDIUM friction points. Fix shipped same-day. (#108)
 
 ### Changed
 
@@ -24,6 +25,14 @@ Audit-driven docs hardening + CI workflow refactor. Three themes:
 - README — `RELEASE_MODE=ci` description corrected from "every time you push a tag" to "when you run `make ship` (which dispatches `release.yml` via `gh workflow run`)". The push-tag claim was false; bin/ship.rb has always used `workflow_dispatch`. (#106)
 - README — PLATFORMS-switch guidance now mentions that `bin/setup-github.sh` must be re-run separately in CI mode (the required-CI-checks list is set on first bootstrap and isn't refreshed by `make bootstrap-fork`). (#106)
 - README — ASC App-record creation promoted from a "common first-time failures" bullet to a prominent before-you-run callout at the top of Step 7. It's a one-time human prereq Apple requires (POST /apps is forbidden by their API) and it blocks every subsequent step; demoting it to a footnote was misleading. (#106)
+- `bin/lib/bootstrap.rb` env parser — strips inline `\s#` comments from unquoted values (dotenv convention). The `.bootstrap.env.example` template ships every fillable field with an inline `# placeholder` comment; without this strip, a forker who fills the value before the `#` (the natural editing pattern) would have 30+ chars of comment text mashed onto their value, breaking every downstream Apple/GH probe. Quoted values retain any `#` inside; bare `#` in unquoted values (URL fragments etc.) preserved. (#108)
+- `Makefile` — new `_check-bundle` guard target that all bundle-using targets (`doctor`, `bootstrap-fork`, `ship`, `verify`, `release-dryrun`) depend on. Fails fast with an actionable hint when ruby gems aren't installed yet, instead of crashing with a Bundler::GemNotFound stack trace. (#108)
+- `Makefile` — top-of-file comment rewritten to spell out the canonical forker journey (`gh repo create` → `make bootstrap` → `make init` → edit `.bootstrap.env` → `make all`). Previous comment told first-timers to run `make bootstrap` then `bin/rename.sh` directly (legacy path that contradicts the README). (#108)
+- `Makefile` — `make help` text for `bootstrap` and `bootstrap-fork` now explicitly distinguishes them. They are entirely different targets (dev-env setup vs fork-bootstrap pipeline) and the naming similarity was a trap. (#108)
+- `.bootstrap.env.example` header — `make bootstrap` reference replaced with `make bootstrap-fork`. The header is scaffolded into every fork's `.bootstrap.env` so the wrong reference propagated to every fork. (#108)
+- `bin/preflight.sh` 'Next steps' output — replaced legacy `bin/rename.sh` direct-call advice with the canonical `make bootstrap → make init → make all` flow. (#108)
+- `bin/lib/bootstrap.rb` doctor output — `:blocked` items now render with `✗` (red) + bold `— needs fix` suffix, distinguishing from `:warn` (yellow ⚠ = advisory) and `:pending` (red ✗ + dim `— will run on bootstrap-fork`). The action-required tail enumerates the blockers by name + step number instead of saying 'resolve the ⚠ items above'. The advisory hint ('App-Store-review-only and don't block TestFlight') now prints regardless of blocker count, not only on the all-clear path. (#108)
+- README Step 6 — now starts with `make bootstrap` (dev-env setup) before `make init`. Previously the README jumped straight to `make init` and the inevitable `make doctor` crash was the first thing a forker saw. (#108)
 
 ### Performance
 

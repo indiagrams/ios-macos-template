@@ -13,7 +13,7 @@ struct ContentView: View {
             Text("iOS + macOS template")
                 .font(.headline)
                 .foregroundStyle(.secondary)
-            Text("Rename me. See README.md → \"Renaming the stub\".")
+            Text("Rename me. Run `bin/rename.sh --help`.")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)

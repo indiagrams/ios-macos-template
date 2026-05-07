@@ -11,7 +11,7 @@
 #
 # Configuration:
 #   APP_BUNDLE_ID env var — defaults to "com.example.helloapp" (rename for your
-#   project; see README.md → "Renaming the stub").
+#   project; rename via bin/rename.sh).
 
 require 'spaceship'
 require 'base64'

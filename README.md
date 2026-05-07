@@ -404,8 +404,27 @@ If something isn't on this list, [open an issue](https://github.com/indiagrams/a
 
 apple-shipkit is **release-engineering scaffolding** — the path from
 `Use this template` to a signed TestFlight build. It deliberately doesn't
-pick a UI framework, networking stack, or persistence layer. Different
-tradeoff from other iOS starters:
+pick a UI framework, networking stack, or persistence layer.
+
+### vs. Apple's own tooling (Xcode Distribute, Xcode Cloud)
+
+These are the most common "you don't need this template" comebacks, and they're correct for some use cases:
+
+| You want… | Use | Why |
+|---|---|---|
+| Manual one-off ship from one Mac, no team, no CI | Xcode → Organizer → Distribute App | Built-in, zero setup, free. Trade-offs: interactive every ship, certs live only in your Keychain, no reproducibility (uses your Mac's current state), no audit trail, no CI on PRs. |
+| Hosted CI inside Apple's ecosystem; comfortable with vendor lock-in | [Xcode Cloud](https://developer.apple.com/xcode-cloud/) | Apple's managed CI ($14.99/mo past 25-hour free tier). Workflows configured in Xcode UI, stored in `.xcodeproj`. Trade-offs: workflows aren't portable to other CIs, predefined `ci_*.sh` hooks limit shell flexibility, log debugging is black-box. |
+
+apple-shipkit's value lives in the gap:
+
+- **More than Xcode Distribute**: reproducible builds (Gemfile.lock + pinned Swift/Xcode), audit-tracked (git tags + workflow logs + CHANGELOG per ship), CI-driven (PRs build real apps; ship is `gh workflow run`, not a button), shareable signing material via fastlane match (encrypted certs in a private repo, not just your Keychain).
+- **Different shape from Xcode Cloud**: portable GitHub Actions YAML you can take to GitLab / CircleCI / Buildkite, full bash + ruby + fastlane flexibility, no per-minute Apple billing, debug failures locally with `make ship` or `make release-dryrun`.
+
+You probably **don't need** apple-shipkit if you're solo, ship one app, will always ship from one Mac, and never want to leave Xcode. You probably **do** if any of those is or will be untrue — especially if you've ever lost half a day to "why does signing work on my machine but not in CI".
+
+### vs. other Swift project templates
+
+Different tradeoff from other iOS starters:
 
 | You want… | Use | Why |
 |---|---|---|
@@ -415,9 +434,7 @@ tradeoff from other iOS starters:
 | Subscription bundle (RevenueCat + paywall + IAP) | [RevenueCat Quickstart](https://www.revenuecat.com/docs/getting-started/quickstart) | apple-shipkit is intentionally framework-agnostic; bring your own monetization. |
 | Bare `gh repo create` from a Swift project you already have | _no template needed_ | apple-shipkit is for people who don't have the project yet, or who do but want fastlane/CI/match prewired. |
 
-Mix-and-match is fine. Many people start with apple-shipkit for the
-release pipeline, then drop in a UI template's screens or a RevenueCat
-paywall on top.
+Mix-and-match is fine. Many people start with apple-shipkit for the release pipeline, then drop in a UI template's screens or a RevenueCat paywall on top.
 
 ---
 

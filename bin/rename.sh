@@ -382,6 +382,15 @@ PATHSPEC_EXCLUSIONS=(
   ':!ci/test-rename-gates.sh'
   ':!bin/verify-rename.sh'
   ':!ci/test-verify-rename.sh'
+  # Upstream-only: validates the apple-shipkit template against the smoketest
+  # using indiagrams's secrets. The job's `if: github.repository ==
+  # 'indiagrams/apple-shipkit'` guard is the safety check that keeps the
+  # workflow dormant on forks. Letting Step D rewrite that string to the
+  # fork's slug DEFEATS the safety check — the workflow then runs on every
+  # fork's PR and fails because the fork has no ASC secrets, no certs-repo
+  # PAT, etc. Excluded entirely from the rename sweep so the safety guard
+  # survives.
+  ':!.github/workflows/bootstrap-doctor-matrix.yml'
 )
 
 # ── Substitutions (REQ-2, REQ-9; D-1; HIGH-6 placeholder + HIGH-7 escape) ─

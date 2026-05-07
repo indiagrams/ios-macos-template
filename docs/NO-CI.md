@@ -1,16 +1,20 @@
-# Local-only mode (no GitHub Actions)
+# Local-only mode (no GitHub Actions, no certs repo, no match)
 
-If your fork ships from your laptop, not from CI, you can disable the GitHub Actions release pipeline entirely.
+If your fork ships from your laptop — not from CI — you can run the entire release pipeline without GitHub Actions, without a private certs repo, and without `fastlane match`.
+
+This is the default mode shipped by `.bootstrap.env.example` since v1.3.0. Forks just need a Mac with Xcode 26 and an Apple Developer account ($99/yr).
 
 ## What changes in local-only mode
 
-| | CI mode (default) | Local-only mode |
+| | CI mode | Local-only mode |
 |---|---|---|
-| Where you run `make ship` | GitHub Actions runner | Your Mac |
-| Code signing | fastlane match against private certs repo | Local Keychain (Xcode "Automatically manage signing") |
-| Required GH Secrets | 7 (ASC API key, match password, etc.) | 0 |
-| Bootstrap pipeline length | 17 steps | 11 steps |
-| Branch protection | 7 required CI checks | None (set yourself if you want) |
+| Where `make ship` runs | GitHub Actions runner (macos-15) | Your Mac |
+| Code signing | `fastlane match` against private certs repo | Login Keychain (auto-minted by `bootstrap-fork`) |
+| Required GH Secrets | 7 (`ASC_*`, `MATCH_PASSWORD`, etc.) | 0 |
+| Bootstrap pipeline length | 18 steps | 14 steps |
+| Branch protection | 7 required CI checks | None (configure manually if you want) |
+| Required certs repo | yes (`<app>-certs` private repo) | no |
+| Auto-minted local certs | n/a — match handles it on the runner | yes — see "Cert provisioning" below |
 
 Local-only mode is appropriate for:
 
@@ -18,33 +22,75 @@ Local-only mode is appropriate for:
 - **Personal apps** — no need to gate merges on CI
 - **Apps where match overhead exceeds benefit** — single dev, single machine, occasional ships
 
-CI mode is the right default for everyone else (multi-dev, security-sensitive, or any case where local laptop drift would be a liability).
+CI mode is the right default for everyone else (multi-dev, security-sensitive, or any case where local laptop drift would be a liability — see [docs/CONTINUOUS-VALIDATION.md](CONTINUOUS-VALIDATION.md) for why CI mode + the canary pattern matters).
 
 ## How to enable local-only mode
 
-### 1. Set RELEASE_MODE in `.bootstrap.env`
+### 1. `RELEASE_MODE=local` in `.bootstrap.env`
+
+This is the **default** as of v1.3.0 — `make init` scaffolds `.bootstrap.env.example` with `RELEASE_MODE=local`. If you started before v1.3 and have `RELEASE_MODE=ci`, just flip it:
 
 ```bash
-# .bootstrap.env
+# .bootstrap.env (the fields you'll actually fill in)
 RELEASE_MODE=local
 APP_NAME=YourApp
-APP_BUNDLE_ID=com.yourorg.yourapp
-FASTLANE_TEAM_ID=ABCD1234567
-ASC_API_KEY_ID=...
-ASC_API_KEY_ISSUER_ID=...
-ASC_API_KEY_P8_PATH=~/.config/secrets/AuthKey_XXX.p8
-ASC_APP_SKU=YOURAPP_SKU
-ASC_APP_NAME=Your App Display Name
-# CI-only fields (CERTS_REPO, MATCH_PASSWORD, etc.) — leave unset or omit
+BUNDLE_ID=com.yourorg.yourapp
+DISPLAY_NAME='Your App'
+APP_EMAIL=you@example.com
+GENERATOR=xcodegen
+PLATFORMS=ios,macos
+FASTLANE_TEAM_ID=A26TJZ8QHQ                    # 10-char alphanumeric from Apple Developer → Membership
+ASC_API_KEY_ID=ABC1234567                      # 10-char from ASC → Users and Access → Integrations
+ASC_API_KEY_ISSUER_ID=12345678-abcd-...        # UUID from same page
+ASC_API_KEY_P8_PATH=~/.config/secrets/AuthKey_ABC1234567.p8
+ICON_1024_PATH=                                # leave blank for the placeholder; set later for App Store
+ASC_APP_SKU=yourapp-001                        # any unique-to-you string (cosmetic; in ASC reports)
+ASC_APP_NAME='Your App'                        # display name on the App Store
+
+# Auto-filled by `make init` from your git remote — usually no edit needed:
+GH_ORG=your-username
+GH_APP_REPO=your-app
+
+# CI-only fields — leave blank for local-only mode:
+GH_CERTS_REPO=
+GH_PAT_FILE=
+MATCH_PASSWORD_FILE=
+KEYCHAIN_PASSWORD_FILE=
 ```
 
-`make doctor` will detect `RELEASE_MODE=local` and skip the 6 CI-only steps (CreateCertsRepo, GHSecrets, BootstrapCerts, MintInstaller, EditMatchfile, etc.).
+`make doctor` detects `RELEASE_MODE=local` and skips the 5 CI-only steps (`EditMatchfile`, `CreateCertsRepo`, `GHSecrets`, `BootstrapCerts`, `MintInstaller`).
 
-### 2. Disable the PR + release workflows
+### 2. Cert provisioning
 
-You have two options:
+Local mode signs from certs in your login Keychain. The pipeline needs:
 
-**A. Delete the workflows**
+- **Apple Distribution** — for both iOS .ipa and macOS .pkg/.app archives
+- **Apple Development** — for device + Mac development signing
+- **3rd Party Mac Developer Installer** — only when shipping macOS, signs the .pkg installer wrapper
+
+`bootstrap-fork`'s `LocalKeychainCerts` step **auto-mints any missing identities** via `fastlane cert` (uses your `ASC_API_KEY_*` to authenticate; lands the cert + private key in your login Keychain). Idempotent — already-valid certs are reused, not duplicated.
+
+Three ways to drive this:
+
+```bash
+# Option A — full forker journey, mints certs as part of bootstrap-fork
+make all                  # doctor → bootstrap-fork → ship → verify
+
+# Option B — just the certs, run before `make ship`
+make mint-local-certs     # auto-mints any missing identities, then exits
+
+# Option C — manual via Xcode (if you prefer GUI)
+# Xcode → Settings → Accounts → (your team) → Manage Certificates → +
+# Pick "Apple Distribution" / "Apple Development" / "Mac Installer Distribution"
+```
+
+If your keychain has certs from other Apple Developer teams (e.g. you're consulting for multiple clients), `make doctor` detects the mismatch and surfaces it with the team ID it found vs. the team ID it expected. `make mint-local-certs` then mints fresh certs for `FASTLANE_TEAM_ID`.
+
+### 3. Disable the PR + release workflows (optional)
+
+The template ships with `.github/workflows/{pr,release}.yml`. They work in local mode too (PR builds verify the project compiles), but you can remove them if you don't want any GH Actions presence:
+
+**Option A — delete them**
 
 ```bash
 rm .github/workflows/pr.yml
@@ -54,52 +100,39 @@ git commit -m "chore: remove CI workflows for local-only mode"
 git push
 ```
 
-You lose the PR-time build/test signal, but `make ship` still works locally because it shells into `ci/local-release-check.sh` directly (no Actions dependency).
+You lose PR-time build/test signal, but `make ship` still works locally because it shells into `bundle exec fastlane release` directly (no Actions dependency).
 
-**B. Keep them but turn off branch protection**
+**Option B — keep them but turn off branch protection**
 
-Branch protection requires the 6 CI checks to pass before merging. Without CI, those checks never run → PRs can never merge. Disable via:
+Branch protection requires the 7 CI checks to pass before merging. Without CI, those checks never run → PRs can never merge. Disable via:
 
 ```bash
-gh api -X DELETE repos/$YOUR_ORG/$YOUR_REPO/branches/main/protection
+gh api -X DELETE repos/$GH_ORG/$GH_APP_REPO/branches/main/protection
 ```
 
 Or in the GitHub web UI: Settings → Branches → main → Delete rule.
 
-### 3. Skip `make setup-github`
+### 4. Skip `make setup-github`
 
-`bin/setup-github.sh` configures the 7 required CI checks. In local-only mode, don't run it (or remove it from your `make all` target).
+`bin/setup-github.sh` configures the 7 required CI checks. In local-only mode, don't run it — or remove it from your local `make all` flow if you wired it in.
 
 ## What `make ship` does in local-only mode
 
 The same `make ship` command works on your Mac as on CI. It:
 
 1. Reads `.bootstrap.env`
-2. Reads `RELEASE_MODE=local` → uses Xcode-managed signing instead of match
-3. Runs `ci/local-release-check.sh` to archive + export iOS .ipa + macOS .pkg
-4. Runs `fastlane pilot` to upload to TestFlight
+2. Detects `RELEASE_MODE=local` → uses login-Keychain signing instead of match
+3. Runs `bundle exec fastlane release` to archive + export iOS .ipa + macOS .pkg
+4. Runs `fastlane pilot` to upload to TestFlight (with the `pilot_with_retry` 3-attempt exponential-backoff wrapper added in v1.2.0)
 5. Pushes a `vYYYY.WW.<run_number>` tag
 
 `<run_number>` in local mode is sourced from a local counter (`fastlane/.local_run_number`) since there's no GitHub `${{ github.run_number }}` to use.
 
-## Bootstrap.env minimum for local-only
+## Skipping macOS
 
-The minimum to reach a green `make doctor` in local mode:
+If you're shipping iPhone-only and don't want to mint a Mac Installer Distribution cert, set `PLATFORMS=ios` in `.bootstrap.env`. `make doctor` skips the macOS-specific cert check, `make ship` skips the .pkg build/upload, and CI on PRs (if you keep the workflow) runs only the iOS jobs.
 
-```bash
-RELEASE_MODE=local
-APP_NAME=YourApp
-APP_BUNDLE_ID=com.yourorg.yourapp
-FASTLANE_TEAM_ID=ABCD1234567
-ASC_API_KEY_ID=...
-ASC_API_KEY_ISSUER_ID=...
-ASC_API_KEY_P8_PATH=~/.config/secrets/AuthKey_XXX.p8
-ASC_APP_SKU=YOURAPP
-ASC_APP_NAME=Your App Display Name
-PLATFORMS=ios,macos
-```
-
-(Same as CI mode minus the certs/match fields.)
+You can flip back later: change `PLATFORMS=ios,macos`, re-run `make bootstrap-fork`. The Mac Installer cert auto-mints on the next `make all` / `make bootstrap-fork`.
 
 ## When to switch back to CI mode
 
@@ -107,12 +140,24 @@ You'll want CI mode if any of these become true:
 
 - A second human starts contributing
 - You ship from multiple machines
-- You want PR-time test signal
-- You want the weekly canary pattern to validate Apple-side state
+- You want PR-time test signal (xcodebuild + xcodebuild test on every PR)
+- You want the weekly canary pattern to catch Apple-side state drift (see [docs/CONTINUOUS-VALIDATION.md](CONTINUOUS-VALIDATION.md))
 
 The switch is reversible: change `RELEASE_MODE=ci`, run `make bootstrap-fork` (the now-active CI-only steps will run), restore the workflows + branch protection.
 
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `make doctor` step 12 (`Local keychain has signing identities`) is `:pending` even after `make mint-local-certs` | Keychain access denied (Apple's keychain prompts) | Check `Console.app` for keychain prompts; click Allow when fastlane asks. Re-run. |
+| `make doctor` step 12 says "Found certs … but none for team X" | Your keychain has certs from a different team | `make mint-local-certs` mints a fresh cert for the right team. The wrong-team certs remain in your keychain (use Keychain Access to remove if desired). |
+| `fastlane cert` fails with "Could not create another …, reached the maximum" | Apple's per-team cert quota (~3) is full | `bundle exec fastlane list_certs` to enumerate, `bundle exec fastlane revoke_cert id:<id>` to revoke an unused one, then re-run. |
+| `make ship` fails uploading to TestFlight | Transient ASC / altool flake | The `pilot_with_retry` wrapper retries 3× with exponential backoff. If all 3 fail, check the smoketest's [G1-G12 catalog](CONTINUOUS-VALIDATION.md). |
+| `make all` aborts at doctor | Genuine `:blocked` step (e.g., ASC App record missing) | The blocker requires a manual one-time human step Apple's API doesn't allow. Doctor's tail names which step + what to do. |
+
 ## See also
 
-- [`docs/BOOTSTRAP.md`](BOOTSTRAP.md) — full `.bootstrap.env` reference (RELEASE_MODE table at the top)
+- [`docs/BOOTSTRAP.md`](BOOTSTRAP.md) — full `.bootstrap.env` reference
+- [`docs/APPLE-PREREQS.md`](APPLE-PREREQS.md) — Apple Developer account setup (ASC API key, team IDs, the one human-gated ASC App record step)
+- [`docs/ROLLBACK.md`](ROLLBACK.md) — undoing a TestFlight build, a git tag, or a partial bootstrap-fork
 - [`bin/lib/bootstrap.rb`](../bin/lib/bootstrap.rb) — `Step::MODES` constant tells you which steps are CI-only / local-only / both

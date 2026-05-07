@@ -302,7 +302,7 @@ If you see `✗` (red) marks instead, doctor will tell you exactly what's missin
 > - Wrong Team ID → copy from Step 3 again
 > - "ASC App record not found" → see the callout above; this is the manual ASC step.
 
-When every step is `✓` or `⚠`, you're ready. (The pipeline runs 11 steps in `local` mode, 17 in `ci` mode — the count above will change accordingly.)
+When every step is `✓` or `⚠`, you're ready. (The pipeline runs 14 steps in `local` mode, 18 in `ci` mode — the count above will change accordingly.)
 
 ---
 

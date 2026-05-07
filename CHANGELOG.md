@@ -7,10 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Local-mode cert handling overhaul. The biggest first-time-shipper friction.
+
+**Real first-time-shipper validation against `my-cool-app` hit step 12 (`Local keychain has signing identities`) as a hard blocker. The doctor's remediation message offered only manual paths (Xcode → Settings → Accounts → Manage Certificates → +, or Apple Developer Portal → Certificates → CSR-upload — 7 manual steps).** Worse, even if a user knew about `fastlane cert`, `make all` (`doctor → bootstrap-fork → ship → verify`) would never reach `bootstrap-fork` because doctor exited 2 on the LocalKeychainCerts blocker. Local-mode `make all` was structurally broken for first-time-shippers with an empty keychain.
+
 ### Changed
 
-- README "When to use this (vs alternatives)" section restructured. Added a leading sub-section "vs. Apple's own tooling (Xcode Distribute, Xcode Cloud)" with concrete trade-offs for each, a "where apple-shipkit lives in the gap" breakdown, and an explicit "you probably don't need this if…" framing. Demoted the existing 5-row template-comparison table to a "vs. other Swift project templates" sub-section (content unchanged). Preempts the most-asked Reddit comebacks. (#113)
+- `bin/lib/bootstrap.rb` `LocalKeychainCerts` step — extensive rewrite. (1) Doctor message rewrites to lead with `fastlane cert --type X` per missing identity, point to new `make mint-local-certs` target, and surface the `PLATFORMS=ios` escape hatch when missing identities are macOS-only. (2) New `team_mismatched_identities` helper parses the trailing `(TEAMID)` from each `find-identity` line and compares against `FASTLANE_TEAM_ID`. Conservative — permissive on `Created via API` (ambiguous, can't verify team from `find-identity` alone). Catches the consultant-with-multi-teams case without false-positives. (3) Step's `do_it` now auto-mints missing/mismatched identities via the new `mint_local_certs` fastlane lane instead of failing loud. (#115)
+- `bin/lib/bootstrap.rb` result protocol — new `[:pending, msg]` return shape. Doctor renders it like `:pending` (red ✗ + dim "will auto-fix on bootstrap-fork") plus the rich message dimmed below; `Runner.bootstrap` calls `do_it` on it. Distinct from `[:blocked, msg]` (still human-gated, still aborts at `bootstrap-fork` time). Exists to support steps whose remediation is programmatic but whose details a user might still want to see (LocalKeychainCerts is the first user). Without this, doctor would exit 2 on auto-fixable blockers and `make all` would never reach `bootstrap-fork` to fix them. (#115)
+- README — no changes; the existing first-time-shipper flow (`make bootstrap` → `make init` → edit `.bootstrap.env` → `make all`) now works for forks with empty keychains because LocalKeychainCerts auto-mints during `make all`'s `bootstrap-fork` step. (#115)
 
+### Added
+
+- `make mint-local-certs` target (Makefile) — auto-mints any missing local-mode signing identities (Apple Distribution, Apple Development, 3rd Party Mac Developer Installer) into the user's login keychain. Idempotent — fastlane cert detects existing valid certs and reuses rather than minting duplicates. Same code path as `bootstrap-fork`'s LocalKeychainCerts step, but standalone for users who want to mint certs without running the full bootstrap-fork pipeline. (#115)
+- `bin/mint-local-certs.rb` (new file) — Ruby wrapper that loads `.bootstrap.env`, computes missing/mismatched identities via the existing `LocalKeychainCerts` step, and calls `step.do_it`. (#115)
+- `fastlane/Fastfile` `mint_local_certs` lane — takes `types:` as a comma-separated string (e.g. `types:apple_distribution,mac_installer_distribution`), reads ASC creds via the existing `asc_api_key` helper (env vars set by `Bootstrap.asc_env`), calls `cert(...)` per type with `team_id`, `api_key`, `keychain_path=login.keychain-db`, `output_path=Dir.tmpdir`. (#115)
+- `.github/workflows/bootstrap-doctor-matrix.yml` paths filter — added `bin/mint-local-certs.rb` and `fastlane/Fastfile` so PR-triggered re-runs include cert-handling changes. (#115)
+
+### Changed (earlier — #113)
+
+- README "When to use this (vs alternatives)" section restructured. Added a leading sub-section "vs. Apple's own tooling (Xcode Distribute, Xcode Cloud)" with concrete trade-offs for each, a "where apple-shipkit lives in the gap" breakdown, and an explicit "you probably don't need this if…" framing. Demoted the existing 5-row template-comparison table to a "vs. other Swift project templates" sub-section (content unchanged). Preempts the most-asked Reddit comebacks. (#113)
 ## [1.3.0] - 2026-05-07
 
 Audit-driven docs hardening, validation-driven bug fixes, and CI workflow refactor. Four themes:

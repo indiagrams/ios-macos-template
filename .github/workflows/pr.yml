@@ -93,15 +93,19 @@ jobs:
         working-directory: app
         run: xcodegen generate
 
-      - name: build iOS Simulator (unsigned)
+      - name: test iOS Simulator (unsigned)
         run: |
           set -o pipefail
-          xcodebuild build \
+          # `xcodebuild test` runs the scheme's Test action, which the
+          # XcodeGen manifest (app/project.yml) wires to the HelloAppUITests
+          # target. Test action requires a concrete simulator destination
+          # (generic/* doesn't work).
+          xcodebuild test \
             -project app/HelloApp.xcodeproj \
             -scheme HelloApp-iOS \
             -configuration Debug \
             -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Plus,OS=latest' \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
@@ -123,14 +127,14 @@ jobs:
         working-directory: app
         run: xcodegen generate
 
-      - name: build macOS (unsigned)
+      - name: test macOS (unsigned)
         run: |
           set -o pipefail
-          xcodebuild build \
+          xcodebuild test \
             -project app/HelloApp.xcodeproj \
             -scheme HelloApp-macOS \
             -configuration Debug \
-            -destination 'generic/platform=macOS' \
+            -destination 'platform=macOS' \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
@@ -200,15 +204,15 @@ jobs:
         working-directory: app
         run: tuist generate --no-open
 
-      - name: build iOS Simulator (unsigned)
+      - name: test iOS Simulator (unsigned)
         run: |
           set -o pipefail
-          xcodebuild build \
+          xcodebuild test \
             -project app/HelloApp.xcodeproj \
             -scheme HelloApp-iOS \
             -configuration Debug \
             -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
+            -destination 'platform=iOS Simulator,name=iPhone 16 Plus,OS=latest' \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
@@ -235,14 +239,14 @@ jobs:
         working-directory: app
         run: tuist generate --no-open
 
-      - name: build macOS (unsigned)
+      - name: test macOS (unsigned)
         run: |
           set -o pipefail
-          xcodebuild build \
+          xcodebuild test \
             -project app/HelloApp.xcodeproj \
             -scheme HelloApp-macOS \
             -configuration Debug \
-            -destination 'generic/platform=macOS' \
+            -destination 'platform=macOS' \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \

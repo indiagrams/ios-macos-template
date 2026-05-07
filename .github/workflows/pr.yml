@@ -111,16 +111,30 @@ jobs:
       - name: test iOS Simulator (unsigned)
         run: |
           set -o pipefail
+          # Dynamically pick an available iPhone simulator. The macos-15
+          # runner pool has variable simulator availability — hardcoding
+          # `name=iPhone 16 Plus,OS=latest` produces flakes when that
+          # specific runtime/device pair isn't installed on the assigned
+          # runner. xcrun simctl gives the authoritative list per-runner.
+          UDID=$(xcrun simctl list devices available -j \
+            | jq -r '.devices | to_entries[]
+                | select(.key | contains("iOS"))
+                | .value[]
+                | select(.isAvailable and (.name | contains("iPhone")))
+                | .udid' \
+            | head -1)
+          [ -n "$UDID" ] || { echo "::error::no iPhone simulator available on this runner"; exit 1; }
+          echo "Using simulator UDID=$UDID"
           # `xcodebuild test` runs the scheme's Test action, which the
-          # XcodeGen manifest (app/project.yml) wires to the HelloAppUITests
-          # target. Test action requires a concrete simulator destination
-          # (generic/* doesn't work).
+          # XcodeGen manifest (app/project.yml) wires to HelloAppUITests +
+          # HelloAppTests. Test action requires a concrete simulator
+          # destination (generic/* doesn't work).
           xcodebuild test \
             -project app/HelloApp.xcodeproj \
             -scheme HelloApp-iOS \
             -configuration Debug \
             -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Plus,OS=latest' \
+            -destination "platform=iOS Simulator,id=$UDID" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
@@ -222,12 +236,23 @@ jobs:
       - name: test iOS Simulator (unsigned)
         run: |
           set -o pipefail
+          # Same dynamic-sim-picker pattern as the xcodegen iOS sim job;
+          # see comment there for rationale.
+          UDID=$(xcrun simctl list devices available -j \
+            | jq -r '.devices | to_entries[]
+                | select(.key | contains("iOS"))
+                | .value[]
+                | select(.isAvailable and (.name | contains("iPhone")))
+                | .udid' \
+            | head -1)
+          [ -n "$UDID" ] || { echo "::error::no iPhone simulator available on this runner"; exit 1; }
+          echo "Using simulator UDID=$UDID"
           xcodebuild test \
             -project app/HelloApp.xcodeproj \
             -scheme HelloApp-iOS \
             -configuration Debug \
             -sdk iphonesimulator \
-            -destination 'platform=iOS Simulator,name=iPhone 16 Plus,OS=latest' \
+            -destination "platform=iOS Simulator,id=$UDID" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \

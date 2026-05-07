@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-05-07
+
 Audit-driven docs hardening, validation-driven bug fixes, and CI workflow refactor. Four themes:
 
   1. **First-time-shipper audit fixes** — read-only audit of the README + onboarding flow from a fresh first-time-iOS-developer's perspective surfaced 3 BLOCKERs (macOS Sonoma listed as min, but Xcode 26 needs Sequoia; `.bootstrap.env.example` defaulted to `RELEASE_MODE=ci` while the README walked users through `local`; example env block omitted 6 fields the actual file ships including `GH_ORG`/`GH_APP_REPO` from `REQUIRED_ALWAYS`) plus 4 HIGH-severity friction points. All verified against the codebase before fixing. (#106)
@@ -17,7 +19,7 @@ Audit-driven docs hardening, validation-driven bug fixes, and CI workflow refact
 ### Changed
 
 - `.github/workflows/pr.yml` — six near-identical platform jobs consolidated into one matrix-driven `app:` job. Matrix is built dynamically from `PLATFORMS` in the `config:` job's `steps.matrix.outputs.matrix`, then consumed via `strategy.matrix: ${{ fromJson(needs.config.outputs.matrix) }}`. Check names (`app (iOS device)`, `app (Tuist macOS)`, etc.) preserved exactly via `name: "app (${{ matrix.display_name }})"` so existing branch-protection rules need no changes. Net: -179 / +95 lines. (#104)
-- All `actions/*` references SHA-pinned: `actions/checkout@v4` → `@34e114876b0b... # v4.3.1` (4 uses) and `actions/upload-artifact@v4` → `@ea165f8d65b6... # v4.6.2` (1 use). Across `pr.yml`, `release.yml`, `bootstrap-doctor-matrix.yml`, `verify-rename.yml`. (#105)
+- All `actions/*` references SHA-pinned. The 4 uses of `actions/checkout` (across `pr.yml`, `release.yml`, `bootstrap-doctor-matrix.yml`, `verify-rename.yml`) and the 1 use of `actions/upload-artifact` (in `release.yml`) all moved from rewritable tag refs to immutable commit SHAs (= v4.3.1 and v4.6.2 respectively, recorded as trailing `# vX.Y.Z` comments on each `uses:` line). Removes the tag-rewrite supply-chain surface entirely. (#105)
 - `.bootstrap.env.example` — default `RELEASE_MODE` switched from `ci` to `local`. CI mode requires 7 GH Secrets + a private certs repo + a fine-grained PAT; local mode requires nothing beyond an Apple Developer account. The README always recommended starting with `local` for first-time shippers; the scaffolded default now matches. Comment header reordered to put `local` first. (#106)
 - README — `macOS Sonoma (14) or newer` corrected to `macOS Sequoia (15) or newer` at the two callsites where it appeared. Xcode 26 doesn't run on Sonoma. (#106)
 - README — Step 6 example `.bootstrap.env` block expanded to cover all fields a forker actually sees: `GH_ORG`/`GH_APP_REPO`/`GH_CERTS_REPO` annotated as auto-filled by `make init` from `git remote get-url origin`; `GH_PAT_FILE`/`MATCH_PASSWORD_FILE`/`KEYCHAIN_PASSWORD_FILE` shown with explicit `(CI mode only)` annotations. Closes the gap where the example pretended REQUIRED_ALWAYS fields didn't exist. (#106)

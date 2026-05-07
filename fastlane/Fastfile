@@ -34,12 +34,16 @@
 
 default_platform(:ios)
 
-# In CI: provision a temporary keychain for match (via setup_ci) and switch
-# match to readonly mode. Locally: no-op. Always: ensure ASC API token is set
-# so any Spaceship calls (BundleId.create, App.create, Certificate.delete)
-# authenticate without 2FA.
+# In CI mode: provision a temporary keychain for match (via setup_ci) and
+# switch match to readonly mode. In local mode: setup_ci must NOT run —
+# it creates an isolated temp keychain that codesign would treat as the
+# default, hiding the user's login-keychain signing identities and
+# producing errSecInternalComponent. Local mode wants codesign to find
+# certs in login.keychain-db directly. Always: ensure ASC API token is
+# set so any Spaceship calls (BundleId.create, App.create,
+# Certificate.delete) authenticate without 2FA.
 before_all do
-  setup_ci if ENV["CI"]
+  setup_ci if ENV.fetch("RELEASE_MODE", "local") == "ci"
   asc_api_key
 end
 

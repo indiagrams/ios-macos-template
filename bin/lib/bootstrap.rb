@@ -836,11 +836,19 @@ module Bootstrap
       ids
     end
 
-    # Returns the matching `security find-identity -v -p codesigning` lines
-    # from the user's login keychain. Each line is e.g.
+    # Returns the matching `security find-identity -v` lines from the user's
+    # login keychain. Each line is e.g.
     #   '  1) BD06...A78 "Apple Distribution: Person Name (A26TJZ8QHQ)"'
+    #
+    # Note we deliberately do NOT pass `-p codesigning` here, because that
+    # filter excludes installer-signing identities (3rd Party Mac Developer
+    # Installer is for `productbuild`, not for code signing). Without -p,
+    # find-identity returns valid identities for ANY policy — code-signing,
+    # installer-signing, mail-signing, etc. -v alone keeps the validity
+    # check (filters out expired or private-key-missing identities). We
+    # match by name in the caller, so policy mixing here is fine.
     def keychain_lines
-      out, _ok = Sh.run("security", "find-identity", "-v", "-p", "codesigning",
+      out, _ok = Sh.run("security", "find-identity", "-v",
                         File.expand_path("~/Library/Keychains/login.keychain-db"))
       out.lines
     end

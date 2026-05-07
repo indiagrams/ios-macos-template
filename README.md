@@ -194,8 +194,15 @@ This creates `https://github.com/<your-username>/my-cool-app`, copies the templa
 
 The template ships with a starter app called **HelloApp**. Time to make it yours.
 
+First, run the one-time dev-env setup. This installs the Ruby gems (fastlane et al.), Homebrew packages (xcodegen, lefthook, etc.), regenerates the Xcode project, and wires up the pre-push git hook. Takes ~30-90 seconds depending on what's already installed:
+
 ```bash
-# Scaffold a config file for the bootstrap pipeline:
+make bootstrap
+```
+
+Then scaffold a config file for the fork-bootstrap pipeline:
+
+```bash
 make init
 ```
 

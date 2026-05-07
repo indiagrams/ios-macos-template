@@ -112,7 +112,7 @@ jobs:
           xcrun --show-sdk-path --sdk iphoneos
 
       - name: Set up Ruby + bundler cache
-        uses: ruby/setup-ruby@v1
+        uses: ruby/setup-ruby@c4e5b1316158f92e3d49443a9d58b31d25ac0f8f # v1.306.0
         with:
           # Pinned here so local dev keeps using whatever ruby you have while
           # CI runs on a maintained release. 3.3 is fastlane-tested and ships

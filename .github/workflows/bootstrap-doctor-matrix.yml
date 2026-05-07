@@ -89,7 +89,8 @@ jobs:
       - name: Install xcodegen + tuist (so BrewBootstrap step's `which` checks pass)
         run: |
           # Idempotent — brew skips already-installed.
-          brew install xcodegen tuist 2>&1 | tail -3
+          brew install xcodegen 2>&1 | tail -3
+          brew install --cask tuist 2>&1 | tail -3
 
       - name: Materialize secrets to mode-0600 files outside the workspace
         env:

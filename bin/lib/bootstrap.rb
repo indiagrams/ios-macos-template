@@ -79,10 +79,21 @@ module Bootstrap
         next if line.empty? || line.start_with?("#")
         key, _, val = line.partition("=")
         UI.fail!(".bootstrap.env line #{idx + 1}: missing '='") if val.nil? || key.strip.empty?
-        # Strip surrounding quotes if symmetric
         val = val.strip
         if (val.start_with?("'") && val.end_with?("'")) || (val.start_with?('"') && val.end_with?('"'))
+          # Quoted value: strip surrounding quotes; preserve any '#' inside.
           val = val[1..-2]
+        elsif (comment_at = val.index(/\s#/))
+          # Unquoted value with an inline comment: strip everything from the
+          # first whitespace-hash onward (dotenv convention). Bare '#' inside
+          # an unquoted value (e.g. URL fragments) is preserved.
+          # The .bootstrap.env.example template ships every fillable field
+          # with an inline `# placeholder` comment; without this strip, a
+          # forker who fills `BUNDLE_ID=com.foo.bar` while leaving the
+          # trailing `# iOS + macOS share the same bundle id.` comment
+          # would have that comment text mashed onto the bundle id, breaking
+          # every downstream Apple/GH probe.
+          val = val[0...comment_at].rstrip
         end
         values[key.strip] = val
       end
@@ -875,6 +886,7 @@ module Bootstrap
 
       UI.section "Pipeline status"
       results = []
+      blockers = []  # collected for the action-required tail message
       @steps.each_with_index do |step, idx|
         result = step.check
         case result
@@ -882,7 +894,7 @@ module Bootstrap
           puts "  #{(idx + 1).to_s.rjust(2)}. #{UI.ok step.name}"
           results << :done
         when :pending
-          puts "  #{(idx + 1).to_s.rjust(2)}. #{UI.miss step.name}#{UI.dim ' — will run on bootstrap'}"
+          puts "  #{(idx + 1).to_s.rjust(2)}. #{UI.miss step.name}#{UI.dim ' — will run on bootstrap-fork'}"
           results << :pending
         when Array
           severity, msg = result
@@ -891,9 +903,14 @@ module Bootstrap
             puts msg.lines.map { |l| "      #{UI.dim l.chomp}" }.join("\n")
             results << :warn
           else
-            puts "  #{(idx + 1).to_s.rjust(2)}. #{UI.warn step.name}"
+            # Blocked: visually separate from :warn (advisory) by using the
+            # red ✗ glyph + a "needs fix" suffix, and from :pending by
+            # rendering the underlying error message at full intensity
+            # (not dim) so it pulls the eye.
+            puts "  #{(idx + 1).to_s.rjust(2)}. #{UI.miss step.name}#{UI.bold ' — needs fix'}"
             puts msg.lines.map { |l| "      #{l}" }.join
             results << :blocked
+            blockers << "#{idx + 1}. #{step.name}"
           end
         end
       end
@@ -906,21 +923,27 @@ module Bootstrap
       cells = ["#{UI.ok "#{done} done"}"]
       cells << UI.miss("#{pending} pending") if pending > 0
       cells << UI.warn("#{warned} advisory") if warned > 0
-      cells << UI.warn("#{blocked} blocked") if blocked > 0
+      cells << UI.miss("#{blocked} blocked") if blocked > 0
       puts "  #{cells.join('    ')}"
 
       if blocked > 0
         puts
-        puts UI.bold "Action required: resolve the ⚠ items above, then re-run `make doctor`."
+        puts UI.bold "Action required: fix the ✗ blocked items above, then re-run `make doctor`:"
+        blockers.each { |b| puts UI.dim("  • #{b}") }
+        if warned > 0
+          puts
+          puts UI.dim("(#{warned} advisory ⚠ items above are App-Store-review-only and don't block TestFlight.)")
+        end
         exit 2
       elsif pending > 0
         puts
         puts UI.bold "Run `make bootstrap-fork` to close the ✗ items."
+        puts UI.dim("(#{warned} advisory ⚠ items above are App-Store-review-only and don't block TestFlight.)") if warned > 0
         exit 0
       else
         puts
         puts UI.bold "All bootstrap steps complete. Run `make ship` to trigger a release."
-        puts UI.dim("(#{warned} advisory items above are App-Store-review-only and don't block TestFlight)") if warned > 0
+        puts UI.dim("(#{warned} advisory ⚠ items above are App-Store-review-only and don't block TestFlight.)") if warned > 0
         exit 0
       end
     end

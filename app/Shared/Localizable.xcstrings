@@ -1,0 +1,39 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "HelloApp" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HelloApp"
+          }
+        }
+      }
+    },
+    "iOS + macOS template" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iOS + macOS template"
+          }
+        }
+      }
+    },
+    "Rename me. Run `bin/rename.sh --help`." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename me. Run `bin/rename.sh --help`."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

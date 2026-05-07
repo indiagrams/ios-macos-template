@@ -59,6 +59,7 @@ let iosTarget = Target.target(
     sources: ["Shared/**", "iOS/**"],
     resources: [
         "iOS/Assets.xcassets",
+        "Shared/PrivacyInfo.xcprivacy",
     ],
     entitlements: .file(path: "iOS/HelloApp.entitlements"),
     settings: .settings(base: [
@@ -119,6 +120,7 @@ let macTarget = Target.target(
     ],
     resources: [
         "macOS/Assets.xcassets",
+        "Shared/PrivacyInfo.xcprivacy",
     ],
     entitlements: .file(path: "macOS/HelloApp.entitlements"),
     scripts: [macIconScript],

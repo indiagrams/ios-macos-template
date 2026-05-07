@@ -37,6 +37,14 @@ on:
 permissions:
   contents: read
 
+# Serialize per-ref runs. Cron-triggered runs share group `bootstrap-doctor-main`
+# with any push/dispatch on main; PR-triggered runs use the PR ref so they can
+# proceed in parallel with cron. cancel-in-progress: true keeps PR-only runs
+# fresh; cron runs effectively never overlap (they take ~5min, fire weekly).
+concurrency:
+  group: bootstrap-doctor-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   doctor:
     # Skip on forks: this workflow references indiagrams/ios-macos-smoketest

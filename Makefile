@@ -4,7 +4,7 @@
 # ci/local-check.sh --fast automatically via lefthook.
 #
 # The stub app is named "HelloApp" with bundle id "com.example.helloapp".
-# Rename for your project: see README.md → "Renaming the stub".
+# Rename for your project: run `bin/rename.sh --help`.
 
 .PHONY: all go bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help init doctor bootstrap-fork ship verify
 

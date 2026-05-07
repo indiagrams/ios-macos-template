@@ -65,7 +65,7 @@ You don't need to memorize these — refer back as you hit each.
 ## What you need before you start
 
 ### Hardware
-- **A Mac.** Any Mac running macOS Sonoma (14) or newer. **Required even for iOS-only apps** — Xcode, xcodebuild, fastlane, and the iOS Simulator only run on macOS. There is no supported way to build iOS or Mac apps on Windows or Linux.
+- **A Mac.** Any Mac running macOS Sequoia (15) or newer. **Required even for iOS-only apps** — Xcode 26, xcodebuild, fastlane, and the iOS Simulator only run on macOS. There is no supported way to build iOS or Mac apps on Windows or Linux.
 - **(Optional) An iPhone or iPad** to install your app via TestFlight at the end. Not strictly required — TestFlight also works on Mac.
 
 ### Money
@@ -205,7 +205,7 @@ This creates `.bootstrap.env` — open it in your editor and fill in the values:
 $EDITOR .bootstrap.env
 ```
 
-You'll see something like this. Fill in the marked fields:
+You'll see something like this. The fields marked `# fill in` are yours to set; the rest are sensible defaults or auto-filled by `make init` from your git remote:
 
 ```env
 # What to call your app
@@ -224,26 +224,45 @@ RELEASE_MODE=local                          # local is easier for first-time. Sw
 PLATFORMS=ios,macos                         # 'ios' or 'macos' to ship just one
 
 # Apple credentials (from Steps 3 + 4)
-FASTLANE_TEAM_ID=A1B2C3D4E5                 # from Step 3
-ASC_API_KEY_ID=ABC1234567                   # from Step 4 — Key ID
-ASC_API_KEY_ISSUER_ID=12345678-abcd-...     # from Step 4 — Issuer ID
-ASC_API_KEY_P8_PATH=~/.config/secrets/AuthKey_ABC1234567.p8
+FASTLANE_TEAM_ID=A1B2C3D4E5                 # fill in — from Step 3
+ASC_API_KEY_ID=ABC1234567                   # fill in — from Step 4 — Key ID
+ASC_API_KEY_ISSUER_ID=12345678-abcd-...     # fill in — from Step 4 — Issuer ID
+ASC_API_KEY_P8_PATH=~/.config/secrets/AuthKey_ABC1234567.p8  # fill in — from Step 4
 
-# (the rest can stay as defaults — re-edit only if make doctor complains)
-ICON_1024_PATH=                              # leave blank to use the placeholder icon
-ASC_APP_SKU=mycoolapp-001                    # any unique-to-you string
-ASC_APP_NAME='My Cool App'                   # what shows on the App Store
+# GitHub identity — auto-filled from `git remote get-url origin`. Override only
+# if your fork lives somewhere other than github.com/<you>/<repo>.
+GH_ORG=your-username                        # auto-filled by make init
+GH_APP_REPO=my-cool-app                     # auto-filled by make init
+GH_CERTS_REPO=my-cool-app-certs             # auto-filled by make init (CI mode only)
+
+# Optional design + ASC fields. Fill these in before running `make ship` for
+# real (placeholder icon is fine for TestFlight; SKU/ASC name only matter once
+# you've created the App Store Connect App record — see Step 7 below).
+ICON_1024_PATH=                             # leave blank to use the placeholder hammer icon
+ASC_APP_SKU=mycoolapp-001                   # any unique-to-you string
+ASC_APP_NAME='My Cool App'                  # what shows on the App Store
+
+# CI-mode only — leave blank for RELEASE_MODE=local. `make bootstrap-fork`
+# generates and writes random 32-char passwords if these paths don't exist
+# yet, when you do switch to CI mode later.
+GH_PAT_FILE=                                # ~/.config/secrets/<repo>-pat (CI mode only)
+MATCH_PASSWORD_FILE=                        # ~/.config/secrets/match-password (CI mode only)
+KEYCHAIN_PASSWORD_FILE=                     # ~/.config/secrets/keychain-password (CI mode only)
 ```
 
 > **Pick BUNDLE_ID carefully.** It's the unique fingerprint of your app, and you can't change it later without losing your TestFlight history. If you own a domain, use it (`com.yourdomain.appname`). If you don't, `com.yourgithubusername.appname` is fine.
 
-> **Why two modes?** `RELEASE_MODE=local` signs from your laptop using certs in your Keychain — easy first-run, no server config needed. `RELEASE_MODE=ci` runs the full pipeline on GitHub Actions every time you push a tag — more setup, but it means you can ship from any machine. Start with `local`. You can switch later.
+> **Why two modes?** `RELEASE_MODE=local` signs from your laptop using certs in your Keychain — easy first-run, no server config needed. `RELEASE_MODE=ci` runs the full pipeline on GitHub Actions when you run `make ship` (which dispatches `release.yml` via `gh workflow run`) — more setup, but it means anyone with repo write access can ship from any machine. Start with `local`. You can switch later.
 
-> **Why pick a platform subset?** If you're shipping an iPhone-only app and don't care about Mac, set `PLATFORMS=ios` — `make doctor` will stop probing for the Mac Installer cert, `make ship` skips the macOS .pkg build/upload, and CI on PRs will run 4 jobs instead of 6 (saving ~2-4 min/PR of macOS runner time). Same in reverse for `PLATFORMS=macos`. Switchable later: change the value, re-run `make bootstrap-fork`.
+> **Why pick a platform subset?** If you're shipping an iPhone-only app and don't care about Mac, set `PLATFORMS=ios` — `make doctor` will stop probing for the Mac Installer cert, `make ship` skips the macOS .pkg build/upload, and CI on PRs runs fewer jobs (saving ~2-4 min/PR of macOS runner time). Same in reverse for `PLATFORMS=macos`. Switchable later: change the value, re-run `make bootstrap-fork`. **In CI mode, also re-run `bin/setup-github.sh`** — the required-checks list is set on first bootstrap and won't update automatically when you flip platforms.
 
 ---
 
 ## Step 7 — Verify everything is good (~30 seconds)
+
+> **Before you run this:** Apple requires you to create the App Store Connect "App record" by hand once, before any tooling can upload a build. This is the one mandatory step the template can't automate (Apple's API forbids `POST /apps`).
+>
+> Go to [appstoreconnect.apple.com/apps](https://appstoreconnect.apple.com/apps), click **+ → New App**, fill in your **bundle ID** (matches `BUNDLE_ID` from Step 6) and **display name** (matches `DISPLAY_NAME`). Takes ~30 seconds. If you skip this, `make doctor` will fail at the `bootstrap_asc` step with a clear pointer back here.
 
 ```bash
 make doctor
@@ -252,18 +271,18 @@ make doctor
 `make doctor` is read-only — it checks every prerequisite without changing anything. You'll see output like:
 
 ```
-Bootstrap doctor — 17 steps
-─────────────────────────────
+Bootstrap doctor
+────────────────
   1. ✓ Required tools on PATH (xcodebuild, brew, fastlane, gh, …)
   2. ✓ Apple Developer credentials present
   3. ✓ App Store Connect API key valid
  ...
- 17. ⚠ App Store screenshots
+ 11. ⚠ App Store screenshots
       No fastlane/screenshots/en-US/ — capture via `ci/take-screenshots.sh` before App Store review (not TestFlight).
 
 Summary
 ───────
-  ✓ 15 done    ⚠ 2 advisory
+  ✓ 9 done    ⚠ 2 advisory
 
 All bootstrap steps complete. Run `make ship` to trigger a release.
 (Advisory items above are App-Store-review-only and don't block TestFlight.)
@@ -274,9 +293,9 @@ If you see `✗` (red) marks instead, doctor will tell you exactly what's missin
 > **Common first-time failures:**
 > - Missing `.p8` file → re-check Step 4
 > - Wrong Team ID → copy from Step 3 again
-> - "ASC App record not found" → see [docs/APPLE-PREREQS.md](docs/APPLE-PREREQS.md) — Apple requires you to create the app record once via their website (their API forbids `POST /apps`)
+> - "ASC App record not found" → see the callout above; this is the manual ASC step.
 
-When all 17 steps are `✓` or `⚠`, you're ready.
+When every step is `✓` or `⚠`, you're ready. (The pipeline runs 11 steps in `local` mode, 17 in `ci` mode — the count above will change accordingly.)
 
 ---
 
@@ -336,7 +355,7 @@ Both binaries `VALID` = you're done shipping. **You just shipped your first iOS 
 4. Tap **Install**.
 5. Open the app — it's running on your phone, signed by you, distributed by Apple.
 
-For Mac: the same TestFlight app works on macOS Sonoma+ — install from the [Mac App Store](https://apps.apple.com/app/testflight/id899247664).
+For Mac: the same TestFlight app works on macOS Sequoia+ — install from the [Mac App Store](https://apps.apple.com/app/testflight/id899247664).
 
 To invite friends to test: open [appstoreconnect.apple.com](https://appstoreconnect.apple.com) → your app → TestFlight tab → add their Apple IDs as Internal Testers (immediate, no review) or External Testers (requires Apple to approve your build first, takes 24h).
 

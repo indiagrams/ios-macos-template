@@ -43,6 +43,21 @@ jobs:
           echo "Resolved PLATFORMS=$platforms"
           echo "do_ios=$(echo "$platforms" | grep -qw 'ios'   && echo true || echo false)"   >> "$GITHUB_OUTPUT"
           echo "do_macos=$(echo "$platforms" | grep -qw 'macos' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+  # Lints all Swift sources against .swiftlint.yml at the repo root.
+  # `--strict` treats warnings as errors so the signal is binary.
+  # Excluded paths (Tuist Derived, fastlane SnapshotHelper, build outputs)
+  # are configured in .swiftlint.yml itself, not here.
+  swiftlint:
+    name: swiftlint
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: install swiftlint
+        run: brew install swiftlint
+      - name: lint
+        run: swiftlint --strict --reporter github-actions-logging
+
   # iOS device build is the primary signal — it uses the iphoneos SDK and the
   # real entitlements pathway. Catches bugs the Simulator doesn't (SDK header
   # drift, missing device-only APIs, wrong xcframework slice, etc.).

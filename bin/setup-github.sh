@@ -6,9 +6,9 @@
 #   - Default branch: main
 #   - Branch protection on main:
 #       * Require PR before merging (no direct pushes)
-#       * Require 6 status checks: 3 XcodeGen (app (iOS device), app (iOS Simulator),
-#         app (macOS)) + 3 Tuist parity (app (Tuist iOS device),
-#         app (Tuist iOS Simulator), app (Tuist macOS))
+#       * Require 7 status checks: swiftlint + 3 XcodeGen (app (iOS device),
+#         app (iOS Simulator), app (macOS)) + 3 Tuist parity (app (Tuist iOS
+#         device), app (Tuist iOS Simulator), app (Tuist macOS))
 #       * Require status checks to be up-to-date before merge
 #       * Enforce on admins (no bypass — same rules apply to repo owner)
 #       * Require linear history
@@ -97,6 +97,10 @@ fi
 if echo "$PLATFORMS_VAL" | grep -qw 'macos'; then
   CHECKS+=( "app (macOS)" "app (Tuist macOS)" )
 fi
+
+# `swiftlint` always runs (no platform gate) — append unconditionally so
+# every fork's required-checks list includes it regardless of PLATFORMS.
+CHECKS+=( "swiftlint" )
 
 if [ ${#CHECKS[@]} -eq 0 ]; then
   echo "ERROR: PLATFORMS=$PLATFORMS_VAL produced no required checks. Must include 'ios', 'macos', or both." >&2

@@ -6,6 +6,11 @@ on:
   push:
     branches: [main, master]
 
+# Least-privilege token. The PR jobs only need to read the repo;
+# nothing here writes back to the repo, posts comments, or pushes tags.
+permissions:
+  contents: read
+
 # Cancel an older run for the same PR / branch when a new push lands.
 concurrency:
   group: pr-${{ github.workflow }}-${{ github.ref }}

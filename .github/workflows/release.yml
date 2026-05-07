@@ -84,7 +84,7 @@ jobs:
       FASTLANE_SKIP_UPDATE_CHECK:    '1'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           # Tag push at end of release lane needs full history; setting 0 also
           # gives fastlane access to all prior tags for changelog/rev parsing.
@@ -235,7 +235,7 @@ jobs:
           fi
 
       - name: Upload artifacts (.ipa + .pkg + .sha256)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: signed-builds-${{ steps.ver.outputs.version }}

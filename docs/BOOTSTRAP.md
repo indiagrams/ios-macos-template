@@ -110,7 +110,7 @@ a partial failure picks up where you left off.
 | 4 | Wire fastlane/Matchfile | Substitutes `git_url` to point at your certs repo |
 | 5 | Toolchain | `make bootstrap` (brew bundle + lefthook + xcodegen/tuist + bundler) |
 | 6 | Initial commit + push | First commit (rename + Matchfile) pushed to `origin/main` |
-| 7 | Branch protection | `bin/setup-github.sh` (6 required checks, squash-only, linear history) |
+| 7 | Branch protection | `bin/setup-github.sh` (7 required checks: swiftlint + xcodegen iOS device/sim + macOS + tuist parity, squash-only, linear history) |
 | 8 | Private certs repo | `gh repo create --private` if absent |
 | 9 | 7 GH Secrets | Generates `MATCH_PASSWORD` + `KEYCHAIN_PASSWORD` if absent, encodes the PAT + p8, sets all 7 secrets |
 | 10 | Bundle ID registration | `fastlane register_app_id` (idempotent — Spaceship `BundleId.create` rescues `ALREADY_EXISTS`) |

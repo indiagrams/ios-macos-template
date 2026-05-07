@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    Apple Privacy Manifest for the HelloApp template.
+
+    Apple requires a Privacy Manifest for many SDKs and increasingly checks
+    for one in App Store Connect submissions. The four required keys must be
+    present (even when empty) per Apple's spec:
+
+      - NSPrivacyTracking                  Bool
+      - NSPrivacyTrackingDomains           Array of String
+      - NSPrivacyCollectedDataTypes        Array of dict
+      - NSPrivacyAccessedAPITypes          Array of dict
+
+    This stub declares the conservative defaults for an app that does no
+    tracking, collects no data, and uses no required-reason APIs. As your
+    fork adds features that touch any of these (analytics SDKs, file system
+    timestamps, UserDefaults, system boot time, etc.), update this file.
+
+    Reference: https://developer.apple.com/documentation/bundleresources/privacy_manifest_files
+-->
+<plist version="1.0">
+<dict>
+    <key>NSPrivacyTracking</key>
+    <false/>
+
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array/>
+
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array/>
+</dict>
+</plist>

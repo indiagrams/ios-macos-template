@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Audit-driven docs hardening + CI workflow refactor. Three themes:
+
+  1. **First-time-shipper audit fixes** — read-only audit of the README + onboarding flow from a fresh first-time-iOS-developer's perspective surfaced 3 BLOCKERs (macOS Sonoma listed as min, but Xcode 26 needs Sequoia; `.bootstrap.env.example` defaulted to `RELEASE_MODE=ci` while the README walked users through `local`; example env block omitted 6 fields the actual file ships including `GH_ORG`/`GH_APP_REPO` from `REQUIRED_ALWAYS`) plus 4 HIGH-severity friction points. All verified against the codebase before fixing. (#106)
+  2. **CI workflow consolidation** — `pr.yml`'s 6 platform jobs (xcodegen × {iOS device, iOS sim, macOS} + tuist × same) consolidated into a single matrix job. Halves the file (293 → 209 lines). Matrix is built dynamically from `.bootstrap.env`'s `PLATFORMS` field in the `config:` job, so iOS-only or macOS-only forks literally don't see the cells they don't need (preserving the runner-minutes savings static `if:` skipping wouldn't). Check names stay branch-protection-stable. Bonus: brew-speedup env vars (`HOMEBREW_NO_AUTO_UPDATE`, `HOMEBREW_NO_INSTALL_CLEANUP`, `HOMEBREW_NO_ANALYTICS`) on every macos-15 job. (#104)
+  3. **Supply-chain hygiene** — every `actions/*` reference SHA-pinned with a `# v4.x.y` trailing comment. Tag pinning was already done for third-party `ruby/setup-ruby` (#96); this extends the pattern to first-party `actions/checkout` + `actions/upload-artifact`. Removes the tag-rewrite surface entirely. (#105)
+
+### Changed
+
+- `.github/workflows/pr.yml` — six near-identical platform jobs consolidated into one matrix-driven `app:` job. Matrix is built dynamically from `PLATFORMS` in the `config:` job's `steps.matrix.outputs.matrix`, then consumed via `strategy.matrix: ${{ fromJson(needs.config.outputs.matrix) }}`. Check names (`app (iOS device)`, `app (Tuist macOS)`, etc.) preserved exactly via `name: "app (${{ matrix.display_name }})"` so existing branch-protection rules need no changes. Net: -179 / +95 lines. (#104)
+- All `actions/*` references SHA-pinned: `actions/checkout@v4` → `@34e114876b0b... # v4.3.1` (4 uses) and `actions/upload-artifact@v4` → `@ea165f8d65b6... # v4.6.2` (1 use). Across `pr.yml`, `release.yml`, `bootstrap-doctor-matrix.yml`, `verify-rename.yml`. (#105)
+- `.bootstrap.env.example` — default `RELEASE_MODE` switched from `ci` to `local`. CI mode requires 7 GH Secrets + a private certs repo + a fine-grained PAT; local mode requires nothing beyond an Apple Developer account. The README always recommended starting with `local` for first-time shippers; the scaffolded default now matches. Comment header reordered to put `local` first. (#106)
+- README — `macOS Sonoma (14) or newer` corrected to `macOS Sequoia (15) or newer` at the two callsites where it appeared. Xcode 26 doesn't run on Sonoma. (#106)
+- README — Step 6 example `.bootstrap.env` block expanded to cover all fields a forker actually sees: `GH_ORG`/`GH_APP_REPO`/`GH_CERTS_REPO` annotated as auto-filled by `make init` from `git remote get-url origin`; `GH_PAT_FILE`/`MATCH_PASSWORD_FILE`/`KEYCHAIN_PASSWORD_FILE` shown with explicit `(CI mode only)` annotations. Closes the gap where the example pretended REQUIRED_ALWAYS fields didn't exist. (#106)
+- README — Step 7 sample doctor output uses local-mode counts (11 total / 9 done / 2 advisory) since `.bootstrap.env.example` now defaults to local. Parenthetical added: "11 steps in local mode, 17 in ci mode — the count above will change accordingly." (#106)
+- README — `RELEASE_MODE=ci` description corrected from "every time you push a tag" to "when you run `make ship` (which dispatches `release.yml` via `gh workflow run`)". The push-tag claim was false; bin/ship.rb has always used `workflow_dispatch`. (#106)
+- README — PLATFORMS-switch guidance now mentions that `bin/setup-github.sh` must be re-run separately in CI mode (the required-CI-checks list is set on first bootstrap and isn't refreshed by `make bootstrap-fork`). (#106)
+- README — ASC App-record creation promoted from a "common first-time failures" bullet to a prominent before-you-run callout at the top of Step 7. It's a one-time human prereq Apple requires (POST /apps is forbidden by their API) and it blocks every subsequent step; demoting it to a footnote was misleading. (#106)
+
+### Performance
+
+- macos-15 jobs (`swiftlint` + the `app` matrix) now run with `HOMEBREW_NO_AUTO_UPDATE=1`, `HOMEBREW_NO_INSTALL_CLEANUP=1`, `HOMEBREW_NO_ANALYTICS=1`. Skips the ~30s formula-DB refresh and ~5s post-install cleanup that brew runs on every install. Saves ~30-60s per macos-15 job; six jobs per PR run → ~3-6 min saved per PR. (#104)
+
 ## [1.2.0] - 2026-05-07
 
 Audit-driven hardening release. Six themes:

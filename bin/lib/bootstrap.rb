@@ -470,7 +470,21 @@ module Bootstrap
     def name; "GitHub branch protection on main"; end
 
     def check
-      Sh.ok?("gh", "api", "repos/#{config.repo_slug}/branches/main/protection") ? :done : :pending
+      # Probe for the protection's enforce_admins value. Two reasons to
+      # re-run setup-github.sh (return :pending):
+      #   1. No protection at all (HTTP 404) — first-time fork, hasn't run yet.
+      #   2. Protection exists but enforce_admins doesn't match the current
+      #      RELEASE_MODE. Lets a forker switch ci ↔ local later by editing
+      #      .bootstrap.env + re-running `make bootstrap-fork`; without this
+      #      drift detection, BranchProtection would stay :done and the
+      #      protection config would silently mismatch the mode.
+      out, ok = Sh.run("gh", "api",
+                       "repos/#{config.repo_slug}/branches/main/protection",
+                       "--jq", ".enforce_admins.enabled")
+      return :pending unless ok
+      current = out.strip == "true"
+      desired = config.ci_mode?
+      current == desired ? :done : :pending
     end
 
     def do_it

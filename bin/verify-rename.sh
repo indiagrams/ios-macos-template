@@ -81,12 +81,16 @@ SLUG_ORIG="indiagrams/apple-shipkit"
 YEAR_ORIG="<year>"
 
 # check_surface LABEL LITERAL
-# Greps tracked files for LITERAL excluding the 5 self-reference paths.
+# Greps tracked files for LITERAL excluding 5 self-reference paths plus the
+# bootstrap-doctor-matrix.yml workflow (whose `if: github.repository ==
+# 'indiagrams/apple-shipkit'` safety guard is intentionally preserved on
+# forks; bin/rename.sh excludes it from substitution, so verify-rename
+# excludes it from the leak audit too — symmetric exclusion).
 # On match: writes the D-09 block to stderr (header + indented matches).
 # Always writes a single integer (the match count) to stdout.
 # Returns 0 always (caller decides via the count, not the exit code).
 #
-# Co-location note (D-01): the 5 :!path exclusions are written inline
+# Co-location note (D-01): the 6 :!path exclusions are written inline
 # here ONCE. The function body IS the single auditable source of truth
 # for the exclusion list — calling this helper 4 times does not
 # duplicate the audit surface, it reuses it.
@@ -112,7 +116,8 @@ check_surface() {
               ':!bin/verify-rename.sh' \
               ':!ci/test-rename.sh' \
               ':!ci/test-rename-gates.sh' \
-              ':!ci/test-verify-rename.sh')
+              ':!ci/test-verify-rename.sh' \
+              ':!.github/workflows/bootstrap-doctor-matrix.yml')
   status=$?
   set -e
 

@@ -2,7 +2,9 @@
 
 # Shared library for `bin/doctor.rb` (read-only) and `bin/bootstrap-fork.rb`
 # (idempotent driver). Reads `.bootstrap.env`, validates config, exposes a
-# pipeline of 14 steps. Each step has a `check` (returns bool, no side effects)
+# pipeline of 19 step classes. CI mode runs 17 steps with default
+# PLATFORMS=ios,macos; local mode runs 11. Each step has a `check`
+# (returns bool, no side effects)
 # and a `do_it` (idempotent: safe to re-run on partial state).
 #
 # Doctor mode just calls every `check` and reports.

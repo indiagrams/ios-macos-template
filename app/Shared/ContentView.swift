@@ -8,8 +8,12 @@ struct ContentView: View {
                 .scaledToFit()
                 .frame(width: 80, height: 80)
                 .foregroundStyle(.tint)
+                // Decorative — the title text below carries the meaning. Mark
+                // hidden so VoiceOver doesn't announce "hammer-and-wrench, image".
+                .accessibilityHidden(true)
             Text("HelloApp")
                 .font(.largeTitle.bold())
+                .accessibilityAddTraits(.isHeader)
             Text("iOS + macOS template")
                 .font(.headline)
                 .foregroundStyle(.secondary)
@@ -21,6 +25,10 @@ struct ContentView: View {
         }
         .padding()
         .frame(minWidth: 320, minHeight: 240)
+        // Single accessibility identifier scoped to the whole stub UI so UI
+        // tests can match the screen without depending on visible text
+        // (which varies once forks localize).
+        .accessibilityIdentifier("HelloApp.stub")
     }
 }
 

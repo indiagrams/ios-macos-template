@@ -233,8 +233,8 @@ if $SIGN_IOS; then
     -configuration Release \
     -destination 'generic/platform=iOS' \
     -archivePath "$IOS_ARCHIVE" \
-    "${ASC_AUTH_ARGS[@]}" \
-    "${IOS_SIGN_ARGS[@]}" \
+    ${ASC_AUTH_ARGS[@]+"${ASC_AUTH_ARGS[@]}"} \
+    ${IOS_SIGN_ARGS[@]+"${IOS_SIGN_ARGS[@]}"} \
     -allowProvisioningUpdates \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     MARKETING_VERSION="$MARKETING_VERSION" \
@@ -246,7 +246,7 @@ if $SIGN_IOS; then
     -archivePath "$IOS_ARCHIVE" \
     -exportOptionsPlist "$EXPORT_OPTS" \
     -exportPath "$IOS_EXPORT" \
-    "${ASC_AUTH_ARGS[@]}" \
+    ${ASC_AUTH_ARGS[@]+"${ASC_AUTH_ARGS[@]}"} \
     -allowProvisioningUpdates \
     2>&1 | "${XCBEAUTIFY[@]}"
 
@@ -299,8 +299,8 @@ if $SIGN_MACOS; then
     -configuration Release \
     -destination 'generic/platform=macOS' \
     -archivePath "$MACOS_ARCHIVE" \
-    "${ASC_AUTH_ARGS[@]}" \
-    "${MACOS_SIGN_ARGS[@]}" \
+    ${ASC_AUTH_ARGS[@]+"${ASC_AUTH_ARGS[@]}"} \
+    ${MACOS_SIGN_ARGS[@]+"${MACOS_SIGN_ARGS[@]}"} \
     -allowProvisioningUpdates \
     $($PATCH_MACOS_PLIST && echo "" || echo "CODE_SIGN_STYLE=Automatic") \
     DEVELOPMENT_TEAM="$TEAM_ID" \
@@ -313,7 +313,7 @@ if $SIGN_MACOS; then
     -archivePath "$MACOS_ARCHIVE" \
     -exportPath "$MACOS_EXPORT" \
     -exportOptionsPlist "$EXPORT_OPTS_MACOS" \
-    "${ASC_AUTH_ARGS[@]}" \
+    ${ASC_AUTH_ARGS[@]+"${ASC_AUTH_ARGS[@]}"} \
     -allowProvisioningUpdates \
     2>&1 | "${XCBEAUTIFY[@]}"
 

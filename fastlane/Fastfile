@@ -398,22 +398,47 @@ platform :ios do
 
     UI.header("Release #{tag}#{dry_run ? " [DRY RUN]" : ""} — platforms: #{active_platforms.join('+')}")
 
-    # When fastlane/Matchfile exists, sync signing material from your certs
-    # repo BEFORE invoking xcodebuild — this is what enables CI signing without
-    # an Apple ID logged in. readonly: true → CI never mints new certs/profiles;
-    # we only consume what`s already in the certs repo. The release lane reads
-    # match`s emitted profile-name env vars and threads them into the script,
-    # which switches xcodebuild to MANUAL signing (avoids "Cloud signing
-    # permission error" during exportArchive — automatic signing tries Apple`s
-    # cloud-signing endpoint which API-key auth cant access).
+    # Cert sourcing depends on RELEASE_MODE (set by Bootstrap.asc_env when
+    # invoked via `make ship`):
     #
-    # When Matchfile is absent (e.g. you haven`t configured match yet), the lane
-    # falls through to the legacy automatic-signing path: requires Xcode logged
-    # into Apple ID + cert/profile in login.keychain. Works locally, fails in CI.
-    matchfile_present = File.exist?(File.join(__dir__, "Matchfile"))
-    sh_env            = {}
+    #   RELEASE_MODE=ci    — sync signing material from the private certs
+    #                        repo via fastlane match. readonly: true → CI
+    #                        never mints new certs; we only consume what's
+    #                        already there. The release lane reads match's
+    #                        emitted profile-name env vars and threads them
+    #                        into local-release-check.sh, which switches
+    #                        xcodebuild to MANUAL signing (avoids "Cloud
+    #                        signing permission error" — automatic signing
+    #                        tries Apple's cloud endpoint which API-key
+    #                        auth can't access).
+    #
+    #   RELEASE_MODE=local — skip match entirely. Sign from the user's
+    #                        login keychain (Apple Distribution + Apple
+    #                        Development + 3rd Party Mac Developer
+    #                        Installer, auto-minted by `make
+    #                        bootstrap-fork`'s LocalKeychainCerts step).
+    #                        local-release-check.sh defaults to automatic
+    #                        Xcode-managed signing.
+    #
+    # Pre-#121 the gate was `File.exist?(Matchfile)`, which always returned
+    # true because the template SHIPS a placeholder Matchfile. Local-mode
+    # forks then hit the unedited `CHANGE-ME-ORG/CHANGE-ME-REPO-certs.git`
+    # URL and match aborted on a 404. Gating on RELEASE_MODE explicitly
+    # makes the local-mode path actually skip match.
+    release_mode = ENV.fetch("RELEASE_MODE", "local")
+    sh_env = {}
 
-    if matchfile_present
+    if release_mode == "ci"
+      matchfile_path = File.join(__dir__, "Matchfile")
+      matchfile_text = File.exist?(matchfile_path) ? File.read(matchfile_path) : ""
+      if matchfile_text.include?("CHANGE-ME-")
+        UI.user_error!(
+          "RELEASE_MODE=ci but fastlane/Matchfile still has CHANGE-ME placeholder. " \
+          "Run `make bootstrap-fork` (the EditMatchfile step rewrites it with your " \
+          "GH_CERTS_REPO) before re-running `make ship`."
+        )
+      end
+
       bits = []
       bits << "iOS"               if do_ios
       bits << "macOS"             if do_macos
@@ -449,7 +474,7 @@ platform :ios do
         sh_env["RELEASE_MACOS_PROFILE_NAME"] = macos_profile_name
       end
     else
-      UI.message("Step 1/5: no fastlane/Matchfile — skipping match sync. Using local Xcode-managed signing.")
+      UI.message("Step 1/5: RELEASE_MODE=#{release_mode} — skipping match. Using login-keychain signing (Xcode automatic).")
     end
 
     sign_flags = []

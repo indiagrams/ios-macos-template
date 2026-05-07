@@ -1187,6 +1187,13 @@ module Bootstrap
       "ASC_API_KEY_ISSUER_ID"   => config["ASC_API_KEY_ISSUER_ID"],
       "ASC_API_KEY_P8_BASE64"   => Base64.strict_encode64(config.expand_path("ASC_API_KEY_P8_PATH").read),
       "FASTLANE_TEAM_ID"        => config["FASTLANE_TEAM_ID"],
+      # The release lane in fastlane/Fastfile reads RELEASE_MODE to decide
+      # whether to run match (ci-mode certs from the private certs repo) vs
+      # skip match and use the user's login keychain (local-mode signing).
+      # Without this propagation, local-mode forks hit the unedited
+      # CHANGE-ME-ORG/CHANGE-ME-REPO-certs.git Matchfile placeholder and
+      # match aborts cloning a 404 URL.
+      "RELEASE_MODE"            => config.release_mode,
       "FASTLANE_HIDE_CHANGELOG" => "1",
       "FASTLANE_SKIP_UPDATE_CHECK" => "1"
     }

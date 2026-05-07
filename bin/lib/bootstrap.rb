@@ -80,13 +80,22 @@ module Bootstrap
         key, _, val = line.partition("=")
         UI.fail!(".bootstrap.env line #{idx + 1}: missing '='") if val.nil? || key.strip.empty?
         val = val.strip
-        if (val.start_with?("'") && val.end_with?("'")) || (val.start_with?('"') && val.end_with?('"'))
-          # Quoted value: strip surrounding quotes; preserve any '#' inside.
-          val = val[1..-2]
-        elsif (comment_at = val.index(/\s#/))
-          # Unquoted value with an inline comment: strip everything from the
+        if val.start_with?("'") || val.start_with?('"')
+          # Quoted value. Find the matching closing quote; the value is
+          # exactly what's between the two quotes. Anything after the
+          # closing quote (typically `  # trailing comment`) is discarded.
+          # We deliberately do NOT honor backslash escapes here — `.bootstrap.env`
+          # values are paths, ids, and short strings, never multi-line literals.
+          quote_char = val[0]
+          closing = val.index(quote_char, 1)
+          val = closing ? val[1...closing] : val
+        elsif (comment_at = val.index(/(?:^|\s)#/))
+          # Unquoted value with an inline comment. Strip everything from the
           # first whitespace-hash onward (dotenv convention). Bare '#' inside
-          # an unquoted value (e.g. URL fragments) is preserved.
+          # an unquoted value (e.g. URL fragments) is preserved because it
+          # has no preceding whitespace. The (?:^|\s) form also matches a
+          # value that's purely a comment (`KEY=  # only-a-comment`) — strip
+          # to the empty string.
           # The .bootstrap.env.example template ships every fillable field
           # with an inline `# placeholder` comment; without this strip, a
           # forker who fills `BUNDLE_ID=com.foo.bar` while leaving the

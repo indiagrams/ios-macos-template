@@ -1,21 +1,33 @@
-# Continuously validates that this template's bootstrap pipeline (bin/doctor.rb
-# + bin/lib/bootstrap.rb) works across the 2x2 matrix of supported configs:
-#   GENERATOR    × RELEASE_MODE
-#   xcodegen|tuist × ci|local
+# Continuously validates this template's bootstrap pipeline. Three jobs:
 #
-# What this proves: the orchestration layer parses .bootstrap.env, validates
-# Apple/GH credentials, runs every doctor probe without a Ruby crash. Catches
-# config-schema breaks, mode-branching bugs, and Apple/GH side state drift.
+#   doctor                    — full e2e probe of bin/doctor.rb + bin/lib/bootstrap.rb
+#                               across the 2×2 matrix of GENERATOR × RELEASE_MODE
+#                               (xcodegen|tuist × ci|local), against real GH +
+#                               Apple state via the smoketest fork. Catches
+#                               schema breaks, mode-branching bugs, side state
+#                               drift. Runs on Mondays 07:00 UTC.
 #
-# What this does NOT prove: that `make bootstrap-fork` mints fresh certs from
-# cold, that `make ship` produces a working TestFlight build. Those are
-# destructive and require Apple-side resource churn (cert quotas, ASC App
-# records). For the full destructive E2E, run bin/refork-smoketest.sh
+#   parser-regression         — hermetic test of Bootstrap::Config.parse against
+#                               a fixture that mimics the .bootstrap.env.example
+#                               shape (every value followed by inline `# comment`).
+#                               Catches regression of #108's BLOCKER 2.
+#
+#   bundle-guard-regression   — runs `make doctor` on a fresh checkout WITHOUT
+#                               `bundle install`. Asserts friendly-error path
+#                               (`Ruby gems aren't installed yet`) instead of
+#                               a Bundler::GemNotFound stack trace. Catches
+#                               regression of #108's BLOCKER 1.
+#
+# What this workflow does NOT prove: that `make bootstrap-fork` mints fresh
+# certs from cold, that `make ship` produces a working TestFlight build.
+# Those are destructive and require Apple-side resource churn (cert quotas,
+# ASC App records). For the full destructive E2E, run bin/refork-smoketest.sh
 # manually — see docs/CONTINUOUS-VALIDATION.md.
 #
-# Inputs come from GH Secrets on this template repo, never from a local
-# .bootstrap.env. The workflow materializes .bootstrap.env at runtime in
-# /tmp on the runner and never persists it as an artifact.
+# `doctor` job inputs come from GH Secrets on this template repo, never from
+# a local .bootstrap.env. The workflow materializes .bootstrap.env at runtime
+# in /tmp on the runner and never persists it as an artifact. The two
+# regression jobs are hermetic: no secrets, no smoketest needed.
 
 name: bootstrap doctor matrix
 
@@ -25,6 +37,8 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - 'test/parser_test.rb'
+      - 'Makefile'
       - '.github/workflows/bootstrap-doctor-matrix.yml'
       - 'bin/lib/bootstrap.rb'
       - 'bin/doctor.rb'
@@ -194,3 +208,79 @@ jobs:
       - name: Tear down secrets
         if: always()
         run: rm -rf "$SECRETS_DIR" || true
+
+  # Hermetic regression test for the .bootstrap.env parser. Runs against a
+  # fixture that mimics the .bootstrap.env.example shape — every value
+  # followed by an inline `# comment`. Catches regressions of #108's
+  # BLOCKER 2 (parser kept inline comments as part of values, breaking
+  # every downstream Apple/GH probe). No secrets, no smoketest needed:
+  # the parser is platform-agnostic and tested in isolation.
+  parser-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: ruby/setup-ruby@c4e5b1316158f92e3d49443a9d58b31d25ac0f8f # v1.306.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: false  # parser_test.rb is stdlib-only; no bundle exec needed
+      - name: Run parser regression fixtures
+        run: ruby test/parser_test.rb
+
+  # Regression test for #108's BLOCKER 1: `make doctor` crashed with a
+  # Bundler::GemNotFound stack trace on a fresh fork because no path in
+  # the README's onboarding ran `bundle install` first. The fix added a
+  # `_check-bundle` Makefile guard that prints a friendly hint instead.
+  # This job exercises the friendly-failure path by deliberately NOT
+  # installing project gems before running `make doctor`.
+  bundle-guard-regression:
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: ruby/setup-ruby@c4e5b1316158f92e3d49443a9d58b31d25ac0f8f # v1.306.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: false  # the whole point: gems NOT installed
+      - name: Confirm test setup (project gems should be missing)
+        run: |
+          if bundle check >/dev/null 2>&1; then
+            echo "::error::Test setup error: bundle check passed; this job needs gems missing"
+            exit 1
+          fi
+          echo "OK — bundle check fails as expected (gems missing)"
+      - name: make doctor exits cleanly with friendly message (no Ruby crash)
+        run: |
+          set +e
+          out=$(make doctor 2>&1)
+          rc=$?
+          set -e
+          echo "exit_code=$rc"
+          echo "--- output ---"
+          echo "$out"
+          echo "--- end ---"
+          # 1. Friendly bundle-guard message must be present.
+          echo "$out" | grep -qF "Ruby gems aren't installed yet" || {
+            echo "::error::Friendly bundle-guard message missing — _check-bundle target may have been removed or renamed"
+            exit 1
+          }
+          # 2. Both remediation hints must be present.
+          echo "$out" | grep -qF "bundle install" || {
+            echo "::error::'bundle install' remediation hint missing"
+            exit 1
+          }
+          echo "$out" | grep -qF "make bootstrap" || {
+            echo "::error::'make bootstrap' remediation hint missing"
+            exit 1
+          }
+          # 3. No Ruby stack-trace leakage.
+          if echo "$out" | grep -qE 'Bundler::GemNotFound|cannot load such file|spec_set\.rb'; then
+            echo "::error::Ruby stack trace leaked through bundle guard — regression of #108 BLOCKER 1"
+            exit 1
+          fi
+          # 4. Non-zero exit (fail-fast, not silent pass-through).
+          if [ "$rc" -eq 0 ]; then
+            echo "::error::Expected non-zero exit, got rc=0 — _check-bundle guard didn't fire"
+            exit 1
+          fi
+          echo "OK — friendly guard message + non-zero exit + no stack trace"

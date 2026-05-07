@@ -10,7 +10,7 @@ If your fork ships from your laptop, not from CI, you can disable the GitHub Act
 | Code signing | fastlane match against private certs repo | Local Keychain (Xcode "Automatically manage signing") |
 | Required GH Secrets | 7 (ASC API key, match password, etc.) | 0 |
 | Bootstrap pipeline length | 17 steps | 11 steps |
-| Branch protection | 6 required CI checks | None (set yourself if you want) |
+| Branch protection | 7 required CI checks | None (set yourself if you want) |
 
 Local-only mode is appropriate for:
 
@@ -68,7 +68,7 @@ Or in the GitHub web UI: Settings → Branches → main → Delete rule.
 
 ### 3. Skip `make setup-github`
 
-`bin/setup-github.sh` configures the 6 required CI checks. In local-only mode, don't run it (or remove it from your `make all` target).
+`bin/setup-github.sh` configures the 7 required CI checks. In local-only mode, don't run it (or remove it from your `make all` target).
 
 ## What `make ship` does in local-only mode
 

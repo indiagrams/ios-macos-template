@@ -14,7 +14,7 @@ import ProjectDescription
 // MARK: - Shared settings
 
 let baseSettings: SettingsDictionary = [
-    "SWIFT_VERSION": "5.9",
+    "SWIFT_VERSION": "6.0",
     "SWIFT_STRICT_CONCURRENCY": "complete",
     "ENABLE_USER_SCRIPT_SANDBOXING": "YES",
     "MARKETING_VERSION": "0.0.1",
@@ -148,8 +148,10 @@ let iosUITestTarget = Target.target(
     dependencies: [.target(name: "HelloApp-iOS")],
     settings: .settings(base: [
         "TEST_TARGET_NAME": "HelloApp-iOS",
-        // SnapshotHelper.swift uses raw NSURLConnection patterns that warn
-        // under strict concurrency — relax for the test target only.
+        // SnapshotHelper.swift is fastlane-shipped and predates Swift 6's
+        // strict-by-default concurrency model. Pin this target to Swift 5
+        // mode so the file compiles unmodified — base SWIFT_VERSION is 6.0.
+        "SWIFT_VERSION": "5.9",
         "SWIFT_STRICT_CONCURRENCY": "minimal",
     ])
 )
@@ -165,6 +167,12 @@ let macUITestTarget = Target.target(
     dependencies: [.target(name: "HelloApp-macOS")],
     settings: .settings(base: [
         "TEST_TARGET_NAME": "HelloApp-macOS",
+        // AppStoreScreenshotTests overrides XCTestCase.setUpWithError /
+        // tearDownWithError in a @MainActor class — Swift 6 errors on
+        // main-actor-isolated mutation in nonisolated overrides. Pin this
+        // target to Swift 5 mode (parallel to iosUITestTarget).
+        "SWIFT_VERSION": "5.9",
+        "SWIFT_STRICT_CONCURRENCY": "minimal",
     ])
 )
 

@@ -18,6 +18,20 @@ That's the starter app you'll customize into yours.
 
 ---
 
+## Why this exists
+
+I'm a first-time iOS developer. I haven't shipped my own app yet — that's still ahead of me. But before writing a feature of my actual app, I spent days researching what Apple actually requires to publish.
+
+It turns out to be a lot. Bundle ID conventions. Three kinds of signing certificates with a 3-cert team cap. Provisioning profiles. App Store Connect API keys. Fastlane setup. Match for CI signing. Private certs repo. Branch protection settings. Version-bumping rituals. Screenshot dimension requirements per device family. Metadata field length limits. A dozen Apple-side gotchas that only surface in TestFlight.
+
+I automated or documented every requirement I encountered. That's what this template is — the boring prep work, done.
+
+Fork it. Run `make doctor` (tells you what's still missing on your machine and your Apple account). Run `make bootstrap-fork` (walks the 17-step setup until your fork can ship). Run `make ship` (signed build to TestFlight). You bring the app; I've handled the path from "I have an idea" to "App Store Connect accepted my upload."
+
+A public canary fork ([`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)) real-ships to TestFlight every Monday on both xcodegen and tuist generators, so Apple-side regressions surface upstream before they hit your fork. The catalog of gotchas it has surfaced lives in [`docs/CONTINUOUS-VALIDATION.md`](docs/CONTINUOUS-VALIDATION.md).
+
+---
+
 ## What you'll learn to do
 
 By the end of this guide:

@@ -58,7 +58,6 @@ fastlane/README.md
 # Screenshot output — regenerable from `make screenshots`. Don't track binaries.
 fastlane/screenshots/**/*.png
 fastlane/screenshots/**/*.html
-Gemfile.lock
 .bundle/
 vendor/bundle/
 

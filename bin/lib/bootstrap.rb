@@ -821,30 +821,151 @@ module Bootstrap
       "3rd Party Mac Developer Installer"
     ].freeze
 
+    # Maps the human identity name (as it appears in `security find-identity`)
+    # to fastlane cert's --type argument. Auto-mint flow uses these to invoke
+    # the right fastlane cert call per missing identity.
+    IDENTITY_TO_CERT_TYPE = {
+      "Apple Distribution"                => "apple_distribution",
+      "Apple Development"                 => "apple_development",
+      "3rd Party Mac Developer Installer" => "mac_installer_distribution"
+    }.freeze
+
     def required_identities
       ids = REQUIRED_IDENTITIES_ALWAYS.dup
       ids.concat(REQUIRED_IDENTITIES_MACOS) if config.macos?
       ids
     end
 
-    def check
-      return :done if config.ci_mode? # only relevant in local mode
+    # Returns the matching `security find-identity -v -p codesigning` lines
+    # from the user's login keychain. Each line is e.g.
+    #   '  1) BD06...A78 "Apple Distribution: Person Name (A26TJZ8QHQ)"'
+    def keychain_lines
       out, _ok = Sh.run("security", "find-identity", "-v", "-p", "codesigning",
                         File.expand_path("~/Library/Keychains/login.keychain-db"))
-      ids = required_identities
-      missing = ids.reject { |id| out.include?(id) }
-      return :done if missing.empty?
-      [:blocked, <<~MSG]
-        Login keychain is missing #{missing.length} signing identit#{missing.length == 1 ? 'y' : 'ies'}:
-        #{missing.map { |m| "  - #{m}" }.join("\n")}
-
-        Add via Xcode → Settings → Accounts → (your team) → Manage Certificates → +.
-        Or via Apple Developer Portal → Certificates → + (then double-click the .cer).
-      MSG
+      out.lines
     end
 
+    # Pulls the LAST `(XXXXXXXXXX)` 10-char alphanumeric token from an
+    # identity line. For
+    #   '  1) BD06...A78 "Apple Distribution: Person Name (A26TJZ8QHQ)"'
+    # returns "A26TJZ8QHQ". We use scan-and-pick-last because the line ends
+    # in `"` (not `)`), so a `\)\s*$`-anchored pattern wouldn't fire.
+    #
+    # Caveat: Apple's "Created via API" cert names use the same `(XXXXXXXXXX)`
+    # shape but the token is the API key id, NOT the team id. We can't tell
+    # the two apart from `find-identity` output alone — that's why
+    # team_mismatched_identities is permissive on lines containing
+    # "Created via API".
+    def extract_team_id(line)
+      line.scan(/\(([A-Z0-9]{10})\)/).last&.first
+    end
+
+    # Identities whose name doesn't appear at all in the keychain. These
+    # require fresh minting (or manual install).
+    def missing_identities
+      lines = keychain_lines
+      required_identities.reject do |name|
+        lines.any? { |line| line.include?(name) }
+      end
+    end
+
+    # Identities present BUT whose certs are all clearly for non-matching
+    # teams. Conservative logic — only flagged when:
+    #   1. At least one cert with the right name exists (else: missing, not mismatched)
+    #   2. None of those certs has a parenthesized team id matching FASTLANE_TEAM_ID
+    #   3. None is "Created via API" (ambiguous — we can't verify the team)
+    # Catches the consultant / multi-team scenario without false-positiving on
+    # API-minted certs that may be for the right team.
+    def team_mismatched_identities
+      expected = config["FASTLANE_TEAM_ID"]
+      return [] if expected.nil? || expected.empty?
+
+      lines = keychain_lines
+      required_identities.select do |name|
+        type_lines = lines.select { |line| line.include?(name) }
+        next false if type_lines.empty?               # missing, not mismatched
+        next false if type_lines.any? { |line| extract_team_id(line) == expected }
+        next false if type_lines.any? { |line| line.include?("Created via API") }
+        true
+      end
+    end
+
+    def check
+      return :done if config.ci_mode?
+      missing = missing_identities
+      mismatched = team_mismatched_identities
+      return :done if missing.empty? && mismatched.empty?
+      # :pending (with rich message) — bootstrap-fork's do_it auto-mints
+      # the missing/mismatched identities via fastlane cert. Doctor renders
+      # the message so the user knows what's going to happen and can opt
+      # for one of the manual paths if they prefer.
+      [:pending, build_message(missing, mismatched)]
+    end
+
+    # do_it (called by `make bootstrap-fork` and `make mint-local-certs`)
+    # auto-mints any missing OR mismatched-team identities by shelling out to
+    # the fastlane mint_local_certs lane. Idempotent — fastlane cert itself
+    # detects existing valid certs and skips minting duplicates, so re-running
+    # is safe even if the keychain state changed since `make doctor` ran.
     def do_it
-      UI.fail!("Local mode requires signing identities in your login keychain. Add them and re-run.")
+      needed = (missing_identities + team_mismatched_identities).uniq
+      return if needed.empty?
+
+      cert_types = needed.map { |id| IDENTITY_TO_CERT_TYPE.fetch(id) }
+      UI.section "Minting #{needed.length} local-mode signing identit#{needed.length == 1 ? 'y' : 'ies'}"
+      needed.each_with_index do |id, i|
+        puts "  #{i + 1}. #{id}  (fastlane cert --type #{cert_types[i]})"
+      end
+
+      env = Bootstrap.asc_env(config)
+      Sh.run!("bundle", "exec", "fastlane", "mint_local_certs",
+              "types:#{cert_types.join(',')}",
+              env: env)
+    end
+
+    private
+
+    def build_message(missing, mismatched)
+      parts = []
+
+      if missing.any?
+        parts << "Login keychain is missing #{missing.length} signing identit#{missing.length == 1 ? 'y' : 'ies'}:"
+        missing.each do |id|
+          parts << "  - #{id}  (fastlane cert --type #{IDENTITY_TO_CERT_TYPE.fetch(id)})"
+        end
+      end
+
+      if mismatched.any?
+        parts << "" if missing.any?
+        expected = config["FASTLANE_TEAM_ID"]
+        parts << "Found certs for #{mismatched.length} identit#{mismatched.length == 1 ? 'y' : 'ies'} but none for team #{expected}:"
+        mismatched.each { |id| parts << "  - #{id}" }
+        parts << "(your keychain has certs from other teams. xcodebuild will fail at"
+        parts << " ship time without a team-#{expected} cert.)"
+      end
+
+      parts << ""
+      parts << "Easiest fix — auto-mints + installs each identity into your login keychain:"
+      parts << "  make mint-local-certs"
+      parts << ""
+      parts << "(or just run `make bootstrap-fork`; it auto-mints these too.)"
+      parts << ""
+      parts << "Manual alternatives:"
+      parts << "  Xcode → Settings → Accounts → (your team) → Manage Certificates → +"
+      parts << "  Apple Developer Portal → Certificates → + (then double-click the .cer)"
+
+      # macOS-only escape hatch: if every problem is a Mac-only identity, the
+      # user can drop macOS shipping by setting PLATFORMS=ios — saves them
+      # from minting a cert they don't need.
+      affected = (missing + mismatched).uniq
+      mac_only = affected.all? { |id| REQUIRED_IDENTITIES_MACOS.include?(id) } && affected.any?
+      if mac_only
+        parts << ""
+        parts << "Or, if you don't need to ship macOS yet:"
+        parts << "  set PLATFORMS=ios in .bootstrap.env (skips Mac signing entirely)"
+      end
+
+      parts.join("\n") + "\n"
     end
   end
 
@@ -911,6 +1032,15 @@ module Bootstrap
             puts "  #{(idx + 1).to_s.rjust(2)}. #{UI.warn step.name}"
             puts msg.lines.map { |l| "      #{UI.dim l.chomp}" }.join("\n")
             results << :warn
+          elsif severity == :pending
+            # Pending-with-message: doctor explains the fix; bootstrap-fork's
+            # do_it auto-runs and resolves it. Rendered like :pending (red ✗
+            # + dim "will auto-fix on bootstrap-fork") plus the rich message
+            # so the user can ALSO fix it manually if they want
+            # (e.g. `make mint-local-certs`, `PLATFORMS=ios` escape hatch, etc).
+            puts "  #{(idx + 1).to_s.rjust(2)}. #{UI.miss step.name}#{UI.dim ' — will auto-fix on bootstrap-fork'}"
+            puts msg.lines.map { |l| "      #{UI.dim l.chomp}" }.join("\n")
+            results << :pending
           else
             # Blocked: visually separate from :warn (advisory) by using the
             # red ✗ glyph + a "needs fix" suffix, and from :pending by
@@ -973,6 +1103,12 @@ module Bootstrap
           severity, msg = result
           if severity == :warn
             puts "  #{UI.warn msg.lines.first.chomp}"
+          elsif severity == :pending
+            # Auto-fixable: bootstrap-fork runs do_it (which mints/restores
+            # state programmatically). Distinct from :blocked which is
+            # human-gated and aborts.
+            step.do_it
+            puts "  #{UI.ok 'done'}"
           else
             UI.fail!(msg)
           end

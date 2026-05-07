@@ -20,7 +20,7 @@ That's the starter app you'll customize into yours.
 
 ## Why this exists
 
-I'm a first-time iOS developer — I haven't shipped my own app yet. But before writing a feature of it, I spent days researching what Apple requires to publish: signing certificates, fastlane match for CI signing, ASC API keys, metadata specs, branch protection, and a dozen Apple-side gotchas that only surface in TestFlight.
+I'm a first-time iOS developer. Before writing a feature of my actual app, I spent days researching what Apple requires to publish: signing certificates, fastlane match for CI signing, ASC API keys, metadata specs, branch protection, and a dozen Apple-side gotchas that only surface in TestFlight.
 
 I automated or documented every requirement I encountered. That's what this template is — the boring prep work, done.
 

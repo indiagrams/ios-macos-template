@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-05-07
+
+Audit-driven hardening release. Six themes:
+
+  1. **Real CI signal** — PR jobs now run `xcodebuild test` (was `xcodebuild build`); UI tests + new unit-test targets actually exercised on every PR for both XcodeGen and Tuist generators. Closes a credibility gap where SCOPE.md claimed test scaffolding but CI never ran tests.
+  2. **Reproducible CI** — `Gemfile` pins fastlane to `~> 2.224`, `Gemfile.lock` committed (was gitignored). The G11-class regression of "fastlane silently floats overnight" is now structurally prevented.
+  3. **2026 Apple submission baseline** — `PrivacyInfo.xcprivacy` stub on both bundles, accessibility scaffolding in `ContentView.swift` (a11y labels, header trait, identifier), `Localizable.xcstrings` with the 3 starter strings, `SWIFT_VERSION 5.9 → 6.0`, `xcodeVersion → 26.0`. Forks ship Apple-2026-baseline-compliant out of the box.
+  4. **Pipeline robustness** — `.p8` cleanup at_exit trap; `bootstrap_certs` fails fast on `CHANGE-ME-` placeholder Matchfile; `pilot_with_retry` 3-attempt exponential-backoff wrapper; Discord webhook on canary failure (optional `DISCORD_CANARY_WEBHOOK` secret); third-party `ruby/setup-ruby` SHA-pinned.
+  5. **DX docs** — README "When to use this (vs alternatives)" table; `docs/ROLLBACK.md` (TestFlight/tag/bootstrap rollback paths); `docs/NO-CI.md` (RELEASE_MODE=local mode).
+  6. **Bug fixes + cruft cleanup** — `bin/setup-github.sh`'s `$REPO_ROOT-under-set-u` bug (broke `make setup-github` on first run); `tuist` install in `bootstrap-doctor-matrix.yml` corrected to `--cask`; step count reconciled across 3 surfaces (was 14/15/17); stale `Renaming the stub` cross-refs replaced with `bin/rename.sh --help`; `.env.local.example` removed; duplicate screenshot script consolidated; `docs/SMOKE-TEST.md` + `docs/AUDIT.md` (pre-public-flip artifacts) deleted.
+
+### Added
+
+- `app/Tests/HelloAppTests.swift` + `app/MacOSTests/HelloAppMacOSTests.swift` — XCTest unit-test stubs. Wired into `HelloAppTests` + `HelloAppMacOSTests` targets in both `project.yml` (XcodeGen) and `Project.swift` (Tuist); both schemes' testActions include them. Forks adding new unit tests under those directories get them exercised by CI automatically. (#88)
+- `app/Shared/PrivacyInfo.xcprivacy` — privacy manifest stub with the 4 required keys (`NSPrivacyTracking`, `NSPrivacyTrackingDomains`, `NSPrivacyCollectedDataTypes`, `NSPrivacyAccessedAPITypes`) declared as conservative defaults. Wired into both bundles via XcodeGen sources glob (auto-detected) and Tuist resources arrays (explicit, since Tuist 4.x doesn't auto-pick xcprivacy from globs). (#90)
+- `app/Shared/Localizable.xcstrings` — Apple String Catalog with the 3 starter strings pre-keyed in English (`sourceLanguage: en`, `version: 1.0`). Forks adding languages just open the catalog in Xcode and add localizations. Wired into both bundles. (#92)
+- `.swiftlint.yml` — starter-template ruleset committed at repo root. Excludes Tuist-generated `app/Derived/`, fastlane-shipped `SnapshotHelper.swift`, build outputs. Disables 4 default rules that fight infrastructure code (`comma`, `trailing_comma`, `identifier_name`, `non_optional_string_data_conversion`). `line_length` warn 140 / error 200. (#89)
+- `.github/workflows/pr.yml` `swiftlint` job — runs `swiftlint --strict --reporter github-actions-logging` on every PR. Violations surface as inline annotations. Closes the SCOPE.md "linting is in scope" claim that was previously unbacked. (#89)
+- `pilot_with_retry` helper in `fastlane/Fastfile` — 3-attempt exponential-backoff wrapper around fastlane's `pilot()`. Applied to both iOS .ipa and macOS .pkg uploads in the `release` lane. Mirrors `ci/local-release-check.sh`'s `with_timestamp_retry` pattern. (#94)
+- `at_exit` cleanup of the decoded ASC API .p8 file in `asc_api_key` helper. Was chmod 0600 but never deleted on process exit. (#94)
+- `bootstrap_certs` lane validates the Matchfile for the `CHANGE-ME-` placeholder before running match. Forkers who skip editing `Matchfile` now get an actionable error message instead of a cryptic git clone failure 30+ lines into match's output. (#94)
+- Discord webhook step on `canary-trigger.yml` matrix cells — `if: failure()` POST to optional `DISCORD_CANARY_WEBHOOK` secret with smoketest run URL + trigger run URL + generator name. Step exits 0 silently when secret unset. (#95)
+- `docs/ROLLBACK.md` — walkthrough for the 4 common rollback scenarios: TestFlight build expiry (web UI + `fastlane testflight_expire`), git tag deletion (local + remote), partial bootstrap-fork (idempotent re-run), full Apple-side reset (ASC App + bundle ID delete + match nuke caveats). (#97)
+- `docs/NO-CI.md` — RELEASE_MODE=local setup guide for solo indie shippers who don't want GitHub Actions / GH Secrets / match overhead. Two paths to disable CI workflows; reversibility back to CI mode documented. (#97)
+- README "When to use this (vs alternatives)" section — 5-row comparison table positioning apple-shipkit (release-engineering scaffolding) vs `ios-project-template`/`SwiftPlate` (UI architecture), `tuist scaffold` (project generator), RevenueCat Quickstart (subscription bundle), bare `gh repo create` (no template). Answers the most-asked reviewer question. (#97)
+
+### Changed
+
+- **CI runs `xcodebuild test` instead of `xcodebuild build`** on the 4 PR jobs that target simulators (iOS Simulator + macOS, both XcodeGen and Tuist parity). Test action exercises HelloAppUITests + the new HelloAppTests targets. Required-check names preserved → no branch protection update needed. The 2 device-build jobs (`generic/platform=iOS`) stay build-only since generic destinations can't run tests. (#87)
+- **iOS Simulator destination resolves dynamically** via `xcrun simctl list devices available -j` + jq. Runner pool variability in macos-15 made hardcoded `name=iPhone 16 Plus,OS=latest` flake intermittently. Picks the first available iPhone simulator; fails loud if none present. (#91)
+- **`Gemfile` pins fastlane to `~> 2.224`** (>= 2.224, < 3.0; resolves to 2.230.0 today, predates the G11 OpenSSL::PKey::ECError in 2.233.x). `Gemfile.lock` committed (was gitignored). CI's `bundler-cache: true` now keys on a real lockfile SHA. (#85)
+- `SWIFT_VERSION` bumped from `5.9` → `6.0` in both XcodeGen + Tuist manifests' `baseSettings`. App + unit-test targets compile in Swift 6 strict-by-default mode. UI test targets pinned to 5.9 (SnapshotHelper.swift is fastlane-shipped and predates Swift 6's strict concurrency; `AppStoreScreenshotTests`'s @MainActor / XCTestCase override pattern errors under Swift 6). `xcodeVersion` 15.0 → 26.0 in `project.yml`. (#93)
+- `app/Shared/HelloApp.swift` — `struct HelloAppApp: App` renamed to `struct HelloAppMain: App`. Apple's @main convention produces `<AppName>App` to avoid collision with the App protocol; after `bin/rename.sh` runs, that becomes the awkward `MyAppApp`. `HelloAppMain` post-rename produces `MyAppMain` — unambiguous. (#92)
+- `ContentView.swift` — accessibility scaffolding added: hammer Image marked `.accessibilityHidden(true)`, title gets `.accessibilityAddTraits(.isHeader)`, stub gets `.accessibilityIdentifier("HelloApp.stub")`. UI tests can now match the screen by id, surviving fork localization. (#92)
+- `bin/take-readme-screenshots.sh` — gained `--platform-aware` flag. Previously two scripts (`bin/take-readme-screenshots.sh` + `ci/regen-readme-screenshots.sh`) with overlapping responsibilities; consolidated. Forker-default behavior unchanged. (#76)
+- `.github/workflows/pr.yml` — `permissions: { contents: read }` block added at top (least-privilege GITHUB_TOKEN). (#86)
+- `.github/workflows/bootstrap-doctor-matrix.yml` — `concurrency` block added (group keyed on `github.ref`); cron + dispatch + PR can no longer overlap and run 3× the 4-cell matrix simultaneously. (#86)
+- README "Why this exists" section added (#78), tightened to ~110 words (#79), and dropped the `haven't shipped my own app yet` defensive hedge (#80) — first-time-shipper framing without inviting the very critique it was preempting.
+- `ruby/setup-ruby@v1` SHA-pinned to `c4e5b1316158f92e3d49443a9d58b31d25ac0f8f` (= release v1.306.0). Third-party action; tag pinning is rewritable by the upstream maintainer. (#96)
+- Step count reconciled to "19 step classes; CI mode runs 17 with default `PLATFORMS=ios,macos`; local mode runs 11" across `bin/lib/bootstrap.rb:5`, `docs/BOOTSTRAP.md:99`, and the README. Was previously 14 / 15 / 17 across three surfaces. (#83)
+
+### Fixed
+
+- `bin/setup-github.sh` referenced `$REPO_ROOT` on line 85+ but never defined it; under `set -u` (line 28) the script aborted with `REPO_ROOT: unbound variable` on first run. `make setup-github` failed silently for every fork using `.bootstrap.env`. Define `REPO_ROOT` immediately after `set -euo pipefail` using the standard `$(cd "$(dirname "$0")/.." && pwd)` pattern. (#81)
+- `bootstrap-doctor-matrix.yml:91` was `brew install xcodegen tuist` — but `tuist` is a CASK everywhere else in the repo (Brewfile, pr.yml × 3 jobs, release.yml). Mismatch silently broke the tuist cells of the 4-cell matrix. Split to `brew install xcodegen && brew install --cask tuist`. (#82)
+- Stale README cross-refs to a "Renaming the stub" section (removed during the v1.1 rewrite) lingered in `Makefile`, `app/Shared/ContentView.swift` (USER-VISIBLE in the starter app — every fork's first build showed a broken cross-ref), and `ci/bump-asc-version.rb`. Replaced with stable references to `bin/rename.sh --help`. (#84)
+
+### Removed
+
+- `.env.local.example` — superseded by `.bootstrap.env.example`. 13 file references migrated; CI scripts kept `.env.local` as backward-compat fallback. (#75)
+- `ci/regen-readme-screenshots.sh` — duplicated `bin/take-readme-screenshots.sh`'s capabilities. Functionality merged into the keeper via `--platform-aware` flag. (#76)
+- `docs/SMOKE-TEST.md` — manual disposable-fork runbook from before v1.0.0 public flip. Superseded by the live `indiagrams/ios-macos-smoketest` fork + `canary-trigger.yml` + `bootstrap-doctor-matrix.yml`. (#77)
+- `docs/AUDIT.md` — pre-public-flip secret/identifier audit explicitly framed around M5 P3 (the public-flip milestone, completed 2026-05-01). The audit isn't run anymore. (#77)
+
 ## [1.1.0] - 2026-05-06
 
 First minor release after the public flip. Major themes:

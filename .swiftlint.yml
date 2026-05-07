@@ -1,0 +1,36 @@
+# SwiftLint configuration for apple-shipkit forks.
+#
+# Goal: catch obvious code-style issues without overconstraining a starter
+# template. Forks should tighten this as their codebase grows (enable rules
+# from `opt_in_rules`, lower line_length, etc.).
+#
+# Run locally:    swiftlint
+# Run on PR:      .github/workflows/pr.yml job `swiftlint`
+# Strict mode:    swiftlint --strict   (treats warnings as errors)
+
+# Sources that ship with the template but are not fork-authored. SwiftLint
+# shouldn't gate fork PRs on these.
+excluded:
+  - app/Derived                                # Tuist-generated sources
+  - app/UITests/SnapshotHelper.swift           # fastlane-shipped, do not modify
+  - app/MacOSUITests/SnapshotHelper.swift      # ditto (if present)
+  - .build
+  - DerivedData
+  - vendor
+
+# Rules disabled because they conflict with conventions used in template
+# infrastructure code (Tuist DSL, icon pixel-coord helpers, etc.). Forks
+# can re-enable any of these in their own .swiftlint.yml after they
+# rewrite or remove the offending file.
+disabled_rules:
+  - comma                                # fights Tuist DSL's settings tuples
+  - trailing_comma                       # Tuist convention allows trailing
+  - identifier_name                      # pixel-coord vars (tL, bR) in icon code
+  - non_optional_string_data_conversion  # one-off legacy pattern in scripts
+
+line_length:
+  warning: 140
+  error: 200
+
+# Default rules kept enabled. The full default set is documented at:
+# https://realm.github.io/SwiftLint/rule-directory.html

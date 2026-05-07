@@ -31,7 +31,8 @@ import CoreImage.CIFilterBuiltins
 
 let argv = CommandLine.arguments
 guard argv.count == 4 else {
-  FileHandle.standardError.write("usage: swift ci/gen-macos-icons.swift <source-1024.png> <appiconset-dir> <output.icns>\n".data(using: .utf8)!)
+  let usage = "usage: swift ci/gen-macos-icons.swift <source-1024.png> <appiconset-dir> <output.icns>\n"
+  FileHandle.standardError.write(usage.data(using: .utf8)!)
   exit(2)
 }
 let sourceURL    = URL(fileURLWithPath: argv[1])
@@ -44,7 +45,8 @@ guard let nsImage = NSImage(contentsOf: sourceURL),
   exit(1)
 }
 guard cgSource.width >= 1024 && cgSource.height >= 1024 else {
-  FileHandle.standardError.write("source must be ≥1024×1024 (got \(cgSource.width)×\(cgSource.height))\n".data(using: .utf8)!)
+  let msg = "source must be ≥1024×1024 (got \(cgSource.width)×\(cgSource.height))\n"
+  FileHandle.standardError.write(msg.data(using: .utf8)!)
   exit(1)
 }
 let ciSource = CIImage(cgImage: cgSource)

@@ -97,19 +97,6 @@ jobs:
           echo "baseline=${baseline}" >> "${GITHUB_OUTPUT}"
           echo "Baseline (only runs created after this count): ${baseline}"
 
-      # ─── TEMPORARY (PR-A) ─────────────────────────────────────────────
-      # Forces the workflow to fail before dispatching the smoketest, so the
-      # `Notify Discord on failure` step at the end fires and we can verify
-      # the DISCORD_CANARY_WEBHOOK secret + payload format end-to-end.
-      # Reverted in the immediately-following PR-B once Discord delivery is
-      # observed. Costs ~5s of CI per cell instead of waiting for a real
-      # canary failure days/weeks later.
-      - name: TEMPORARY — force failure for Discord webhook e2e test
-        run: |
-          echo "::warning::Forcing failure to test Discord notification path. Revert in next PR."
-          exit 1
-      # ─── END TEMPORARY ────────────────────────────────────────────────
-
       - name: Dispatch smoketest release (${{ matrix.generator }})
         run: |
           dry_run='${{ inputs.dry_run }}'

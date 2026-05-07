@@ -169,3 +169,28 @@ jobs:
           done
           echo "::error::Dispatched run did not complete within 50 minutes (${RUN_URL})"
           exit 1
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_CANARY_WEBHOOK }}
+          GENERATOR: ${{ matrix.generator }}
+          RUN_URL: ${{ steps.locate.outputs.run_url }}
+          TRIGGER_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK:-}" ]; then
+            echo "DISCORD_CANARY_WEBHOOK secret unset — skipping Discord notification."
+            echo "(Optional: configure the secret to route canary failures to a Discord channel.)"
+            exit 0
+          fi
+          # Discord webhook expects {"content": "..."} or {"embeds": [...]}.
+          # Keep payload simple — links speak louder than prose for diagnosis.
+          payload=$(jq -nc \
+            --arg gen   "${GENERATOR}"        \
+            --arg run   "${RUN_URL:-(unknown)}"     \
+            --arg trig  "${TRIGGER_URL}"            \
+            '{ content: ":rotating_light: **Canary failed** — generator=\($gen)\nSmoketest run: \($run)\nTrigger run: \($trig)" }')
+          curl -fsSL -X POST -H 'Content-Type: application/json' -d "${payload}" "${DISCORD_WEBHOOK}" \
+            && echo "Posted Discord notification." \
+            || echo "::warning::Discord notification failed (webhook URL may be invalid; check secret). Continuing."

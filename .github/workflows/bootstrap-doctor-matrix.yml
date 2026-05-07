@@ -47,6 +47,8 @@ on:
       - 'bin/verify-testflight.rb'
       - 'bin/init-bootstrap-env.sh'
       - '.bootstrap.env.example'
+      - 'bin/mint-local-certs.rb'
+      - 'fastlane/Fastfile'
 
 permissions:
   contents: read

@@ -12,7 +12,7 @@
 # wires it onto every push, and `make doctor` validates `.bootstrap.env` end
 # to end without mutating any state.
 
-.PHONY: all go bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help init doctor bootstrap-fork ship verify _check-bundle
+.PHONY: all go bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help init doctor bootstrap-fork ship verify mint-local-certs _check-bundle
 
 help:
 	@echo "Targets:"
@@ -32,6 +32,7 @@ help:
 	@echo "  bootstrap-fork   Idempotent fork-bootstrap: certs, ASC bundle id, GH branch protection, etc. Reads .bootstrap.env."
 	@echo "  ship             Trigger release.yml workflow_dispatch + tail until the run completes"
 	@echo "  verify           Confirm the latest tagged build appeared in App Store Connect"
+	@echo "  mint-local-certs Auto-mint missing local-mode signing identities into the login keychain via fastlane cert. Idempotent."
 	@echo "  phase-checklist  Print the GSD canonical per-phase checklist (usage: make phase-checklist N=3.1)"
 	@echo "  milestone-checklist  Print the GSD milestone wrap-up checklist (usage: make milestone-checklist M=1)"
 
@@ -85,6 +86,9 @@ ship: _check-bundle
 
 verify: _check-bundle
 	@bundle exec ruby bin/verify-testflight.rb
+
+mint-local-certs: _check-bundle
+	@bundle exec ruby bin/mint-local-certs.rb
 
 # Guard for bundle-using targets above. Fails fast with an actionable hint
 # when ruby gems aren't installed yet (typical on a fresh fork before

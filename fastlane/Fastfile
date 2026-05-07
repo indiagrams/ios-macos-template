@@ -242,6 +242,43 @@ lane :revoke_cert do |options|
   UI.success("Revoked #{cert.id}")
 end
 
+desc "Mint missing local-mode signing identities into the user's login keychain."
+desc ""
+desc "Idempotent: fastlane cert detects existing valid certs in the keychain and"
+desc "reuses rather than minting duplicates, so re-running on a partially-set-up"
+desc "machine is safe."
+desc ""
+desc "Required env (set automatically by Bootstrap.asc_env when called via"
+desc "`make mint-local-certs` or `make bootstrap-fork`):"
+desc "  ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID, ASC_API_KEY_P8_BASE64, FASTLANE_TEAM_ID"
+desc ""
+desc "Usage: fastlane mint_local_certs types:apple_distribution,apple_development,mac_installer_distribution"
+lane :mint_local_certs do |options|
+  raw = options[:types].to_s
+  types = raw.split(",").map(&:strip).reject(&:empty?)
+  UI.user_error!("types: required (comma-separated, e.g. apple_distribution,mac_installer_distribution)") if types.empty?
+
+  api_key = asc_api_key
+  team    = ENV.fetch("FASTLANE_TEAM_ID")
+  keychain = File.expand_path("~/Library/Keychains/login.keychain-db")
+
+  types.each do |type|
+    UI.message("Minting #{type} for team #{team} (idempotent — fastlane cert reuses existing valid certs)...")
+    cert(
+      type:          type,
+      team_id:       team,
+      api_key:       api_key,
+      keychain_path: keychain,
+      # output_path lands the .cer + .p12 in /tmp; cert action also imports
+      # both into the keychain in one shot. We don't need the artifacts
+      # afterward (login keychain is the source of truth).
+      output_path:   Dir.tmpdir
+    )
+  end
+
+  UI.success("Local-mode signing identities ready in login keychain.")
+end
+
 desc "Idempotently verify Dev Portal App ID + ASC App record exist."
 desc ""
 desc "Calls register_app_id (creates the Dev Portal App ID via Spaceship if"

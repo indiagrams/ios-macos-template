@@ -477,7 +477,7 @@ If you fork this template and your build breaks Monday morning out of the blue, 
 │   ├── lib/bootstrap.rb         # the orchestration framework
 │   ├── rename.sh                # rename HelloApp → YourApp
 │   ├── switch-to-tuist.sh       # one-way XcodeGen → Tuist switch
-│   ├── setup-github.sh          # branch protection + squash-only + 6 required checks
+│   ├── setup-github.sh          # branch protection + squash-only + 7 required checks
 │   ├── preflight.sh             # check developer-tool prerequisites
 │   └── ...                      # several smaller helpers
 ├── ci/

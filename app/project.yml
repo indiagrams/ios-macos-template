@@ -130,6 +130,20 @@ targets:
     dependencies:
       - target: HelloApp-iOS
 
+
+# ─── Unit-test target (sanity tests; forks should add real tests here) ─────
+  HelloAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp.tests
+        TEST_TARGET_NAME: HelloApp-iOS
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: HelloApp-iOS
 # ─── macOS UITest target (drives App Store screenshot capture) ─────────────
   HelloAppMacOSUITests:
     type: bundle.ui-testing
@@ -144,6 +158,20 @@ targets:
     dependencies:
       - target: HelloApp-macOS
 
+# ─── macOS unit-test target ─────────────────────────────────────────────
+  HelloAppMacOSTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: MacOSTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp.mactests
+        TEST_TARGET_NAME: HelloApp-macOS
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: HelloApp-macOS
+
 # ─── Schemes ──────────────────────────────────────────────────────────
 schemes:
   HelloApp-iOS:
@@ -151,6 +179,7 @@ schemes:
       targets:
         HelloApp-iOS: all
         HelloAppUITests: [test]
+        HelloAppTests: [test]
     run:
       config: Debug
       executable: HelloApp-iOS
@@ -158,6 +187,7 @@ schemes:
       config: Debug
       targets:
         - HelloAppUITests
+        - HelloAppTests
     archive:
       config: Release
 
@@ -166,6 +196,7 @@ schemes:
       targets:
         HelloApp-macOS: all
         HelloAppMacOSUITests: [test]
+        HelloAppMacOSTests: [test]
     run:
       config: Debug
       executable: HelloApp-macOS
@@ -173,5 +204,6 @@ schemes:
       config: Debug
       targets:
         - HelloAppMacOSUITests
+        - HelloAppMacOSTests
     archive:
       config: Release

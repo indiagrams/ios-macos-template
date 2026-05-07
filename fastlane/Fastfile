@@ -66,6 +66,14 @@ def asc_api_key
     path = File.join(Dir.tmpdir, "asc_api_key_#{ENV.fetch('ASC_API_KEY_ID')}.p8")
     File.write(path, Base64.decode64(ENV.fetch("ASC_API_KEY_P8_BASE64")))
     File.chmod(0600, path)
+    # Wipe the decoded .p8 on process exit. Doesn't survive crashes but
+    # covers normal exits including UI.user_error!.
+    at_exit do
+      File.unlink(path) if File.exist?(path)
+    rescue StandardError
+      # Best-effort; don't blow up the exit path if the file is already
+      # gone or unwritable.
+    end
     path
   end
   app_store_connect_api_key(
@@ -73,6 +81,33 @@ def asc_api_key
     issuer_id:    ENV["ASC_API_KEY_ISSUER_ID"],
     key_filepath: @asc_p8_path
   )
+end
+
+# Wraps `pilot(...)` in retry-with-exponential-backoff. ASC's altool upload
+# step is the most flake-prone in the pipeline (transient TLS resets, slow
+# Apple-side processing, sporadic 503s). Without retry, a single transient
+# failure on the macOS upload (after iOS already uploaded) leaves the
+# release in a half-shipped state with the tag unpushed — most painful when
+# diagnosing days later.
+#
+# Mirrors ci/local-release-check.sh's with_timestamp_retry pattern.
+def pilot_with_retry(opts, max_attempts: 3)
+  attempts = 0
+  begin
+    attempts += 1
+    pilot(**opts)
+  rescue StandardError => e
+    if attempts < max_attempts
+      delay = 2**attempts # 2s, 4s, 8s
+      UI.important("pilot upload failed (attempt #{attempts}/#{max_attempts}): #{e.message.lines.first&.strip}")
+      UI.important("retrying in #{delay}s…")
+      sleep(delay)
+      retry
+    end
+    UI.error("pilot upload failed after #{max_attempts} attempts. Last error:")
+    UI.error(e.message)
+    raise
+  end
 end
 
 # Reads every metadata file directly and passes explicit hashes to deliver.
@@ -274,6 +309,19 @@ lane :bootstrap_certs do
     UI.user_error!("fastlane/Matchfile not found. Edit + commit it first (replace CHANGE-ME-ORG/CHANGE-ME-REPO-certs.git).")
   end
 
+  # Also fail fast if the Matchfile still has the placeholder text. Without
+  # this check, match would later try to clone CHANGE-ME-ORG/CHANGE-ME-REPO
+  # and the failure surfaces 30+ lines into match's git output, not actionable.
+  matchfile_text = File.read(File.join(__dir__, "Matchfile"))
+  if matchfile_text.include?("CHANGE-ME-")
+    UI.user_error!(<<~MSG)
+      fastlane/Matchfile still contains 'CHANGE-ME-' placeholder text.
+      Edit it to point at your private certs repo (git_url, etc.) before
+      running this lane. See README → "Optional: enable CI signing via
+      fastlane match" for the full setup.
+    MSG
+  end
+
   match(type: "appstore",    app_identifier: APP_IDENTIFIER, platform: "ios")
   match(type: "appstore",    app_identifier: APP_IDENTIFIER, platform: "macos")
   match(type: "development", app_identifier: APP_IDENTIFIER, platform: "ios")
@@ -390,11 +438,11 @@ platform :ios do
     else
       if do_ios
         UI.message("Step 3/5: Uploading iOS .ipa to TestFlight…")
-        pilot(api_key: api_key, ipa: ipa_path, skip_waiting_for_build_processing: true)
+        pilot_with_retry(api_key: api_key, ipa: ipa_path, skip_waiting_for_build_processing: true)
       end
       if do_macos
         UI.message("Step 4/5: Uploading macOS .pkg to TestFlight…")
-        pilot(api_key: api_key, pkg: pkg_path, skip_waiting_for_build_processing: true)
+        pilot_with_retry(api_key: api_key, pkg: pkg_path, skip_waiting_for_build_processing: true)
       end
     end
 

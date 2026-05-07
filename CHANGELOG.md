@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- README "When to use this (vs alternatives)" section restructured. Added a leading sub-section "vs. Apple's own tooling (Xcode Distribute, Xcode Cloud)" with concrete trade-offs for each, a "where apple-shipkit lives in the gap" breakdown, and an explicit "you probably don't need this if…" framing. Demoted the existing 5-row template-comparison table to a "vs. other Swift project templates" sub-section (content unchanged). Preempts the most-asked Reddit comebacks. (#113)
+
 ## [1.3.0] - 2026-05-07
 
 Audit-driven docs hardening, validation-driven bug fixes, and CI workflow refactor. Four themes:

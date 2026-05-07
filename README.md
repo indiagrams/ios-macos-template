@@ -374,6 +374,27 @@ If something isn't on this list, [open an issue](https://github.com/indiagrams/a
 
 ---
 
+## When to use this (vs alternatives)
+
+apple-shipkit is **release-engineering scaffolding** — the path from
+`Use this template` to a signed TestFlight build. It deliberately doesn't
+pick a UI framework, networking stack, or persistence layer. Different
+tradeoff from other iOS starters:
+
+| You want… | Use | Why |
+|---|---|---|
+| Pipeline (signing + CI + TestFlight + ASC submission) prewired | **apple-shipkit** | What this template focuses on. Fastlane + match + GitHub Actions + canary continuous validation. |
+| UI architecture + screens + sample data | [`ios-project-template`](https://github.com/messeb/ios-project-template), [`ios-mvp-template`](https://github.com/onl1ner/ios-mvp-template), or `SwiftPlate` | These ship app scaffolding (MVVM/MVP/Coordinator). You'd bring fastlane/CI yourself. |
+| Generate a fresh project from a manifest | `tuist scaffold` | Generates project files. No signing, no CI, no release wiring. |
+| Subscription bundle (RevenueCat + paywall + IAP) | [RevenueCat Quickstart](https://www.revenuecat.com/docs/getting-started/quickstart) | apple-shipkit is intentionally framework-agnostic; bring your own monetization. |
+| Bare `gh repo create` from a Swift project you already have | _no template needed_ | apple-shipkit is for people who don't have the project yet, or who do but want fastlane/CI/match prewired. |
+
+Mix-and-match is fine. Many people start with apple-shipkit for the
+release pipeline, then drop in a UI template's screens or a RevenueCat
+paywall on top.
+
+---
+
 ## Going deeper (advanced)
 
 Once you're past the first ship, these docs cover the rest:
@@ -384,6 +405,8 @@ Once you're past the first ship, these docs cover the rest:
 - **[docs/MIGRATING-TO-TUIST.md](docs/MIGRATING-TO-TUIST.md)** — switching from XcodeGen to Tuist after fork.
 - **[docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md](docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md)** — same archive/export flow without fastlane (uses `xcrun altool` + `notarytool` + ASC API directly).
 - **[docs/PRINCIPLES.md](docs/PRINCIPLES.md)** — design decisions behind the template's structure.
+- **[docs/ROLLBACK.md](docs/ROLLBACK.md)** — undoing a TestFlight build, a git tag, or a partial bootstrap-fork.
+- **[docs/NO-CI.md](docs/NO-CI.md)** — running the template in local-only mode (no GitHub Actions, no GH Secrets, no match).
 
 ---
 

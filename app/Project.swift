@@ -167,6 +167,12 @@ let macUITestTarget = Target.target(
     dependencies: [.target(name: "HelloApp-macOS")],
     settings: .settings(base: [
         "TEST_TARGET_NAME": "HelloApp-macOS",
+        // AppStoreScreenshotTests overrides XCTestCase.setUpWithError /
+        // tearDownWithError in a @MainActor class — Swift 6 errors on
+        // main-actor-isolated mutation in nonisolated overrides. Pin this
+        // target to Swift 5 mode (parallel to iosUITestTarget).
+        "SWIFT_VERSION": "5.9",
+        "SWIFT_STRICT_CONCURRENCY": "minimal",
     ])
 )
 

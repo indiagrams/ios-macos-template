@@ -164,6 +164,36 @@ let macUITestTarget = Target.target(
     ])
 )
 
+// MARK: - Unit test targets (sanity tests; forks should add real tests here)
+
+let iosUnitTestTarget = Target.target(
+    name: "HelloAppTests",
+    destinations: [.iPhone, .iPad],
+    product: .unitTests,
+    bundleId: "com.example.helloapp.tests",
+    deploymentTargets: .iOS("17.0"),
+    infoPlist: .default,
+    sources: ["Tests/**"],
+    dependencies: [.target(name: "HelloApp-iOS")],
+    settings: .settings(base: [
+        "TEST_TARGET_NAME": "HelloApp-iOS",
+    ])
+)
+
+let macUnitTestTarget = Target.target(
+    name: "HelloAppMacOSTests",
+    destinations: [.mac],
+    product: .unitTests,
+    bundleId: "com.example.helloapp.mactests",
+    deploymentTargets: .macOS("14.0"),
+    infoPlist: .default,
+    sources: ["MacOSTests/**"],
+    dependencies: [.target(name: "HelloApp-macOS")],
+    settings: .settings(base: [
+        "TEST_TARGET_NAME": "HelloApp-macOS",
+    ])
+)
+
 // MARK: - Schemes
 
 let iosScheme: Scheme = .scheme(
@@ -175,7 +205,7 @@ let iosScheme: Scheme = .scheme(
     // per-target SWIFT_STRICT_CONCURRENCY=minimal override can't suppress.
     buildAction: .buildAction(targets: ["HelloApp-iOS"]),
     testAction: .targets(
-        ["HelloAppUITests"],
+        ["HelloAppUITests", "HelloAppTests"],
         configuration: .debug
     ),
     runAction: .runAction(configuration: .debug, executable: "HelloApp-iOS"),
@@ -187,7 +217,7 @@ let macScheme: Scheme = .scheme(
     shared: true,
     buildAction: .buildAction(targets: ["HelloApp-macOS"]),
     testAction: .targets(
-        ["HelloAppMacOSUITests"],
+        ["HelloAppMacOSUITests", "HelloAppMacOSTests"],
         configuration: .debug
     ),
     runAction: .runAction(configuration: .debug, executable: "HelloApp-macOS"),
@@ -203,6 +233,6 @@ let project = Project(
         developmentRegion: "en"
     ),
     settings: .settings(base: baseSettings, defaultSettings: .recommended),
-    targets: [iosTarget, macTarget, iosUITestTarget, macUITestTarget],
+    targets: [iosTarget, macTarget, iosUITestTarget, macUITestTarget, iosUnitTestTarget, macUnitTestTarget],
     schemes: [iosScheme, macScheme]
 )

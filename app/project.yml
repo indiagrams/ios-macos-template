@@ -12,12 +12,12 @@ options:
   developmentLanguage: en
   generateEmptyDirectories: true
   groupSortPosition: top
-  xcodeVersion: "15.0"
+  xcodeVersion: "26.0"
   defaultConfig: Release
 
 settings:
   base:
-    SWIFT_VERSION: "5.9"
+    SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     MARKETING_VERSION: "0.0.1"
@@ -124,8 +124,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp.uitests
         TEST_TARGET_NAME: HelloApp-iOS
         GENERATE_INFOPLIST_FILE: YES
-        # SnapshotHelper.swift uses raw NSURLConnection patterns that warn
-        # under strict concurrency — relax for the test target only.
+        # SnapshotHelper.swift is fastlane-shipped and predates Swift 6's
+        # strict-by-default concurrency model. Pin this target to Swift 5
+        # mode so the file compiles unmodified — base SWIFT_VERSION is 6.0.
+        SWIFT_VERSION: "5.9"
         SWIFT_STRICT_CONCURRENCY: minimal
     dependencies:
       - target: HelloApp-iOS

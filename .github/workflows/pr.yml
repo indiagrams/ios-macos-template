@@ -17,18 +17,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Reads .bootstrap.env's PLATFORMS field (defaults to 'ios,macos' if unset).
-  # Subsequent jobs gate themselves on the resulting outputs so iOS-only forks
-  # don't waste runner minutes on macOS builds, etc.
+  # Reads .bootstrap.env's PLATFORMS field (defaults to 'ios,macos' if unset)
+  # and emits a JSON matrix consumed by the `app:` job below. Building the
+  # matrix dynamically (rather than statically + per-cell `if:`) is the only
+  # way to actually skip runners for iOS-only / macOS-only forks — a static
+  # matrix would still spin up macos-15 cells just to no-op them, defeating
+  # the runner-minutes savings PLATFORMS-filtering is supposed to provide.
   config:
     name: read .bootstrap.env
     runs-on: ubuntu-latest
     outputs:
-      do_ios:   ${{ steps.parse.outputs.do_ios }}
-      do_macos: ${{ steps.parse.outputs.do_macos }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
-      - id: parse
+      - id: matrix
         run: |
           set -euo pipefail
           # Default PLATFORMS=ios,macos if not present in .bootstrap.env
@@ -41,8 +43,32 @@ jobs:
           fi
           [ -z "$platforms" ] && platforms="ios,macos"
           echo "Resolved PLATFORMS=$platforms"
-          echo "do_ios=$(echo "$platforms" | grep -qw 'ios'   && echo true || echo false)"   >> "$GITHUB_OUTPUT"
-          echo "do_macos=$(echo "$platforms" | grep -qw 'macos' && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+          do_ios=false; do_macos=false
+          [[ ",$platforms," == *,ios,* ]]   && do_ios=true
+          [[ ",$platforms," == *,macos,* ]] && do_macos=true
+
+          # Order matters: the resulting check names land in the order rows
+          # are appended, and existing branch-protection rules + reviewer
+          # muscle memory expect xcodegen-trio-then-tuist-trio.
+          rows=()
+          for gen in xcodegen tuist; do
+            prefix=""
+            [ "$gen" = "tuist" ] && prefix="Tuist "
+            if [ "$do_ios" = "true" ]; then
+              rows+=("{\"generator\":\"$gen\",\"platform\":\"ios-device\",\"display_name\":\"${prefix}iOS device\"}")
+              rows+=("{\"generator\":\"$gen\",\"platform\":\"ios-sim\",\"display_name\":\"${prefix}iOS Simulator\"}")
+            fi
+            if [ "$do_macos" = "true" ]; then
+              rows+=("{\"generator\":\"$gen\",\"platform\":\"macos\",\"display_name\":\"${prefix}macOS\"}")
+            fi
+          done
+          joined=$(IFS=,; echo "${rows[*]}")
+          matrix="{\"include\":[$joined]}"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Resolved matrix:"
+          echo "$matrix" | jq .
+
   # Lints all Swift sources against .swiftlint.yml at the repo root.
   # `--strict` treats warnings as errors so the signal is binary.
   # Excluded paths (Tuist Derived, fastlane SnapshotHelper, build outputs)
@@ -51,6 +77,13 @@ jobs:
     name: swiftlint
     runs-on: macos-15
     timeout-minutes: 5
+    env:
+      # Skip auto-update (saves ~30s) and post-install cleanup (saves ~5s).
+      # The runner image is rebuilt frequently enough that we don't need
+      # the freshest formula DB to install xcodegen / xcbeautify / swiftlint.
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
     steps:
       - uses: actions/checkout@v4
       - name: install swiftlint
@@ -58,26 +91,75 @@ jobs:
       - name: lint
         run: swiftlint --strict --reporter github-actions-logging
 
-  # iOS device build is the primary signal — it uses the iphoneos SDK and the
-  # real entitlements pathway. Catches bugs the Simulator doesn't (SDK header
-  # drift, missing device-only APIs, wrong xcframework slice, etc.).
-  app-ios-device:
+  # Single matrix job covering both generators × all platforms. Replaces 6
+  # near-identical jobs (~80% duplicated YAML) with one parameterized one.
+  # Check-name stability (branch-protection-required) is preserved by
+  # interpolating `matrix.display_name` into `name:` — GitHub uses the
+  # resolved value as the check name when the matrix vars appear in the
+  # name string, so e.g. `app (iOS device)` stays exactly that.
+  app:
     needs: config
-    if: needs.config.outputs.do_ios == 'true'
-    name: app (iOS device)
+    name: "app (${{ matrix.display_name }})"
     runs-on: macos-15
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.config.outputs.matrix) }}
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
     steps:
       - uses: actions/checkout@v4
 
-      - name: install xcbeautify + xcodegen
-        run: brew install xcbeautify xcodegen
+      - name: install xcbeautify + generator
+        run: |
+          brew install xcbeautify
+          if [ "${{ matrix.generator }}" = "tuist" ]; then
+            brew install --cask tuist
+          else
+            brew install xcodegen
+          fi
 
-      - name: regenerate Xcode project (incl. Generated-Info.plist files)
+      # Tuist forks live with their app/Project.swift manifest checked in
+      # alongside app/project.yml. switch-to-tuist.sh stages the right one
+      # (deletes project.yml, keeps Project.swift) so the subsequent
+      # `tuist generate` produces the same HelloApp.xcodeproj layout the
+      # xcodegen path produces from project.yml.
+      - name: switch fork to Tuist
+        if: matrix.generator == 'tuist'
+        run: bin/switch-to-tuist.sh --force
+
+      - name: regenerate Xcode project
         working-directory: app
-        run: xcodegen generate
+        run: |
+          if [ "${{ matrix.generator }}" = "tuist" ]; then
+            tuist generate --no-open
+          else
+            xcodegen generate
+          fi
+
+      # iOS Simulator picker: the macos-15 runner pool has variable simulator
+      # availability — hardcoding `name=iPhone 16 Plus,OS=latest` produces
+      # flakes when that specific runtime/device pair isn't installed on the
+      # assigned runner. xcrun simctl gives the authoritative list per-runner.
+      - name: pick iOS Simulator UDID
+        if: matrix.platform == 'ios-sim'
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j \
+            | jq -r '.devices | to_entries[]
+                | select(.key | contains("iOS"))
+                | .value[]
+                | select(.isAvailable and (.name | contains("iPhone")))
+                | .udid' \
+            | head -1)
+          [ -n "$UDID" ] || { echo "::error::no iPhone simulator available on this runner"; exit 1; }
+          echo "Using simulator UDID=$UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
       - name: build iOS device (unsigned)
+        if: matrix.platform == 'ios-device'
         run: |
           set -o pipefail
           xcodebuild build \
@@ -91,197 +173,31 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | xcbeautify --renderer github-actions
 
-  # iOS Simulator — backup signal (different SDK + xcframework slice).
-  app-ios-sim:
-    needs: config
-    if: needs.config.outputs.do_ios == 'true'
-    name: app (iOS Simulator)
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: install xcbeautify + xcodegen
-        run: brew install xcbeautify xcodegen
-
-      - name: regenerate Xcode project
-        working-directory: app
-        run: xcodegen generate
-
       - name: test iOS Simulator (unsigned)
+        if: matrix.platform == 'ios-sim'
         run: |
           set -o pipefail
-          # Dynamically pick an available iPhone simulator. The macos-15
-          # runner pool has variable simulator availability — hardcoding
-          # `name=iPhone 16 Plus,OS=latest` produces flakes when that
-          # specific runtime/device pair isn't installed on the assigned
-          # runner. xcrun simctl gives the authoritative list per-runner.
-          UDID=$(xcrun simctl list devices available -j \
-            | jq -r '.devices | to_entries[]
-                | select(.key | contains("iOS"))
-                | .value[]
-                | select(.isAvailable and (.name | contains("iPhone")))
-                | .udid' \
-            | head -1)
-          [ -n "$UDID" ] || { echo "::error::no iPhone simulator available on this runner"; exit 1; }
-          echo "Using simulator UDID=$UDID"
           # `xcodebuild test` runs the scheme's Test action, which the
-          # XcodeGen manifest (app/project.yml) wires to HelloAppUITests +
-          # HelloAppTests. Test action requires a concrete simulator
-          # destination (generic/* doesn't work).
+          # generator manifest (app/project.yml or app/Project.swift) wires
+          # to HelloAppUITests + HelloAppTests. Test action requires a
+          # concrete simulator destination (generic/* doesn't work).
           xcodebuild test \
             -project app/HelloApp.xcodeproj \
             -scheme HelloApp-iOS \
             -configuration Debug \
             -sdk iphonesimulator \
-            -destination "platform=iOS Simulator,id=$UDID" \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | xcbeautify --renderer github-actions
-
-  app-macos:
-    needs: config
-    if: needs.config.outputs.do_macos == 'true'
-    name: app (macOS)
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: install xcbeautify + xcodegen
-        run: brew install xcbeautify xcodegen
-
-      - name: regenerate Xcode project
-        working-directory: app
-        run: xcodegen generate
 
       - name: test macOS (unsigned)
+        if: matrix.platform == 'macos'
         run: |
           set -o pipefail
-          xcodebuild test \
-            -project app/HelloApp.xcodeproj \
-            -scheme HelloApp-macOS \
-            -configuration Debug \
-            -destination 'platform=macOS' \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            2>&1 | xcbeautify --renderer github-actions
-
-  # ─── Tuist parity matrix ────────────────────────────────────────────────────
-  # The Tuist manifests (Tuist.swift + app/Project.swift) ship alongside
-  # app/project.yml so forkers can pick their generator at fork time
-  # (bin/rename.sh --generator=tuist|xcodegen). These 3 jobs run
-  # bin/switch-to-tuist.sh against a fresh checkout, regenerate
-  # HelloApp.xcodeproj from Project.swift, and run the same xcodebuild
-  # commands as the XcodeGen jobs above. Keeps both manifests in sync
-  # on every PR — drift fails CI immediately.
-  app-tuist-ios-device:
-    needs: config
-    if: needs.config.outputs.do_ios == 'true'
-    name: app (Tuist iOS device)
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: install xcbeautify + tuist
-        run: |
-          brew install xcbeautify
-          brew install --cask tuist
-
-      - name: switch fork to Tuist
-        run: bin/switch-to-tuist.sh --force
-
-      - name: regenerate Xcode project (Tuist)
-        working-directory: app
-        run: tuist generate --no-open
-
-      - name: build iOS device (unsigned)
-        run: |
-          set -o pipefail
-          xcodebuild build \
-            -project app/HelloApp.xcodeproj \
-            -scheme HelloApp-iOS \
-            -configuration Debug \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            2>&1 | xcbeautify --renderer github-actions
-
-  app-tuist-ios-sim:
-    needs: config
-    if: needs.config.outputs.do_ios == 'true'
-    name: app (Tuist iOS Simulator)
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: install xcbeautify + tuist
-        run: |
-          brew install xcbeautify
-          brew install --cask tuist
-
-      - name: switch fork to Tuist
-        run: bin/switch-to-tuist.sh --force
-
-      - name: regenerate Xcode project (Tuist)
-        working-directory: app
-        run: tuist generate --no-open
-
-      - name: test iOS Simulator (unsigned)
-        run: |
-          set -o pipefail
-          # Same dynamic-sim-picker pattern as the xcodegen iOS sim job;
-          # see comment there for rationale.
-          UDID=$(xcrun simctl list devices available -j \
-            | jq -r '.devices | to_entries[]
-                | select(.key | contains("iOS"))
-                | .value[]
-                | select(.isAvailable and (.name | contains("iPhone")))
-                | .udid' \
-            | head -1)
-          [ -n "$UDID" ] || { echo "::error::no iPhone simulator available on this runner"; exit 1; }
-          echo "Using simulator UDID=$UDID"
-          xcodebuild test \
-            -project app/HelloApp.xcodeproj \
-            -scheme HelloApp-iOS \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination "platform=iOS Simulator,id=$UDID" \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            2>&1 | xcbeautify --renderer github-actions
-
-  app-tuist-macos:
-    needs: config
-    if: needs.config.outputs.do_macos == 'true'
-    name: app (Tuist macOS)
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: install xcbeautify + tuist
-        run: |
-          brew install xcbeautify
-          brew install --cask tuist
-
-      - name: switch fork to Tuist
-        run: bin/switch-to-tuist.sh --force
-
-      - name: regenerate Xcode project (Tuist)
-        working-directory: app
-        run: tuist generate --no-open
-
-      - name: test macOS (unsigned)
-        run: |
-          set -o pipefail
+          # macOS test destination is bare `platform=macOS` — `xcodebuild
+          # test` doesn't accept `generic/platform=macOS`.
           xcodebuild test \
             -project app/HelloApp.xcodeproj \
             -scheme HelloApp-macOS \

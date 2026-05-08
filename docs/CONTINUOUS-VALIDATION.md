@@ -30,7 +30,7 @@ inspectable form so:
 
 ## What's been validated end-to-end
 
-The smoketest's phase 4-6 work (April-May 2026) discovered and fixed twelve
+The smoketest's phase 4-7 work (April-May 2026) discovered and fixed fourteen
 distinct CI failure modes between "looks like it should work" and
 "actually pushes a build to TestFlight":
 
@@ -49,6 +49,7 @@ distinct CI failure modes between "looks like it should work" and
 | G11 | `app_store_connect_api_key` action raises `OpenSSL::PKey::ECError: invalid curve name` from `Spaceship::ConnectAPI::Token.create` when invoked through fastlane's lane manager on macos-15 + Ruby 3.3.11 + OpenSSL 3.6.x — even though the same `Token.create` call with identical args succeeds when invoked directly via `bundle exec ruby`. Hits both `key_content` + `is_key_content_base64: true` paths. Possibly a regression in fastlane 2.233.x's `gsub('\n', "\n")` + lane-context handling | Decode the .p8 to a tmpfile inside the `asc_api_key` helper, then call the action with `key_filepath:` instead of `key_content:` + `is_key_content_base64`. The file path code path bypasses the buggy gsub-then-base64-decode branch |
 | G12 | `MATCH_GIT_BASIC_AUTHORIZATION` 404s on the certs repo after delete + recreate. Fine-grained GitHub PATs are pinned to a *repo's database ID*, not its name — when the certs repo is deleted and a new one with identical name is created, the new repo has a fresh ID and the existing PAT loses access. `fastlane match` then dies at the first clone with "Error cloning certificates git repo". This blocks the template's E2E refork test from running unattended (every cycle would require manual PAT scope updates via `github.com/settings/tokens`). | Don't delete the certs repo as part of the E2E loop. Reset its branches via force-push instead — the certs repo's lifecycle is logically separate from the app fork's. `bin/refork-smoketest.sh` does this by default. The repo's database ID is preserved, so the existing fine-grained PAT (correctly scoped to "Only select repositories" → certs repo) stays valid across E2E cycles. |
 | G13 | xcodebuild archive fails with `Signing certificate is invalid. Signing certificate "Apple Distribution: <name>", serial number "...", is not valid for code signing. It may have been revoked or expired.` Even though `security find-identity -v` shows the cert as valid (it's not expired, has a private key). Cause: the cert is revoked at Apple's side but still locally cached. `find-identity -v` only filters expired certs, not revoked-at-Apple ones. xcodebuild's `CODE_SIGN_IDENTITY=Apple Distribution` substring-matches multiple certs; if any matching cert is revoked, the archive can fail when xcodebuild picks that one. | New `make clean-revoked-certs` target — queries ASC API for valid cert serials, diffs against local keychain certs, deletes the revoked locals after confirmation. Surgical user-state cleanup; doesn't touch the template's normal build path. Run once when you hit this; subsequent builds use only Apple-valid certs. (`bundle exec fastlane clean_revoked_certs dry_run:true` to preview.) |
+| G14 | The local-mode shipping path (RELEASE_MODE=local) was 0% covered by automation through v1.4 — only validated via manual cold-fork tests at release time. Regressions in `setup_ci` mode-gating, `match`-skip gating, sigh-based App Store profile minting, β cert SHA-1 pinning (extracting `DeveloperCertificates[0]` from the .mobileprovision), ExportOptions plist patching for manual signing, and bash-3.2 `${arr[@]}`-under-`set -u` array safety would surface only when a forker tried to ship — typically weeks after the regressing commit landed. | New `.github/workflows/canary-local-mode.yml` — weekly mint→ship→verify→revoke loop in the same Apple team. Mints 3 throwaway certs (`apple_distribution` + `apple_development` + `mac_installer_distribution`), runs full local-mode `fastlane release` against TestFlight, revokes the 3 just-minted certs (`if: always()`). Net team-cert delta per run = 0; user's existing shipping certs untouched. Cache-tracked orphan recovery (`actions/cache@v5`) handles partial-failure scenarios — next run's pre-step revokes any ids the prior run's post-step missed. New `revoke_certs` (plural, idempotent) and `mint_canary_certs` (capture-ids) lanes in `fastlane/Fastfile` are the building blocks. |
 
 The smoketest also surfaced two ecosystem-level constraints:
 
@@ -57,9 +58,17 @@ The smoketest also surfaced two ecosystem-level constraints:
   deliberately don't carry those secrets in CI; the
   `bootstrap_asc` lane in `fastlane/Fastfile` verifies-or-fails-loudly with
   one-time-setup instructions for creating the App via web UI.
-- **Apple's iOS Distribution cert limit is 3/team**, not 2 as some docs
-  suggest. The `revoke_cert` lane in `fastlane/Fastfile` (Spaceship-based)
-  helps free a slot when match hits the limit.
+- **Apple's per-team certificate caps** (verified empirically 2026-05-08
+  against team `A26TJZ8QHQ`; community docs are stale or contradictory):
+  `DISTRIBUTION` (Apple Distribution) cap = **3** / team;
+  `DEVELOPMENT` (Apple Development) cap **≥ 5** / team;
+  `MAC_INSTALLER_DISTRIBUTION` cap = **2** / team. At-cap mint without
+  `--force` returns HTTP 409 — non-destructive; with `--force` revokes the
+  oldest cert by creation date (could be your production cert — `fastlane
+  cert` defaults to no `--force`, which is the safe default). The
+  `revoke_cert` lane (singular, ad-hoc) and `revoke_certs` lane (plural,
+  idempotent batch) in `fastlane/Fastfile` help free a slot or clean up
+  canary cycles.
 
 ## How to run the smoketest pattern in your own fork
 

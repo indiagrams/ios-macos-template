@@ -367,7 +367,7 @@ jobs:
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ env.ORPHAN_IDS_FILE }}
-          key: canary-orphan-ids-v1-${{ github.run_id }}-mid
+          key: canary-orphan-ids-v1-${{ github.run_id }}-${{ matrix.generator }}-mid
 
       - name: Compute canary tag (CalVer; never pushed)
         id: ver
@@ -441,7 +441,7 @@ jobs:
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ env.ORPHAN_IDS_FILE }}
-          key: canary-orphan-ids-v1-${{ github.run_id }}-final
+          key: canary-orphan-ids-v1-${{ github.run_id }}-${{ matrix.generator }}-final
 
       - name: Notify Discord on failure
         if: failure()

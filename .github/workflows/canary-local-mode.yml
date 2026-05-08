@@ -68,6 +68,30 @@ name: canary-local-mode
 # revoke via developer.apple.com/account/resources/certificates (30 sec).
 # User-driven mint contends during canary's 12-min window → fixed cron Tuesdays
 # 09:00 UTC keeps the window predictable (separate from CI canary on Mondays).
+#
+# ─── Generator matrix: xcodegen × tuist ───────────────────────────────────────
+#
+# Mirrors canary-trigger.yml's CI-mode coverage. Both project generators are
+# exercised against the same Apple identity so generator-specific shipping
+# regressions surface here:
+#   - Tuist 4.x default settings drift (CFBundleVersion handling, signing
+#     settings inheritance, scheme/test-action quirks at archive time)
+#   - bin/switch-to-{xcodegen,tuist}.sh regressions (these scripts edit
+#     Brewfile + Makefile + ci/* + pr.yml; could break local-mode entry
+#     points). Each cell exercises whichever switch script applies.
+#
+# max-parallel: 1 is mandatory. Concurrent matrix cells would each try to
+# mint 3 certs (DIST + DEV + MAC_INSTALLER) at once, hit Apple's 3-DIST and
+# 2-MAC_INSTALLER caps, and the second cell would fail with HTTP 409. The
+# orphan-tracking cache passes empty state between sequential cells: cell 1
+# finishes mint→ship→revoke→save-empty; cell 2 restores empty and starts
+# fresh.
+#
+# fail-fast: false so a tuist regression doesn't suppress the xcodegen cell
+# (and vice versa) — useful when one generator breaks and you want to know
+# if the other does too.
+#
+# Total runtime: ~24 min weekly (12 min × 2 cells, sequential).
 
 on:
   workflow_dispatch:
@@ -102,9 +126,15 @@ concurrency:
 
 jobs:
   canary:
-    name: Local-mode shipping path canary
+    name: Local-mode shipping path canary (${{ matrix.generator }})
     runs-on: macos-15
     timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        generator: [xcodegen, tuist]
 
     env:
       # Force local mode regardless of the repo's .bootstrap.env value. The
@@ -180,7 +210,56 @@ jobs:
           ruby-version: '3.3'
           bundler-cache: true
 
-      - name: Bootstrap toolchain (xcodegen via Homebrew)
+      - name: Switch workspace to ${{ matrix.generator }} (if needed)
+        # Mirrors release.yml's "Apply generator override" step. Each matrix
+        # cell mutates the workspace to its generator BEFORE make bootstrap
+        # runs (which would brew-install whatever the Brewfile says — the
+        # switch scripts edit Brewfile, so they must run first).
+        #
+        # Idempotent: if the repo's main is already in the cell's generator
+        # shape, the script is a no-op.
+        env:
+          REQUESTED_GENERATOR: ${{ matrix.generator }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_GENERATOR" in
+            xcodegen)
+              if [ -f app/project.yml ]; then
+                echo "Repo is already in xcodegen shape (app/project.yml present); no-op."
+              else
+                if [ -x ./bin/switch-to-xcodegen.sh ]; then
+                  # bin/switch-to-xcodegen.sh's preflight requires xcodegen on PATH.
+                  # make bootstrap (next step) would install via Brewfile, but
+                  # that runs AFTER this. Install eagerly; brew is idempotent.
+                  echo "Installing xcodegen (required by switch-to-xcodegen.sh preflight)"
+                  brew install xcodegen
+                  echo "Switching workspace to xcodegen via bin/switch-to-xcodegen.sh"
+                  ./bin/switch-to-xcodegen.sh
+                else
+                  echo "::error::generator=xcodegen requested but repo is in tuist shape" \
+                    "and bin/switch-to-xcodegen.sh is not available on this ref."
+                  exit 1
+                fi
+              fi
+              ;;
+            tuist)
+              if [ -f app/project.yml ]; then
+                # Symmetric: tuist preflight needs tuist on PATH. brew is idempotent.
+                echo "Installing tuist (required by switch-to-tuist.sh preflight)"
+                brew install --cask tuist
+                echo "Switching workspace to tuist via bin/switch-to-tuist.sh"
+                ./bin/switch-to-tuist.sh
+              else
+                echo "Repo is already in tuist shape (no app/project.yml); no-op."
+              fi
+              ;;
+            *)
+              echo "::error::Invalid generator='$REQUESTED_GENERATOR'. Must be xcodegen or tuist."
+              exit 1
+              ;;
+          esac
+
+      - name: Bootstrap toolchain (generator + deps via Homebrew)
         run: make bootstrap
 
       - name: Pre-install Apple WWDR intermediate certs

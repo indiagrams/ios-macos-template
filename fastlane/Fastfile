@@ -478,7 +478,59 @@ platform :ios do
         sh_env["RELEASE_MACOS_PROFILE_NAME"] = macos_profile_name
       end
     else
-      UI.message("Step 1/5: RELEASE_MODE=#{release_mode} — skipping match. Using login-keychain signing (Xcode automatic).")
+      # Local mode: parallel of CI's match-based flow, using fastlane sigh
+      # instead of fastlane match. sigh fetches/creates an App Store
+      # distribution profile via API key and installs it into
+      # ~/Library/MobileDevice/Provisioning Profiles/. Idempotent —
+      # detects existing valid profiles and reuses rather than minting
+      # duplicates.
+      #
+      # Why we need this even in local mode: `xcodebuild -exportArchive`
+      # for the App Store needs an App Store distribution profile. The
+      # archive step's auto-managed Team Provisioning Profile is for
+      # development, not export. Without an App Store profile present,
+      # exportArchive fails with "Cloud signing permission error / No
+      # profiles for '<bundle>' were found".
+      #
+      # sigh emits sigh_<bundle>_appstore_profile-name env vars (same as
+      # match), which local-release-check.sh's manual-signing path reads
+      # to switch xcodebuild from automatic to manual signing. This
+      # avoids the cloud-signing endpoint entirely.
+      bits = []
+      bits << "iOS"   if do_ios
+      bits << "macOS" if do_macos
+      UI.message("Step 1/5: RELEASE_MODE=#{release_mode} — minting App Store profile(s) via sigh (#{bits.join(' + ')}).")
+
+      if do_ios
+        sigh(
+          app_identifier: APP_IDENTIFIER,
+          team_id:        ENV.fetch("FASTLANE_TEAM_ID"),
+          api_key:        asc_api_key,
+          platform:       "ios",
+          readonly:       false  # mint if no valid profile exists; reuse if it does
+        )
+      end
+      if do_macos
+        sigh(
+          app_identifier: APP_IDENTIFIER,
+          team_id:        ENV.fetch("FASTLANE_TEAM_ID"),
+          api_key:        asc_api_key,
+          platform:       "macos",
+          readonly:       false
+        )
+      end
+
+      sh_env = { "RELEASE_BUNDLE_ID" => APP_IDENTIFIER }
+      if do_ios
+        ios_profile_name = ENV["sigh_#{APP_IDENTIFIER}_appstore_profile-name"]
+        UI.user_error!("sigh didn't set sigh_#{APP_IDENTIFIER}_appstore_profile-name — did the iOS sigh call run?") unless ios_profile_name
+        sh_env["RELEASE_IOS_PROFILE_NAME"] = ios_profile_name
+      end
+      if do_macos
+        macos_profile_name = ENV["sigh_#{APP_IDENTIFIER}_appstore_macos_profile-name"]
+        UI.user_error!("sigh didn't set sigh_#{APP_IDENTIFIER}_appstore_macos_profile-name — did the macOS sigh call run?") unless macos_profile_name
+        sh_env["RELEASE_MACOS_PROFILE_NAME"] = macos_profile_name
+      end
     end
 
     sign_flags = []

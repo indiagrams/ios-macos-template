@@ -643,6 +643,30 @@ platform :ios do
       # auto-installed into ~/Library/MobileDevice/Provisioning Profiles/
       # (sigh default skip_install=false), which is what xcodebuild
       # actually reads at archive/export time.
+      # Helper: extract the SHA-1 hash of the profile's bound signing cert
+      # (the first entry in DeveloperCertificates). We pin xcodebuild to
+      # this exact cert via CODE_SIGN_IDENTITY=<sha1> in local-release-
+      # check.sh — without it, xcodebuild substring-matches "Apple
+      # Distribution" against the keychain, which is ambiguous when
+      # multiple Apple-valid certs of that name exist (cert rotation, multi-
+      # team users, etc.). The profile binds to ONE cert; we honor it.
+      cert_sha1_from_profile = ->(profile_path) {
+        decoded = `security cms -D -i "#{profile_path}" 2>/dev/null`
+        return nil if decoded.empty?
+        cert_b64 = nil
+        require "tempfile"
+        Tempfile.open(["profile", ".plist"]) do |f|
+          f.write(decoded)
+          f.close
+          cert_b64 = `plutil -extract DeveloperCertificates.0 raw -o - "#{f.path}" 2>/dev/null`.strip
+        end
+        return nil if cert_b64.empty?
+        require "base64"
+        require "digest"
+        der = Base64.decode64(cert_b64)
+        Digest::SHA1.hexdigest(der).upcase
+      }
+
       if do_ios
         sigh(
           app_identifier: APP_IDENTIFIER,
@@ -653,8 +677,11 @@ platform :ios do
           output_path:    Dir.tmpdir
         )
         ios_profile_name = lane_context[SharedValues::SIGH_NAME]
+        ios_profile_path = lane_context[SharedValues::SIGH_PROFILE_PATH]
         UI.user_error!("sigh didn't set SIGH_NAME after iOS mint — fastlane API may have changed") unless ios_profile_name
         sh_env["RELEASE_IOS_PROFILE_NAME"] = ios_profile_name
+        sh_env["RELEASE_IOS_CERT_SHA1"] = cert_sha1_from_profile.call(ios_profile_path) || ""
+        UI.message("  iOS profile binds to cert SHA-1: #{sh_env['RELEASE_IOS_CERT_SHA1']}")
       end
       if do_macos
         sigh(
@@ -666,8 +693,11 @@ platform :ios do
           output_path:    Dir.tmpdir
         )
         macos_profile_name = lane_context[SharedValues::SIGH_NAME]
+        macos_profile_path = lane_context[SharedValues::SIGH_PROFILE_PATH]
         UI.user_error!("sigh didn't set SIGH_NAME after macOS mint — fastlane API may have changed") unless macos_profile_name
         sh_env["RELEASE_MACOS_PROFILE_NAME"] = macos_profile_name
+        sh_env["RELEASE_MACOS_CERT_SHA1"] = cert_sha1_from_profile.call(macos_profile_path) || ""
+        UI.message("  macOS profile binds to cert SHA-1: #{sh_env['RELEASE_MACOS_CERT_SHA1']}")
       end
     end
 

@@ -246,6 +246,135 @@ lane :revoke_cert do |options|
   UI.success("Revoked #{cert.id}")
 end
 
+desc "Revoke a batch of certificates by ASC certificate ID. Idempotent — silent on already-gone."
+desc ""
+desc "Pluralized companion to revoke_cert (singular). Differences:"
+desc "  - takes ids:A,B,C (comma-separated) instead of id:X"
+desc "  - silent on ids not found in team listing (already revoked → counts as success)"
+desc "  - never raises by default; pass strict:true to fail when any id fails to revoke"
+desc ""
+desc "Used by the weekly local-mode canary workflow:"
+desc "  pre-step  : revoke any orphan ids from a prior failed run (most weeks empty)"
+desc "  post-step : revoke the 3 just-minted canary certs (always() — runs even on ship failure)"
+desc ""
+desc "Why idempotent-by-default: pre-step's input is from a tracking artifact and"
+desc "an already-gone id is the normal case (every successful run leaves an empty"
+desc "tracking file). Strict mode is for ad-hoc human use when you want loud failure."
+desc ""
+desc "Usage:  fastlane revoke_certs ids:ABC123,DEF456,GHI789"
+desc "        fastlane revoke_certs ids:ABC123 strict:true"
+lane :revoke_certs do |options|
+  raw    = options[:ids].to_s
+  ids    = raw.split(",").map(&:strip).reject(&:empty?)
+  strict = options[:strict].to_s == "true"
+
+  if ids.empty?
+    UI.message("revoke_certs: no ids provided; nothing to do.")
+    next
+  end
+
+  asc_api_key
+  team_certs = Spaceship::ConnectAPI::Certificate.all
+  by_id      = team_certs.each_with_object({}) { |c, h| h[c.id] = c }
+
+  revoked = []
+  missing = []
+  failed  = []
+
+  ids.each do |id|
+    cert = by_id[id]
+    if cert.nil?
+      missing << id
+      UI.message("  ! #{id} — not in team listing (already revoked); skipping")
+      next
+    end
+    begin
+      Spaceship::ConnectAPI.delete_certificate(certificate_id: cert.id)
+      revoked << id
+      UI.success("  ✓ revoked #{id} type=#{cert.certificate_type}")
+    rescue StandardError => e
+      failed << id
+      UI.error("  ✗ #{id} — #{e.class.name}: #{e.message[0, 200]}")
+    end
+  end
+
+  UI.message("revoke_certs summary: revoked=#{revoked.length} already-gone=#{missing.length} failed=#{failed.length}")
+
+  if strict && failed.any?
+    UI.user_error!("strict mode: #{failed.length} cert(s) failed to revoke — see errors above")
+  end
+end
+
+desc "Mint local-mode signing identities + record their ASC ids for later revocation."
+desc ""
+desc "Used exclusively by the weekly local-mode canary workflow's revoke-after-run loop."
+desc "Distinct from mint_local_certs in two ways:"
+desc "  (1) Captures each just-minted ASC certificate id (via fastlane's CER_CERTIFICATE_ID"
+desc "      env var, set by cert/runner.rb at lines 112,124,241 in fastlane 2.230)"
+desc "  (2) Persists ids to out_path AFTER EACH SUCCESSFUL MINT — so partial-failure"
+desc "      scenarios (e.g. mint #2 of 3 crashes) still leave a tracking file the next"
+desc "      run's pre-step can clean up. Worst case: 1 orphan, 1-week stale, auto-revoked"
+desc "      Monday morning."
+desc ""
+desc "Required env (same as mint_local_certs): ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID,"
+desc "ASC_API_KEY_P8_BASE64, FASTLANE_TEAM_ID. Set by canary-local-mode.yml's env: block."
+desc ""
+desc "Usage: fastlane mint_canary_certs types:apple_distribution,apple_development,mac_installer_distribution out_path:/tmp/canary-orphan-ids.txt"
+lane :mint_canary_certs do |options|
+  raw   = options[:types].to_s
+  types = raw.split(",").map(&:strip).reject(&:empty?)
+  UI.user_error!("types: required (comma-separated, e.g. apple_distribution,apple_development,mac_installer_distribution)") if types.empty?
+
+  out_path = options[:out_path] or UI.user_error!("out_path: required (path to write tracking file)")
+
+  asc_api_key
+  team     = ENV.fetch("FASTLANE_TEAM_ID")
+  keychain = options[:keychain_path] || File.expand_path("~/Library/Keychains/login.keychain-db")
+
+  # Start fresh. The workflow's pre-step has already revoked any prior orphans,
+  # so we don't need to preserve old contents. An empty file means "no canary
+  # certs in flight" — the post-step's always() trigger will overwrite it with
+  # whatever ids we manage to mint.
+  File.write(out_path, "")
+
+  minted = []
+  types.each do |type|
+    UI.message("Minting #{type} for canary cycle (team #{team})…")
+    cert(
+      type:                 type,
+      team_id:              team,
+      api_key:              asc_api_key,
+      keychain_path:        keychain,
+      output_path:          Dir.tmpdir,
+      generate_apple_certs: true
+    )
+
+    # cert action emits ENV["CER_CERTIFICATE_ID"] (intentional CER_, not CERT_;
+    # cert/runner.rb:112,124,241). Reliable for both reuse-existing and
+    # mint-new paths. On the canary's fresh runner keychain there are no
+    # existing valid certs to reuse, so this is always the just-minted id.
+    cert_id = ENV["CER_CERTIFICATE_ID"]
+    if cert_id.nil? || cert_id.empty?
+      UI.user_error!(
+        "cert action did not set CER_CERTIFICATE_ID for #{type}. Was at " \
+        "cert/runner.rb:112,124,241 in fastlane 2.230 — fastlane API may have changed."
+      )
+    end
+
+    minted << { type: type, id: cert_id }
+    UI.success("  → #{type} minted as #{cert_id}")
+
+    # Persist after EACH mint, not at end. If the next type's mint kills the
+    # process (Apple 5xx, network blip, etc.), the tracking file already
+    # contains every id minted so far.
+    File.write(out_path, minted.map { |m| m[:id] }.join("\n") + "\n")
+  end
+
+  UI.success("Minted #{minted.length} cert(s); ids persisted to #{out_path}")
+  UI.message("Tracking contents:")
+  minted.each { |m| UI.message("  #{m[:type]} → #{m[:id]}") }
+end
+
 desc "Audit local login.keychain for Apple cert types and delete revoked-at-Apple ones."
 desc ""
 desc "Diffs certs in your login.keychain against Apple's valid-cert list (queried via"

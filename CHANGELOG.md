@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Local-mode shipping path canary (#TBD). Continuously validates the path stabilized in v1.4 (#115/#117/#119/#121/#123) so regressions surface within a week instead of at the next release. One-time setup (revoke 1 spare DIST + 1 spare MAC_INSTALLER cert per team, ~30 sec via portal or `fastlane revoke_certs ids:…`) dedicates 1 cycling slot per at-cap type — empirically verified caps via Apple's ASC API are DIST=3, DEV≥5, MAC_INSTALLER=2 per team (community docs are stale). Each canary run mints 3 throwaway certs, ships full local-mode `fastlane release` to TestFlight, then revokes the 3 just-minted ids on `always()`. Net team-cert delta per run = 0; user's existing shipping certs untouched. Cache-tracked orphan recovery handles partial-failure scenarios.
+
+### Added
+
+- `.github/workflows/canary-local-mode.yml` — weekly canary workflow (workflow_dispatch + commented-out `cron: '0 9 * * 2'` for forks to opt into). Single job on macos-15: pre-revoke orphans → mint 3 canary certs into login.keychain → bootstrap ASC → `fastlane release skip_tag:true` → verify TestFlight → post-revoke 3 ids on `always()`. Tracking file persisted via `actions/cache@v5.0.5` between runs (cache-restore at start, cache-save at end with run-id-suffixed keys to force overwrite). Fail-fast secrets check at top of job. Discord webhook on failure (optional). Distinct from the existing CI-mode canary (`canary-trigger.yml` dispatches `release.yml` on the smoketest with match-based signing); this one exercises the no-match local-mode path that first-time shippers actually use.
+- `fastlane/Fastfile` `revoke_certs` lane (plural, idempotent) — pluralized companion to the existing `revoke_cert` (singular). Takes `ids:A,B,C`. Silent on ids not found in team listing (treats already-revoked as success). `strict:true` opt-in for ad-hoc human use that wants loud failure on partial-revoke. Used by the canary's pre-step (orphan cleanup) and post-step (revoke captured ids).
+- `fastlane/Fastfile` `mint_canary_certs` lane — mints local-mode signing identities AND captures each just-minted ASC certificate id to a tracking file. Distinct from `mint_local_certs` in two ways: (1) reads `ENV["CER_CERTIFICATE_ID"]` after each `cert(...)` call (set by fastlane's cert/runner.rb at lines 112,124,241 in 2.230) to capture the ASC id; (2) writes to `out_path` AFTER each successful mint, not at end — so partial-failure scenarios still leave a tracking file the next run's pre-step can clean up.
+- `docs/CONTINUOUS-VALIDATION.md` G14 entry — describes the local-mode-shipping-path-uncovered-by-automation failure mode + the canary architecture as remediation. Updates the per-team cert cap section with empirical findings (DIST=3, DEV≥5, MAC_INSTALLER=2; previously claimed only DIST=3 with no MAC_INSTALLER number).
+- `.planning/SMOKETEST_PLAN.md` Phase 7 (gitignored, but documented for the maintainer) — design notes for the canary including empirical probe results, one-time setup, per-run loop, tracking artifact mechanism, risks, and acceptance criteria.
+- `.planning/spikes/cert-quota-probe.rb` + `.planning/spikes/cert-revoke.rb` (gitignored) — preserved Ruby scripts from the empirical probe + one-time slot dedication. Reusable for future quota re-probes or ad-hoc batch revocations.
+
+### Changed
+
+- `docs/CONTINUOUS-VALIDATION.md` opening paragraph — corrected "twelve distinct CI failure modes" to "fourteen" (G13 was added in v1.4 but the count wasn't updated; G14 lands here).
+
 ## [1.4.0] - 2026-05-08
 
 Local-mode cert handling and shipping path overhaul. The biggest first-time-shipper friction. Four themes:

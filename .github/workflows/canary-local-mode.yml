@@ -1,0 +1,384 @@
+name: canary-local-mode
+
+# Continuous validation of the LOCAL-MODE shipping path (RELEASE_MODE=local).
+#
+# Distinct from release.yml's CI-mode canary (which exercises match-based cert
+# sourcing). Local mode is what first-time shippers use:
+#
+#   - fastlane sigh mints App Store profiles via API key (no match)
+#   - signing certs come from login.keychain-db directly (auto-minted by
+#     `make bootstrap-fork` or `make mint-local-certs`)
+#   - β cert SHA-1 pinning via DeveloperCertificates[0] in the .mobileprovision
+#   - bash-3.2 array safety in ci/local-release-check.sh
+#
+# Why this exists: pre-v1.5, local mode was 0% covered by automation —
+# only validated via manual cold-fork tests at release time. The v1.4 cycle
+# stabilized the path (#115/#117/#119/#121/#123), but the next regression
+# would surface weeks late. v1.5 keeps it stable continuously.
+#
+# ─── Architecture: revoke-after-run loop in the SAME Apple team ───────────────
+#
+# Each run:
+#   1. Pre-step revokes any orphan cert ids from a prior failed run
+#      (cache-tracked; usually 0).
+#   2. Mints 3 fresh certs (DIST + DEV + MAC_INSTALLER_DISTRIBUTION) into the
+#      runner's login keychain. Captures their ASC ids to a tracking file
+#      (one id per line). Persists the file to the cache after EACH mint, so
+#      partial-failure scenarios (e.g. mint #2 of 3 crashes) leave a tracking
+#      file the next run's pre-step can clean up.
+#   3. Runs `fastlane release` in local mode (no match, sigh-based profiles,
+#      cert-SHA1-pinned signing).
+#   4. Verifies TestFlight ingestion via bin/verify-testflight.rb.
+#   5. Post-step (if: always()) revokes the 3 just-minted ids — runs even on
+#      ship failure. Then writes an empty tracking file.
+#   6. Saves the empty tracking file to cache → next run's pre-step is a no-op.
+#
+# Net cost per run: 0 certs added, 0 lost. User's existing shipping certs
+# never touched. Apple's API doesn't rate-limit mint+revoke cycles.
+#
+# ─── Empirical Apple cert quotas (verified 2026-05-08, team A26TJZ8QHQ) ───────
+#
+#   DISTRIBUTION                  cap = 3 / team
+#   DEVELOPMENT                   cap ≥ 5 / team  (didn't probe to boundary)
+#   MAC_INSTALLER_DISTRIBUTION    cap = 2 / team
+#
+# At-cap mint without --force returns HTTP 409 (no destructive behavior).
+# At-cap mint with --force revokes the OLDEST cert by creation date — could
+# wipe out a production cert. fastlane cert defaults to no --force (safe).
+#
+# This canary requires ≥ 1 cycling slot in DIST + MAC_INSTALLER. v1.5's
+# one-time setup revoked one spare cert per type to dedicate a slot
+# (77D7Y2X3TM + G327ZNQ7L7 revoked 2026-05-08; see CHANGELOG v1.5).
+#
+# ─── Required GH Secrets (same as release.yml; no new ones) ───────────────────
+#
+#   ASC_API_KEY_ID                — App Store Connect API key id
+#   ASC_API_KEY_ISSUER_ID         — ASC API key issuer UUID
+#   ASC_API_KEY_P8_BASE64         — base64 of the .p8 file contents
+#   FASTLANE_TEAM_ID              — Apple Developer team ID
+#   KEYCHAIN_PASSWORD             — for unlocking login.keychain-db on the runner
+#
+# Optional: DISCORD_CANARY_WEBHOOK for Discord failure notification.
+#
+# ─── Failure modes & recovery ─────────────────────────────────────────────────
+#
+# Post-step doesn't run (runner crash mid-mint) → cache holds orphan ids; next
+# run's pre-step revokes them (worst case: 1 week stale).
+# Cache evicted (>7 days idle, never on a weekly cron) → orphans linger; manual
+# revoke via developer.apple.com/account/resources/certificates (30 sec).
+# User-driven mint contends during canary's 12-min window → fixed cron Tuesdays
+# 09:00 UTC keeps the window predictable (separate from CI canary on Mondays).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Mint + ship + verify + revoke, but skip TestFlight upload'
+        required: false
+        type: boolean
+        default: false
+  # workflow_dispatch only by default. To enable weekly canary on a fork
+  # (e.g. the smoketest), uncomment the schedule block below AFTER:
+  #   1. configuring all 5 GH Secrets above
+  #   2. running v1.5's one-time setup (revoke 1 spare DIST + 1 spare
+  #      MAC_INSTALLER cert via the developer portal to dedicate cycling
+  #      slots — see Phase 7 of `.planning/SMOKETEST_PLAN.md`)
+  # Cron is Tuesdays 09:00 UTC to stay clear of the existing CI canary
+  # (canary-trigger.yml dispatches release.yml on Mondays 09:00 UTC).
+  # schedule:
+  #   - cron: '0 9 * * 2'   # Tuesdays 09:00 UTC
+
+permissions:
+  contents: read
+  actions: read   # required for actions/cache to read prior cache entries
+
+# Serialize canary runs. cancel-in-progress: false → if a manual dispatch
+# lands during a cron run, the dispatch waits rather than aborting mid-mint
+# (a cancelled mint can leave orphans even with the always()-post-step,
+# because cancellation kills the runner before always() steps complete).
+concurrency:
+  group: canary-local-mode
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: Local-mode shipping path canary
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    env:
+      # Force local mode regardless of the repo's .bootstrap.env value. The
+      # template ships with RELEASE_MODE=local default; the smoketest
+      # currently uses ci. This canary tests local-mode plumbing on whichever
+      # repo it runs against.
+      RELEASE_MODE:                  local
+      ASC_API_KEY_ID:                ${{ secrets.ASC_API_KEY_ID }}
+      ASC_API_KEY_ISSUER_ID:         ${{ secrets.ASC_API_KEY_ISSUER_ID }}
+      ASC_API_KEY_P8_BASE64:         ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+      FASTLANE_TEAM_ID:              ${{ secrets.FASTLANE_TEAM_ID }}
+      KEYCHAIN_PASSWORD:             ${{ secrets.KEYCHAIN_PASSWORD }}
+      FASTLANE_HIDE_CHANGELOG:       '1'
+      FASTLANE_SKIP_UPDATE_CHECK:    '1'
+      CANARY_CERT_TYPES:             apple_distribution,apple_development,mac_installer_distribution
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup paths
+        # ORPHAN_IDS_FILE has to be derived inside a step (the runner.* context
+        # isn't available at job-level env). $RUNNER_TEMP is the canonical
+        # per-run scratch dir; setting via $GITHUB_ENV makes the value visible
+        # to ${{ env.ORPHAN_IDS_FILE }} expressions in subsequent steps
+        # (including actions/cache's `path:` parameter).
+        run: |
+          set -euo pipefail
+          echo "ORPHAN_IDS_FILE=${RUNNER_TEMP}/canary-orphan-ids.txt" >> "${GITHUB_ENV}"
+
+      - name: Verify required secrets are set
+        # Fail fast with an actionable error rather than letting fastlane
+        # die 5 minutes in with "ASC_API_KEY_ID env var unset". Lets a fork
+        # opt-in cleanly (uncomment cron + configure secrets, in either
+        # order — workflow runs to completion only when both are done).
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -z "${ASC_API_KEY_ID}"        ] && missing+=("ASC_API_KEY_ID")
+          [ -z "${ASC_API_KEY_ISSUER_ID}" ] && missing+=("ASC_API_KEY_ISSUER_ID")
+          [ -z "${ASC_API_KEY_P8_BASE64}" ] && missing+=("ASC_API_KEY_P8_BASE64")
+          [ -z "${FASTLANE_TEAM_ID}"      ] && missing+=("FASTLANE_TEAM_ID")
+          [ -z "${KEYCHAIN_PASSWORD}"     ] && missing+=("KEYCHAIN_PASSWORD")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Required GH Secret(s) not set on this repo: ${missing[*]}"
+            echo "Configure them at:"
+            echo "  https://github.com/${{ github.repository }}/settings/secrets/actions"
+            echo "See the workflow header comment for details."
+            exit 1
+          fi
+
+      - name: Select Xcode 26+ for iOS 26 SDK requirement
+        # Apple began enforcing iOS 26 SDK minimum for ASC uploads in 2026.
+        # macos-15 runner default is currently Xcode 16.4 (iOS 18.5 SDK) —
+        # too old. Pick the highest-numbered Xcode_26*.app on the runner.
+        # See: docs/CONTINUOUS-VALIDATION.md G8.
+        run: |
+          set -euo pipefail
+          XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE_APP" ]; then
+            echo "::error::No Xcode 26+ found on runner. Available:" >&2
+            ls -d /Applications/Xcode*.app 2>/dev/null >&2 || true
+            exit 1
+          fi
+          echo "Selecting $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+
+      - name: Set up Ruby + bundler cache
+        uses: ruby/setup-ruby@c4e5b1316158f92e3d49443a9d58b31d25ac0f8f # v1.306.0
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+
+      - name: Bootstrap toolchain (xcodegen via Homebrew)
+        run: make bootstrap
+
+      - name: Pre-install Apple WWDR intermediate certs
+        # See release.yml's identical step (G4). fastlane match's auto-install
+        # path can hang for 5+ min on GH Actions runners. We pre-install via
+        # curl + security add-trusted-cert. Local-mode canary uses sigh (not
+        # match), but sigh + cert + codesign all need a valid WWDR chain too.
+        run: |
+          curl -fsSL --retry 3 -o /tmp/AppleWWDRCAG6.cer \
+            https://www.apple.com/certificateauthority/AppleWWDRCAG6.cer
+          sudo security add-trusted-cert -d -r trustRoot \
+            -k /Library/Keychains/System.keychain \
+            /tmp/AppleWWDRCAG6.cer
+
+      - name: Restore orphan-ids tracking cache
+        # Restores the file written by the previous run's post-step. Empty
+        # file = no orphans (the normal case). Non-empty = some prior run's
+        # post-revoke step couldn't fully clean up; this run's pre-step does.
+        #
+        # Unique key per run forces actions/cache/save to land below.
+        # restore-keys finds the latest matching prefix (most recent prior
+        # run's saved state). Cache eviction is 7-day idle; weekly cron
+        # refreshes TTL on every restore, so persistence is indefinite as
+        # long as runs keep happening at least weekly.
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        id: cache-restore
+        with:
+          path: ${{ env.ORPHAN_IDS_FILE }}
+          key: canary-orphan-ids-v1-${{ github.run_id }}
+          restore-keys: |
+            canary-orphan-ids-v1-
+
+      - name: Pre-step — revoke any orphan ids from prior runs
+        # Idempotent. Silent on already-gone ids (the revoke_certs lane
+        # treats not-found-in-team as "already revoked, OK"). Most weeks
+        # this is a no-op (empty file). Non-empty file means a prior run's
+        # post-step didn't fully clean up — this is the recovery path.
+        run: |
+          set -euo pipefail
+          if [ ! -f "${ORPHAN_IDS_FILE}" ]; then
+            echo "No prior tracking file (cache miss or first run); nothing to revoke."
+            exit 0
+          fi
+          ids=$(grep -v '^[[:space:]]*$' "${ORPHAN_IDS_FILE}" 2>/dev/null | paste -sd, -)
+          if [ -z "${ids}" ]; then
+            echo "Tracking file is empty; no orphans to revoke."
+            exit 0
+          fi
+          echo "Found orphan ids from prior run(s):"
+          cat "${ORPHAN_IDS_FILE}"
+          bundle exec fastlane revoke_certs ids:"${ids}"
+
+      - name: Unlock login keychain for cert + sigh + codesign access
+        # RELEASE_MODE=local skips fastlane's setup_ci, which means we don't
+        # get a temp keychain. fastlane cert needs an unlocked keychain to
+        # import the minted .p12; codesign needs the same to access private
+        # keys at archive time.
+        #
+        # The macos-15 runner's login.keychain-db exists with password
+        # matching ${KEYCHAIN_PASSWORD} (or empty on some images); try both
+        # so the workflow works on either configuration. Extending the lock
+        # timeout to 6h prevents codesign from getting locked out mid-archive
+        # (default is 5 min idle).
+        run: |
+          set -euo pipefail
+          KEYCHAIN=~/Library/Keychains/login.keychain-db
+          if [ -n "${KEYCHAIN_PASSWORD:-}" ] && security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}" 2>/dev/null; then
+            echo "Unlocked with KEYCHAIN_PASSWORD secret."
+          elif security unlock-keychain -p "" "${KEYCHAIN}" 2>/dev/null; then
+            echo "Unlocked with empty password (runner default)."
+          else
+            echo "::error::Could not unlock ${KEYCHAIN} with KEYCHAIN_PASSWORD or empty password."
+            exit 1
+          fi
+          security set-keychain-settings -lut 21600 "${KEYCHAIN}"
+          security default-keychain -s "${KEYCHAIN}"
+          security list-keychains -d user -s "${KEYCHAIN}"
+
+      - name: Bootstrap ASC + Dev Portal records (idempotent)
+        run: bundle exec fastlane bootstrap_asc
+
+      - name: Mint canary certs + capture ASC ids to tracking file
+        # Mints DIST + DEV + MAC_INSTALLER into login.keychain-db. After each
+        # successful mint, the just-minted ASC certificate id is appended to
+        # the tracking file. The post-revoke step reads this file (always())
+        # so every minted id gets revoked even if a later step crashes.
+        #
+        # If this step fails partway (e.g. Apple 5xx on mint #2 of 3), the
+        # tracking file already contains the ids minted before the failure,
+        # and the post-step will revoke them.
+        run: |
+          set -euo pipefail
+          bundle exec fastlane mint_canary_certs \
+            types:"${CANARY_CERT_TYPES}" \
+            out_path:"${ORPHAN_IDS_FILE}"
+          echo "Tracking file contents after mint:"
+          cat "${ORPHAN_IDS_FILE}"
+
+      - name: Save mid-state tracking file to cache (insurance)
+        # Saves the tracking file with captured ids BEFORE we ship. If the
+        # ship step or the post-revoke step crashes badly enough that
+        # always() doesn't run (rare runner-death scenario), the cache still
+        # persists the orphan ids so next run's pre-step revokes them.
+        if: always() && hashFiles(env.ORPHAN_IDS_FILE) != ''
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.ORPHAN_IDS_FILE }}
+          key: canary-orphan-ids-v1-${{ github.run_id }}-mid
+
+      - name: Compute canary tag (CalVer; never pushed)
+        id: ver
+        # CalVer with run_number for uniqueness, prefixed `canary-` so it's
+        # never confused with real release tags. The release lane requires
+        # a tag arg even when skip_tag:true — the value just gets used in
+        # version computation.
+        run: |
+          set -euo pipefail
+          CALVER="canary-$(date -u +%Y.%V).${{ github.run_number }}"
+          echo "tag=${CALVER}" >> "$GITHUB_OUTPUT"
+          echo "Canary tag: ${CALVER}"
+
+      - name: fastlane release (local-mode build + sign + upload, no tag push)
+        env:
+          # Required for repeat ASC uploads in the same ISO week (CFBundleVersion
+          # must be unique even when CFBundleShortVersionString repeats).
+          RELEASE_BUILD_NUMBER: ${{ github.run_number }}
+          # Both platforms — exercises iOS .ipa + macOS .pkg signing paths.
+          PLATFORMS: ios,macos
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            bundle exec fastlane release \
+              tag:${{ steps.ver.outputs.tag }} \
+              skip_upload:true \
+              skip_tag:true
+          else
+            # skip_tag:true always — canary doesn't pollute tag history with
+            # 50+ canary-* tags per year. Upload to TestFlight to fully
+            # exercise the pilot retry-with-backoff wrapper.
+            bundle exec fastlane release \
+              tag:${{ steps.ver.outputs.tag }} \
+              skip_tag:true
+          fi
+
+      - name: Verify TestFlight ingestion
+        if: ${{ !inputs.dry_run }}
+        # Confirms ASC accepted the upload. Doesn't wait for full processing
+        # (5-15 min); just checks at least one build exists for the bundle.
+        # Existing release pipeline runs the same script.
+        run: bundle exec ruby bin/verify-testflight.rb
+
+      # ─── ALWAYS-RUN POST STEPS ──────────────────────────────────────────────
+      # Even if mint/ship/verify failed, revoke whatever ids were captured.
+      # Core invariant: net cert delta per run = 0.
+
+      - name: Post-step — revoke captured canary cert ids
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -f "${ORPHAN_IDS_FILE}" ]; then
+            echo "No tracking file present (mint never started?); nothing to revoke."
+            exit 0
+          fi
+          ids=$(grep -v '^[[:space:]]*$' "${ORPHAN_IDS_FILE}" 2>/dev/null | paste -sd, -)
+          if [ -z "${ids}" ]; then
+            echo "Tracking file is empty; nothing to revoke."
+            exit 0
+          fi
+          echo "Revoking captured canary cert ids: ${ids}"
+          bundle exec fastlane revoke_certs ids:"${ids}"
+          # Clear the file so the next run starts clean (post-revoke state
+          # = empty = no orphans).
+          : > "${ORPHAN_IDS_FILE}"
+
+      - name: Save final-state tracking file to cache
+        # Saves the (now-empty, post-revoke) tracking file. Next run's
+        # pre-step restores this and treats it as "no orphans, no-op".
+        if: always() && hashFiles(env.ORPHAN_IDS_FILE) != ''
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.ORPHAN_IDS_FILE }}
+          key: canary-orphan-ids-v1-${{ github.run_id }}-final
+
+      - name: Notify Discord on failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_CANARY_WEBHOOK }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DISCORD_WEBHOOK:-}" ]; then
+            echo "DISCORD_CANARY_WEBHOOK secret unset — skipping Discord notification."
+            echo "(Optional: configure the secret to route canary failures to a Discord channel.)"
+            exit 0
+          fi
+          payload=$(jq -nc \
+            --arg run "${RUN_URL}" \
+            '{ content: ":rotating_light: **Local-mode canary failed**\nRun: \($run)\nNet cert delta should still be 0 (post-step always() revokes captured ids), but verify team state at https://developer.apple.com/account/resources/certificates if in doubt." }')
+          curl -fsSL -X POST -H 'Content-Type: application/json' -d "${payload}" "${DISCORD_WEBHOOK}" \
+            && echo "Posted Discord notification." \
+            || echo "::warning::Discord notification failed (webhook URL may be invalid; check secret). Continuing."

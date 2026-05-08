@@ -301,7 +301,7 @@ jobs:
             echo "No prior tracking file (cache miss or first run); nothing to revoke."
             exit 0
           fi
-          ids=$(grep -v '^[[:space:]]*$' "${ORPHAN_IDS_FILE}" 2>/dev/null | paste -sd, -)
+          ids=$(grep -v '^[[:space:]]*$' "${ORPHAN_IDS_FILE}" 2>/dev/null | paste -sd, - || true)
           if [ -z "${ids}" ]; then
             echo "Tracking file is empty; no orphans to revoke."
             exit 0
@@ -310,31 +310,49 @@ jobs:
           cat "${ORPHAN_IDS_FILE}"
           bundle exec fastlane revoke_certs ids:"${ids}"
 
-      - name: Unlock login keychain for cert + sigh + codesign access
-        # RELEASE_MODE=local skips fastlane's setup_ci, which means we don't
-        # get a temp keychain. fastlane cert needs an unlocked keychain to
-        # import the minted .p12; codesign needs the same to access private
-        # keys at archive time.
+      - name: Set up canary keychain (controlled, with partition-list ACL)
+        # Why a controlled keychain instead of login.keychain: GH Actions runners
+        # don't have a GUI, so codesign's "Always Allow" prompt for cert private
+        # keys never gets answered → xcodebuild archive hangs forever waiting
+        # for permission. Real local-mode users hit this once and click through;
+        # CI never can.
         #
-        # The macos-15 runner's login.keychain-db exists with password
-        # matching ${KEYCHAIN_PASSWORD} (or empty on some images); try both
-        # so the workflow works on either configuration. Extending the lock
-        # timeout to 6h prevents codesign from getting locked out mid-archive
-        # (default is 5 min idle).
+        # Solution: create a fresh keychain we own (so we know its password),
+        # mint canary certs into it, then immediately set the partition-list
+        # to allow apple-tool / apple / codesign access without prompting.
+        # This faithfully reproduces a working post-first-run-prompt user
+        # keychain in a non-interactive environment.
+        #
+        # The rest of the local-mode pipeline still runs unchanged (no match,
+        # sigh-based profiles, β cert SHA-1 pinning, ExportOptions plist
+        # patching, bash-3.2 array safety) — the only deviation from a real
+        # local-mode user is *which* keychain holds the cert, not *how* the
+        # cert is used downstream.
         run: |
           set -euo pipefail
-          KEYCHAIN=~/Library/Keychains/login.keychain-db
-          if [ -n "${KEYCHAIN_PASSWORD:-}" ] && security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}" 2>/dev/null; then
-            echo "Unlocked with KEYCHAIN_PASSWORD secret."
-          elif security unlock-keychain -p "" "${KEYCHAIN}" 2>/dev/null; then
-            echo "Unlocked with empty password (runner default)."
-          else
-            echo "::error::Could not unlock ${KEYCHAIN} with KEYCHAIN_PASSWORD or empty password."
-            exit 1
-          fi
-          security set-keychain-settings -lut 21600 "${KEYCHAIN}"
-          security default-keychain -s "${KEYCHAIN}"
-          security list-keychains -d user -s "${KEYCHAIN}"
+          KEYCHAIN_PATH="${RUNNER_TEMP}/canary-local-mode.keychain-db"
+          # Use a deterministic-ish password (canary-only, never persisted).
+          # Runner is destroyed after the job, so secret strength is moot.
+          CANARY_KEYCHAIN_PWD="canary-${{ github.run_id }}"
+
+          # Clean up any stale keychain from a prior failed run on the same
+          # workspace (rare but possible). Best-effort.
+          security delete-keychain "${KEYCHAIN_PATH}" 2>/dev/null || true
+
+          security create-keychain -p "${CANARY_KEYCHAIN_PWD}" "${KEYCHAIN_PATH}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
+          security unlock-keychain -p "${CANARY_KEYCHAIN_PWD}" "${KEYCHAIN_PATH}"
+
+          # Add to user keychain search list AS THE PRIMARY/DEFAULT so codesign,
+          # sigh, and xcodebuild find certs imported here.
+          security list-keychains -d user -s "${KEYCHAIN_PATH}" ~/Library/Keychains/login.keychain-db
+          security default-keychain -s "${KEYCHAIN_PATH}"
+
+          # Export to subsequent steps.
+          echo "CANARY_KEYCHAIN_PATH=${KEYCHAIN_PATH}" >> "${GITHUB_ENV}"
+          echo "CANARY_KEYCHAIN_PWD=${CANARY_KEYCHAIN_PWD}" >> "${GITHUB_ENV}"
+          echo "Canary keychain created at: ${KEYCHAIN_PATH}"
+          security list-keychains -d user
 
       - name: Bootstrap ASC + Dev Portal records (idempotent)
         run: bundle exec fastlane bootstrap_asc
@@ -352,9 +370,27 @@ jobs:
           set -euo pipefail
           bundle exec fastlane mint_canary_certs \
             types:"${CANARY_CERT_TYPES}" \
+            keychain_path:"${CANARY_KEYCHAIN_PATH}" \
+            keychain_password:"${CANARY_KEYCHAIN_PWD}" \
             out_path:"${ORPHAN_IDS_FILE}"
           echo "Tracking file contents after mint:"
           cat "${ORPHAN_IDS_FILE}"
+
+      - name: Allow codesign + apple-tool to use minted keys non-interactively
+        # set-key-partition-list prevents the "Always Allow?" GUI prompt during
+        # codesign. Must run AFTER cert/key import, BEFORE any codesign
+        # invocation. -S sets which partitions can use the imported keys;
+        # -s flag commits the change.
+        #
+        # Without this, xcodebuild archive hangs forever on the first
+        # codesign call waiting for a GUI prompt that never comes on CI.
+        run: |
+          set -euo pipefail
+          security set-key-partition-list \
+            -S "apple-tool:,apple:,codesign:" \
+            -s -k "${CANARY_KEYCHAIN_PWD}" \
+            "${CANARY_KEYCHAIN_PATH}" 2>&1 | tail -5
+          echo "Partition-list updated; codesign should run non-interactively now."
 
       - name: Save mid-state tracking file to cache (insurance)
         # Saves the tracking file with captured ids BEFORE we ship. If the
@@ -430,7 +466,7 @@ jobs:
             echo "No tracking file present (mint never started?); nothing to revoke."
             exit 0
           fi
-          ids=$(grep -v '^[[:space:]]*$' "${ORPHAN_IDS_FILE}" 2>/dev/null | paste -sd, -)
+          ids=$(grep -v '^[[:space:]]*$' "${ORPHAN_IDS_FILE}" 2>/dev/null | paste -sd, - || true)
           if [ -z "${ids}" ]; then
             echo "Tracking file is empty; nothing to revoke."
             exit 0

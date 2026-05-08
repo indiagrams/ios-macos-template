@@ -188,19 +188,37 @@ if [ -n "${RELEASE_IOS_PROFILE_NAME:-}" ]; then
   IOS_SIGN_ARGS=(
     CODE_SIGN_STYLE=Manual
     "PROVISIONING_PROFILE_SPECIFIER=$RELEASE_IOS_PROFILE_NAME"
-    "CODE_SIGN_IDENTITY=Apple Distribution"
   )
+  if [ -n "${RELEASE_IOS_CERT_SHA1:-}" ]; then
+    # Pin to the exact cert SHA-1 the profile binds to. Without this,
+    # xcodebuild's "Apple Distribution" substring match is ambiguous when
+    # the keychain has multiple Apple-valid certs of that name (cert
+    # rotation, multi-team accounts, etc.) — it can pick a cert NOT bound
+    # to the profile, and exportArchive fails with:
+    #   "Provisioning profile X doesn't include signing certificate Y"
+    # The release lane in fastlane/Fastfile extracts the cert hash from
+    # DeveloperCertificates[0] of the profile sigh just minted/installed.
+    IOS_SIGN_ARGS+=("CODE_SIGN_IDENTITY=$RELEASE_IOS_CERT_SHA1")
+    ok "iOS manual signing → '$RELEASE_IOS_PROFILE_NAME' (cert: $RELEASE_IOS_CERT_SHA1)"
+  else
+    IOS_SIGN_ARGS+=("CODE_SIGN_IDENTITY=Apple Distribution")
+    ok "iOS manual signing → '$RELEASE_IOS_PROFILE_NAME' (any 'Apple Distribution' cert)"
+  fi
   PATCH_IOS_PLIST=true
-  ok "iOS manual signing → '$RELEASE_IOS_PROFILE_NAME'"
 fi
 if [ -n "${RELEASE_MACOS_PROFILE_NAME:-}" ]; then
   MACOS_SIGN_ARGS=(
     CODE_SIGN_STYLE=Manual
     "PROVISIONING_PROFILE_SPECIFIER=$RELEASE_MACOS_PROFILE_NAME"
-    "CODE_SIGN_IDENTITY=Apple Distribution"
   )
+  if [ -n "${RELEASE_MACOS_CERT_SHA1:-}" ]; then
+    MACOS_SIGN_ARGS+=("CODE_SIGN_IDENTITY=$RELEASE_MACOS_CERT_SHA1")
+    ok "macOS manual signing → '$RELEASE_MACOS_PROFILE_NAME' (cert: $RELEASE_MACOS_CERT_SHA1)"
+  else
+    MACOS_SIGN_ARGS+=("CODE_SIGN_IDENTITY=Apple Distribution")
+    ok "macOS manual signing → '$RELEASE_MACOS_PROFILE_NAME' (any 'Apple Distribution' cert)"
+  fi
   PATCH_MACOS_PLIST=true
-  ok "macOS manual signing → '$RELEASE_MACOS_PROFILE_NAME'"
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -225,6 +243,14 @@ if $SIGN_IOS; then
     plutil -insert provisioningProfiles -xml \
       "<dict><key>$BUNDLE_ID</key><string>$RELEASE_IOS_PROFILE_NAME</string></dict>" \
       "$EXPORT_OPTS"
+    if [ -n "${RELEASE_IOS_CERT_SHA1:-}" ]; then
+      # Pin exportArchive to the same cert the archive used. Without this,
+      # exportArchive substring-matches "Apple Distribution" in the keychain
+      # and can pick a cert not bound to the profile, producing:
+      #   "Provisioning profile X doesn't include signing certificate Y"
+      plutil -replace signingCertificate -string "$RELEASE_IOS_CERT_SHA1" "$EXPORT_OPTS" 2>/dev/null || \
+      plutil -insert signingCertificate -string "$RELEASE_IOS_CERT_SHA1" "$EXPORT_OPTS"
+    fi
   fi
 
   xcodebuild archive \
@@ -233,8 +259,8 @@ if $SIGN_IOS; then
     -configuration Release \
     -destination 'generic/platform=iOS' \
     -archivePath "$IOS_ARCHIVE" \
-    "${ASC_AUTH_ARGS[@]}" \
-    "${IOS_SIGN_ARGS[@]}" \
+    ${ASC_AUTH_ARGS[@]+"${ASC_AUTH_ARGS[@]}"} \
+    ${IOS_SIGN_ARGS[@]+"${IOS_SIGN_ARGS[@]}"} \
     -allowProvisioningUpdates \
     DEVELOPMENT_TEAM="$TEAM_ID" \
     MARKETING_VERSION="$MARKETING_VERSION" \
@@ -246,7 +272,7 @@ if $SIGN_IOS; then
     -archivePath "$IOS_ARCHIVE" \
     -exportOptionsPlist "$EXPORT_OPTS" \
     -exportPath "$IOS_EXPORT" \
-    "${ASC_AUTH_ARGS[@]}" \
+    ${ASC_AUTH_ARGS[@]+"${ASC_AUTH_ARGS[@]}"} \
     -allowProvisioningUpdates \
     2>&1 | "${XCBEAUTIFY[@]}"
 
@@ -282,6 +308,14 @@ if $SIGN_MACOS; then
     plutil -insert provisioningProfiles -xml \
       "<dict><key>$BUNDLE_ID</key><string>$RELEASE_MACOS_PROFILE_NAME</string></dict>" \
       "$EXPORT_OPTS_MACOS"
+    if [ -n "${RELEASE_MACOS_CERT_SHA1:-}" ]; then
+      # Same rationale as iOS: pin the .app's signing cert by SHA-1 so
+      # exportArchive doesn't substring-match into a wrong cert. The
+      # installer cert (below) stays as a name-prefix because the
+      # installer step is separate from the .app codesign step.
+      plutil -replace signingCertificate -string "$RELEASE_MACOS_CERT_SHA1" "$EXPORT_OPTS_MACOS" 2>/dev/null || \
+      plutil -insert signingCertificate -string "$RELEASE_MACOS_CERT_SHA1" "$EXPORT_OPTS_MACOS"
+    fi
     # The .pkg installer wrapper is signed with a SEPARATE cert from the .app
     # inside it: "3rd Party Mac Developer Installer" (Apple's name for the
     # MAC_INSTALLER_DISTRIBUTION cert type). Match installs it readonly from
@@ -299,8 +333,8 @@ if $SIGN_MACOS; then
     -configuration Release \
     -destination 'generic/platform=macOS' \
     -archivePath "$MACOS_ARCHIVE" \
-    "${ASC_AUTH_ARGS[@]}" \
-    "${MACOS_SIGN_ARGS[@]}" \
+    ${ASC_AUTH_ARGS[@]+"${ASC_AUTH_ARGS[@]}"} \
+    ${MACOS_SIGN_ARGS[@]+"${MACOS_SIGN_ARGS[@]}"} \
     -allowProvisioningUpdates \
     $($PATCH_MACOS_PLIST && echo "" || echo "CODE_SIGN_STYLE=Automatic") \
     DEVELOPMENT_TEAM="$TEAM_ID" \
@@ -313,7 +347,7 @@ if $SIGN_MACOS; then
     -archivePath "$MACOS_ARCHIVE" \
     -exportPath "$MACOS_EXPORT" \
     -exportOptionsPlist "$EXPORT_OPTS_MACOS" \
-    "${ASC_AUTH_ARGS[@]}" \
+    ${ASC_AUTH_ARGS[@]+"${ASC_AUTH_ARGS[@]}"} \
     -allowProvisioningUpdates \
     2>&1 | "${XCBEAUTIFY[@]}"
 

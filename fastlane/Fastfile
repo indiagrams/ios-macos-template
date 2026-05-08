@@ -34,12 +34,16 @@
 
 default_platform(:ios)
 
-# In CI: provision a temporary keychain for match (via setup_ci) and switch
-# match to readonly mode. Locally: no-op. Always: ensure ASC API token is set
-# so any Spaceship calls (BundleId.create, App.create, Certificate.delete)
-# authenticate without 2FA.
+# In CI mode: provision a temporary keychain for match (via setup_ci) and
+# switch match to readonly mode. In local mode: setup_ci must NOT run —
+# it creates an isolated temp keychain that codesign would treat as the
+# default, hiding the user's login-keychain signing identities and
+# producing errSecInternalComponent. Local mode wants codesign to find
+# certs in login.keychain-db directly. Always: ensure ASC API token is
+# set so any Spaceship calls (BundleId.create, App.create,
+# Certificate.delete) authenticate without 2FA.
 before_all do
-  setup_ci if ENV["CI"]
+  setup_ci if ENV.fetch("RELEASE_MODE", "local") == "ci"
   asc_api_key
 end
 
@@ -242,6 +246,133 @@ lane :revoke_cert do |options|
   UI.success("Revoked #{cert.id}")
 end
 
+desc "Audit local login.keychain for Apple cert types and delete revoked-at-Apple ones."
+desc ""
+desc "Diffs certs in your login.keychain against Apple's valid-cert list (queried via"
+desc "ASC API) and deletes the locally-cached ones whose serials Apple no longer"
+desc "lists as valid."
+desc ""
+desc "Why this exists: xcodebuild's CODE_SIGN_IDENTITY=Apple Distribution does"
+desc "substring matching against the keychain. Multiple matches → undefined which"
+desc "one xcodebuild picks. If any matching cert is revoked at Apple, the build"
+desc "fails with 'Signing certificate is invalid'. `security find-identity -v`"
+desc "doesn't filter revoked-at-Apple certs (only locally-expired ones)."
+desc ""
+desc "Usage:"
+desc "  bundle exec fastlane clean_revoked_certs               # interactive prompt"
+desc "  bundle exec fastlane clean_revoked_certs yes:true      # delete without prompt"
+desc "  bundle exec fastlane clean_revoked_certs dry_run:true  # show diff but don't delete"
+lane :clean_revoked_certs do |options|
+  require "openssl"
+  require "set"
+
+  yes_flag = options[:yes].to_s == "true"
+  dry_run  = options[:dry_run].to_s == "true"
+
+  asc_api_key
+
+  # Subject-string prefix on the local cert → Apple-side type names that
+  # this prefix can correspond to. We diff against the union of all
+  # matching types' serials so a cert labeled e.g. "Apple Distribution"
+  # locally matches Apple's APPLE_DISTRIBUTION as well as the legacy
+  # DISTRIBUTION/IOS_DISTRIBUTION/MAC_APP_DISTRIBUTION.
+  audit_types = {
+    "Apple Distribution"                => %w[APPLE_DISTRIBUTION DISTRIBUTION IOS_DISTRIBUTION MAC_APP_DISTRIBUTION],
+    "Apple Development"                 => %w[APPLE_DEVELOPMENT DEVELOPMENT IOS_DEVELOPMENT MAC_APP_DEVELOPMENT],
+    "3rd Party Mac Developer Installer" => %w[MAC_INSTALLER_DISTRIBUTION]
+  }
+
+  # Normalize hex serial: uppercase + strip leading zeros. Apple's API and
+  # OpenSSL's cert.serial both render hex serials slightly differently
+  # (case + leading-zero treatment); normalization makes set-equality work.
+  normalize = ->(s) { s.to_s.upcase.gsub(/\A0+/, "") }
+
+  UI.header("Querying Apple Developer Portal for valid certificates")
+  apple_certs = Spaceship::ConnectAPI::Certificate.all
+  UI.message("  total certificates Apple lists for this team: #{apple_certs.length}")
+  apple_certs.group_by(&:certificate_type).each do |type, certs|
+    UI.message("    #{type}: #{certs.length} (#{certs.map(&:id).join(', ')})")
+  end
+  apple_valid_serials = apple_certs.map { |c| normalize.call(c.serial_number) }.compact.to_set
+
+  UI.header("Scanning local login.keychain for relevant cert types")
+  login_keychain = File.expand_path("~/Library/Keychains/login.keychain-db")
+  pem_blob = `security find-certificate -a -p "#{login_keychain}" 2>/dev/null`
+  pems = pem_blob.scan(/-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----/m)
+
+  candidates = []
+  pems.each do |pem|
+    begin
+      cert = OpenSSL::X509::Certificate.new(pem)
+      subject = cert.subject.to_s
+      audit_type = audit_types.keys.find { |t| subject.include?(t) }
+      next unless audit_type
+      candidates << {
+        audit_type: audit_type,
+        sha1:       OpenSSL::Digest::SHA1.hexdigest(cert.to_der).upcase,
+        serial:     normalize.call(cert.serial.to_s(16)),
+        subject:    subject,
+        not_after:  cert.not_after
+      }
+    rescue OpenSSL::X509::CertificateError
+      # Non-X.509 entries (some keychain blobs aren't certs) — skip silently.
+    end
+  end
+
+  if candidates.empty?
+    UI.success("No Apple-issued signing certs found in login.keychain. Nothing to audit.")
+    next
+  end
+  UI.message("  found #{candidates.length} local cert(s) of audited types")
+
+  revoked = candidates.reject { |c| apple_valid_serials.include?(c[:serial]) }
+  kept = candidates.length - revoked.length
+
+  UI.header("Audit summary")
+  UI.message("  kept (Apple-valid):  #{kept}")
+  UI.message("  revoked (locally):   #{revoked.length}")
+
+  if revoked.empty?
+    UI.success("All local Apple-signing certs are valid at Apple. Keychain is clean.")
+    next
+  end
+
+  UI.header("Locally-cached certs Apple no longer lists as valid")
+  revoked.each_with_index do |cert, i|
+    UI.message("  #{i + 1}. #{cert[:audit_type]}")
+    UI.message("     subject:   #{cert[:subject]}")
+    UI.message("     SHA-1:     #{cert[:sha1]}")
+    UI.message("     serial:    #{cert[:serial]}")
+    UI.message("     not after: #{cert[:not_after]}")
+  end
+
+  if dry_run
+    UI.success("[dry-run] would delete #{revoked.length} cert(s). Re-run without dry_run:true to actually delete.")
+    next
+  end
+
+  proceed = yes_flag || UI.confirm("Delete these #{revoked.length} cert(s) from login.keychain?")
+  next unless proceed
+
+  UI.header("Deleting revoked certs")
+  failed = 0
+  revoked.each_with_index do |cert, i|
+    UI.message("  #{i + 1}. deleting #{cert[:sha1]}...")
+    if Kernel.system("security", "delete-certificate", "-Z", cert[:sha1], login_keychain)
+      UI.success("     ✓ deleted")
+    else
+      UI.error("     ✗ delete failed (try manually: security delete-certificate -Z #{cert[:sha1]} ~/Library/Keychains/login.keychain-db)")
+      failed += 1
+    end
+  end
+
+  if failed.zero?
+    UI.success("Done. #{revoked.length} cert(s) deleted from login.keychain.")
+  else
+    UI.user_error!("#{failed}/#{revoked.length} delete(s) failed; see warnings above.")
+  end
+end
+
 desc "Mint missing local-mode signing identities into the user's login keychain."
 desc ""
 desc "Idempotent: fastlane cert detects existing valid certs in the keychain and"
@@ -398,22 +529,47 @@ platform :ios do
 
     UI.header("Release #{tag}#{dry_run ? " [DRY RUN]" : ""} — platforms: #{active_platforms.join('+')}")
 
-    # When fastlane/Matchfile exists, sync signing material from your certs
-    # repo BEFORE invoking xcodebuild — this is what enables CI signing without
-    # an Apple ID logged in. readonly: true → CI never mints new certs/profiles;
-    # we only consume what`s already in the certs repo. The release lane reads
-    # match`s emitted profile-name env vars and threads them into the script,
-    # which switches xcodebuild to MANUAL signing (avoids "Cloud signing
-    # permission error" during exportArchive — automatic signing tries Apple`s
-    # cloud-signing endpoint which API-key auth cant access).
+    # Cert sourcing depends on RELEASE_MODE (set by Bootstrap.asc_env when
+    # invoked via `make ship`):
     #
-    # When Matchfile is absent (e.g. you haven`t configured match yet), the lane
-    # falls through to the legacy automatic-signing path: requires Xcode logged
-    # into Apple ID + cert/profile in login.keychain. Works locally, fails in CI.
-    matchfile_present = File.exist?(File.join(__dir__, "Matchfile"))
-    sh_env            = {}
+    #   RELEASE_MODE=ci    — sync signing material from the private certs
+    #                        repo via fastlane match. readonly: true → CI
+    #                        never mints new certs; we only consume what's
+    #                        already there. The release lane reads match's
+    #                        emitted profile-name env vars and threads them
+    #                        into local-release-check.sh, which switches
+    #                        xcodebuild to MANUAL signing (avoids "Cloud
+    #                        signing permission error" — automatic signing
+    #                        tries Apple's cloud endpoint which API-key
+    #                        auth can't access).
+    #
+    #   RELEASE_MODE=local — skip match entirely. Sign from the user's
+    #                        login keychain (Apple Distribution + Apple
+    #                        Development + 3rd Party Mac Developer
+    #                        Installer, auto-minted by `make
+    #                        bootstrap-fork`'s LocalKeychainCerts step).
+    #                        local-release-check.sh defaults to automatic
+    #                        Xcode-managed signing.
+    #
+    # Pre-#121 the gate was `File.exist?(Matchfile)`, which always returned
+    # true because the template SHIPS a placeholder Matchfile. Local-mode
+    # forks then hit the unedited `CHANGE-ME-ORG/CHANGE-ME-REPO-certs.git`
+    # URL and match aborted on a 404. Gating on RELEASE_MODE explicitly
+    # makes the local-mode path actually skip match.
+    release_mode = ENV.fetch("RELEASE_MODE", "local")
+    sh_env = {}
 
-    if matchfile_present
+    if release_mode == "ci"
+      matchfile_path = File.join(__dir__, "Matchfile")
+      matchfile_text = File.exist?(matchfile_path) ? File.read(matchfile_path) : ""
+      if matchfile_text.include?("CHANGE-ME-")
+        UI.user_error!(
+          "RELEASE_MODE=ci but fastlane/Matchfile still has CHANGE-ME placeholder. " \
+          "Run `make bootstrap-fork` (the EditMatchfile step rewrites it with your " \
+          "GH_CERTS_REPO) before re-running `make ship`."
+        )
+      end
+
       bits = []
       bits << "iOS"               if do_ios
       bits << "macOS"             if do_macos
@@ -449,7 +605,100 @@ platform :ios do
         sh_env["RELEASE_MACOS_PROFILE_NAME"] = macos_profile_name
       end
     else
-      UI.message("Step 1/5: no fastlane/Matchfile — skipping match sync. Using local Xcode-managed signing.")
+      # Local mode: parallel of CI's match-based flow, using fastlane sigh
+      # instead of fastlane match. sigh fetches/creates an App Store
+      # distribution profile via API key and installs it into
+      # ~/Library/MobileDevice/Provisioning Profiles/. Idempotent —
+      # detects existing valid profiles and reuses rather than minting
+      # duplicates.
+      #
+      # Why we need this even in local mode: `xcodebuild -exportArchive`
+      # for the App Store needs an App Store distribution profile. The
+      # archive step's auto-managed Team Provisioning Profile is for
+      # development, not export. Without an App Store profile present,
+      # exportArchive fails with "Cloud signing permission error / No
+      # profiles for '<bundle>' were found".
+      #
+      # sigh emits sigh_<bundle>_appstore_profile-name env vars (same as
+      # match), which local-release-check.sh's manual-signing path reads
+      # to switch xcodebuild from automatic to manual signing. This
+      # avoids the cloud-signing endpoint entirely.
+      bits = []
+      bits << "iOS"   if do_ios
+      bits << "macOS" if do_macos
+      UI.message("Step 1/5: RELEASE_MODE=#{release_mode} — minting App Store profile(s) via sigh (#{bits.join(' + ')}).")
+
+      sh_env = { "RELEASE_BUNDLE_ID" => APP_IDENTIFIER }
+
+      # sigh does NOT emit `sigh_<bundle>_<type>_profile-name` env vars
+      # the way match does — those are match-specific. sigh's per-call
+      # output lands in lane_context[SharedValues::SIGH_NAME], which gets
+      # overwritten on the next sigh call. Capture between iOS and macOS
+      # calls so multi-platform forks get both names.
+      #
+      # output_path: Dir.tmpdir keeps the .mobileprovision artifact out
+      # of the repo working tree (sigh's default output_path is cwd,
+      # which would scatter `AppStore_<bundle>.mobileprovision` files at
+      # the repo root and risk accidental commits). The profile is also
+      # auto-installed into ~/Library/MobileDevice/Provisioning Profiles/
+      # (sigh default skip_install=false), which is what xcodebuild
+      # actually reads at archive/export time.
+      # Helper: extract the SHA-1 hash of the profile's bound signing cert
+      # (the first entry in DeveloperCertificates). We pin xcodebuild to
+      # this exact cert via CODE_SIGN_IDENTITY=<sha1> in local-release-
+      # check.sh — without it, xcodebuild substring-matches "Apple
+      # Distribution" against the keychain, which is ambiguous when
+      # multiple Apple-valid certs of that name exist (cert rotation, multi-
+      # team users, etc.). The profile binds to ONE cert; we honor it.
+      cert_sha1_from_profile = ->(profile_path) {
+        decoded = `security cms -D -i "#{profile_path}" 2>/dev/null`
+        return nil if decoded.empty?
+        cert_b64 = nil
+        require "tempfile"
+        Tempfile.open(["profile", ".plist"]) do |f|
+          f.write(decoded)
+          f.close
+          cert_b64 = `plutil -extract DeveloperCertificates.0 raw -o - "#{f.path}" 2>/dev/null`.strip
+        end
+        return nil if cert_b64.empty?
+        require "base64"
+        require "digest"
+        der = Base64.decode64(cert_b64)
+        Digest::SHA1.hexdigest(der).upcase
+      }
+
+      if do_ios
+        sigh(
+          app_identifier: APP_IDENTIFIER,
+          team_id:        ENV.fetch("FASTLANE_TEAM_ID"),
+          api_key:        asc_api_key,
+          platform:       "ios",
+          readonly:       false,
+          output_path:    Dir.tmpdir
+        )
+        ios_profile_name = lane_context[SharedValues::SIGH_NAME]
+        ios_profile_path = lane_context[SharedValues::SIGH_PROFILE_PATH]
+        UI.user_error!("sigh didn't set SIGH_NAME after iOS mint — fastlane API may have changed") unless ios_profile_name
+        sh_env["RELEASE_IOS_PROFILE_NAME"] = ios_profile_name
+        sh_env["RELEASE_IOS_CERT_SHA1"] = cert_sha1_from_profile.call(ios_profile_path) || ""
+        UI.message("  iOS profile binds to cert SHA-1: #{sh_env['RELEASE_IOS_CERT_SHA1']}")
+      end
+      if do_macos
+        sigh(
+          app_identifier: APP_IDENTIFIER,
+          team_id:        ENV.fetch("FASTLANE_TEAM_ID"),
+          api_key:        asc_api_key,
+          platform:       "macos",
+          readonly:       false,
+          output_path:    Dir.tmpdir
+        )
+        macos_profile_name = lane_context[SharedValues::SIGH_NAME]
+        macos_profile_path = lane_context[SharedValues::SIGH_PROFILE_PATH]
+        UI.user_error!("sigh didn't set SIGH_NAME after macOS mint — fastlane API may have changed") unless macos_profile_name
+        sh_env["RELEASE_MACOS_PROFILE_NAME"] = macos_profile_name
+        sh_env["RELEASE_MACOS_CERT_SHA1"] = cert_sha1_from_profile.call(macos_profile_path) || ""
+        UI.message("  macOS profile binds to cert SHA-1: #{sh_env['RELEASE_MACOS_CERT_SHA1']}")
+      end
     end
 
     sign_flags = []

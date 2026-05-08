@@ -114,6 +114,53 @@ def pilot_with_retry(opts, max_attempts: 3)
   end
 end
 
+# Translate a string cert type (apple_distribution / apple_development /
+# mac_installer_distribution / developer_id_application / developer_id_kext /
+# developer_id_installer) into the option hash that fastlane's cert action
+# expects.
+#
+# Why this exists: fastlane's cert action splits cert types across THREE
+# different option keys, and getting it wrong fails with a misleading error:
+#
+#   - `type:` parameter is ONLY valid for the macOS-only types
+#     (mac_installer_distribution, developer_id_*). Passing apple_distribution
+#     or apple_development as `type:` fails verify_block validation with
+#     "Unsupported types, must be: [...]" — the listed types do NOT include
+#     the App Store ones, which is the actual fastlane bug-shaped behavior
+#     this helper papers over.
+#   - `development:` boolean toggles between Apple Distribution (false) and
+#     Apple Development (true) certs. Used together with generate_apple_certs.
+#   - `generate_apple_certs:` boolean opts into the post-Xcode-11 unified
+#     cert types (Apple Distribution / Apple Development) instead of the
+#     legacy IOS_DISTRIBUTION / MAC_APP_DISTRIBUTION etc. Default-true on
+#     Mac + Xcode 11+, but we set it explicitly for clarity.
+#
+# Source of truth: cert/options.rb in fastlane 2.230.0 — verify_block at
+# line 22-26 enumerates the (limited) valid `type:` values; cert/runner.rb
+# certificate_types branches on `type` first, falls through to development +
+# generate_apple_certs.
+#
+# This is the same fix that the v1.5 canary surfaced in #115's mint_local_certs
+# lane — `type: "apple_distribution"` had been failing all along; the cold-fork
+# validation never actually exercised the auto-mint path with apple_* types.
+def cert_options_for_type(type_str)
+  case type_str.to_s
+  when "apple_distribution"
+    { development: false, generate_apple_certs: true }
+  when "apple_development"
+    { development: true,  generate_apple_certs: true }
+  when "mac_installer_distribution", "developer_id_installer",
+       "developer_id_application", "developer_id_kext"
+    { type: type_str.to_s, platform: "macos" }
+  else
+    UI.user_error!(
+      "Unsupported cert type: #{type_str.inspect}. Valid: apple_distribution, " \
+      "apple_development, mac_installer_distribution, developer_id_installer, " \
+      "developer_id_application, developer_id_kext."
+    )
+  end
+end
+
 # Reads every metadata file directly and passes explicit hashes to deliver.
 # Bypasses deliver's load_from_filesystem, which silently drops fields when
 # metadata_path is passed alone (we've reproduced this for support_url,
@@ -340,13 +387,13 @@ lane :mint_canary_certs do |options|
   minted = []
   types.each do |type|
     UI.message("Minting #{type} for canary cycle (team #{team})…")
+    type_opts = cert_options_for_type(type)
     cert(
-      type:                 type,
-      team_id:              team,
-      api_key:              asc_api_key,
-      keychain_path:        keychain,
-      output_path:          Dir.tmpdir,
-      generate_apple_certs: true
+      team_id:       team,
+      api_key:       asc_api_key,
+      keychain_path: keychain,
+      output_path:   Dir.tmpdir,
+      **type_opts
     )
 
     # cert action emits ENV["CER_CERTIFICATE_ID"] (intentional CER_, not CERT_;
@@ -524,15 +571,16 @@ lane :mint_local_certs do |options|
 
   types.each do |type|
     UI.message("Minting #{type} for team #{team} (idempotent — fastlane cert reuses existing valid certs)...")
+    type_opts = cert_options_for_type(type)
     cert(
-      type:          type,
       team_id:       team,
       api_key:       api_key,
       keychain_path: keychain,
       # output_path lands the .cer + .p12 in /tmp; cert action also imports
       # both into the keychain in one shot. We don't need the artifacts
       # afterward (login keychain is the source of truth).
-      output_path:   Dir.tmpdir
+      output_path:   Dir.tmpdir,
+      **type_opts
     )
   end
 

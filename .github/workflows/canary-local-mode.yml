@@ -150,21 +150,19 @@ jobs:
       FASTLANE_HIDE_CHANGELOG:       '1'
       FASTLANE_SKIP_UPDATE_CHECK:    '1'
       CANARY_CERT_TYPES:             apple_distribution,apple_development,mac_installer_distribution
+      # ORPHAN_IDS_FILE goes inside ${{ github.workspace }} so hashFiles() can
+      # see it — hashFiles is documented as workspace-relative-only. The dot-
+      # prefix keeps it visually unobtrusive in workspace listings; the runner
+      # is destroyed after each run, so no commit risk.
+      ORPHAN_IDS_FILE:               ${{ github.workspace }}/.canary-orphan-ids.txt
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
 
-      - name: Setup paths
-        # ORPHAN_IDS_FILE has to be derived inside a step (the runner.* context
-        # isn't available at job-level env). $RUNNER_TEMP is the canonical
-        # per-run scratch dir; setting via $GITHUB_ENV makes the value visible
-        # to ${{ env.ORPHAN_IDS_FILE }} expressions in subsequent steps
-        # (including actions/cache's `path:` parameter).
-        run: |
-          set -euo pipefail
-          echo "ORPHAN_IDS_FILE=${RUNNER_TEMP}/canary-orphan-ids.txt" >> "${GITHUB_ENV}"
+      # (Setup paths step removed — ORPHAN_IDS_FILE is now declared at job-level
+      # env, which can use ${{ github.workspace }} but not ${{ runner.temp }}.)
 
       - name: Verify required secrets are set
         # Fail fast with an actionable error rather than letting fastlane
@@ -377,7 +375,12 @@ jobs:
         # version computation.
         run: |
           set -euo pipefail
-          CALVER="canary-$(date -u +%Y.%V).${{ github.run_number }}"
+          # Tag must match ci/local-release-check.sh's regex
+          # ^v[0-9]+\.[0-9]+\.[0-9]+([-+].+)?$ (e.g. v0.1.0, v0.1.0-rc1).
+          # `v0.0.0-canary-<calver>-<generator>` satisfies it AND keeps each
+          # cell's tag unique within a run, AND is visually distinct from real
+          # release tags so it can never be confused with one.
+          CALVER="v0.0.0-canary-$(date -u +%Y.%V).${{ github.run_number }}-${{ matrix.generator }}"
           echo "tag=${CALVER}" >> "$GITHUB_OUTPUT"
           echo "Canary tag: ${CALVER}"
 
@@ -385,7 +388,11 @@ jobs:
         env:
           # Required for repeat ASC uploads in the same ISO week (CFBundleVersion
           # must be unique even when CFBundleShortVersionString repeats).
-          RELEASE_BUILD_NUMBER: ${{ github.run_number }}
+          # Each matrix cell gets a unique CFBundleVersion to avoid ASC 409s
+          # ("duplicate build number") if dry_run=false. github.run_number is
+          # cell-shared, so we offset per generator: xcodegen=*10+1, tuist=*10+2.
+          # 0 = reserved as a sentinel for unset.
+          RELEASE_BUILD_NUMBER: ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }}
           # Both platforms — exercises iOS .ipa + macOS .pkg signing paths.
           PLATFORMS: ios,macos
         run: |

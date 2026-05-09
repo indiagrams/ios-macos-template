@@ -137,9 +137,26 @@ module Bootstrap
       required = REQUIRED_ALWAYS + (mode == "ci" ? REQUIRED_CI_ONLY : [])
       missing = required.reject { |k| set?(k) }
       return if missing.empty?
+
+      # Common onboarding trap: users transcribe the unsuffixed name
+      # (MATCH_PASSWORD, KEYCHAIN_PASSWORD, GH_PAT) instead of the path
+      # form (MATCH_PASSWORD_FILE, etc.) that .bootstrap.env expects.
+      # The unsuffixed name is what fastlane/gh internally consume —
+      # natural to type, wrong to set here. If the user has the path-less
+      # variant present, point them at the rename.
+      hints = []
+      missing.each do |key|
+        next unless key.end_with?("_FILE")
+        unsuffixed = key.sub(/_FILE\z/, "")
+        next unless set?(unsuffixed)
+        hints << "  - rename `#{unsuffixed}=` to `#{key}=` (the *_FILE suffix denotes a path; bootstrap reads the file and exposes #{unsuffixed} to subprocesses)"
+      end
+
+      hint_block = hints.empty? ? "" : "\n\nHint:\n#{hints.join("\n")}"
+
       UI.fail!(<<~MSG)
         .bootstrap.env is missing required fields (RELEASE_MODE=#{mode}):
-        #{missing.map { |k| "  - #{k}" }.join("\n")}
+        #{missing.map { |k| "  - #{k}" }.join("\n")}#{hint_block}
 
         Edit .bootstrap.env and re-run.
       MSG

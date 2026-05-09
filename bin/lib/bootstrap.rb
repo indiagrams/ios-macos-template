@@ -209,20 +209,8 @@ module Bootstrap
       "#{self["GH_ORG"]}/#{self["GH_APP_REPO"]}"
     end
 
-    # Resolve GH_CERTS_REPO into a full owner/name slug.
-    #
-    # Two forms accepted:
-    #   GH_CERTS_REPO=my-app-certs                    → "${GH_ORG}/my-app-certs"
-    #   GH_CERTS_REPO=other-org/their-app-certs       → "other-org/their-app-certs"
-    #
-    # The slash-form lets a fork reuse a certs repo owned by another org or
-    # user — common when one Apple team is shared across several apps with
-    # the same bundle id (e.g. a development fork pointing at the upstream
-    # smoketest's certs repo). Without this, ${GH_ORG} would be prepended
-    # blindly and `gh repo view` would 404 on `prakashrj/other-org/repo`.
     def certs_slug
-      raw = self["GH_CERTS_REPO"].to_s
-      raw.include?("/") ? raw : "#{self["GH_ORG"]}/#{raw}"
+      "#{self["GH_ORG"]}/#{self["GH_CERTS_REPO"]}"
     end
 
     def certs_url
@@ -589,19 +577,7 @@ module Bootstrap
     end
 
     def do_it
-      slug = config.certs_slug
-      slug_org = slug.split("/", 2).first
-      if slug_org != config["GH_ORG"]
-        UI.fail!(<<~MSG)
-          GH_CERTS_REPO=#{config["GH_CERTS_REPO"]} resolves to #{slug}, which lives
-          in a different owner (#{slug_org}) than GH_ORG=#{config["GH_ORG"]}.
-          bootstrap-fork won't create repos in someone else's org/account.
-          Either:
-            - create #{slug} manually (gh repo create #{slug} --private), then re-run, or
-            - drop the org prefix from GH_CERTS_REPO so the repo is created under #{config["GH_ORG"]}
-        MSG
-      end
-      Sh.run!("gh", "repo", "create", slug, "--private",
+      Sh.run!("gh", "repo", "create", config.certs_slug, "--private",
               "--description", "Encrypted certs + profiles for #{config.repo_slug} (managed via fastlane match)")
     end
   end

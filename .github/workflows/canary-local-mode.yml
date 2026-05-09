@@ -575,13 +575,29 @@ jobs:
           app = Spaceship::ConnectAPI::App.find(bundle_id)
           abort "::error::App not found for bundle #{bundle_id}" unless app
 
-          # Get the latest builds; the just-uploaded ones are at the top.
-          # Limit 50 covers ~25 cell-runs of history (more than enough).
-          builds  = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 50)
-          targets = builds.select { |b| b.version == build_number }
+          # Poll for the just-uploaded builds to appear in ASC's Build
+          # collection. fastlane's pilot returns once the upload bytes are
+          # accepted, but ASC takes a couple of minutes to register the build
+          # records that BetaBuildLocalization attaches to. Without this
+          # wait, the annotate step routinely runs before Apple has indexed
+          # the build and skips with "no builds found".
+          #
+          # We expect 2 records per cell (iOS + macOS) sharing build_number.
+          # Cap at ~10 min total (40 × 15s) — uploads that miss this window
+          # are surfaced as a warning, not a failure (the canary's primary
+          # contract is the build+sign+upload path; annotation is cosmetic).
+          targets       = []
+          poll_attempts = 40
+          poll_attempts.times do |i|
+            builds  = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 50)
+            targets = builds.select { |b| b.version == build_number }
+            break if targets.length >= 2 # iOS + macOS both registered
+            sleep 15
+            puts "  poll #{i + 1}/#{poll_attempts}: found #{targets.length} build(s) with version=#{build_number}"
+          end
 
           if targets.empty?
-            warn "::warning::No builds found with version=#{build_number} for #{bundle_id}; skipping annotation"
+            warn "::warning::No builds found with version=#{build_number} for #{bundle_id} after #{poll_attempts * 15}s; skipping annotation"
             exit 0
           end
 

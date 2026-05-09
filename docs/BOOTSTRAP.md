@@ -96,29 +96,37 @@ actual secret bytes. The dotenv itself is low-blast-radius.
 
 ## What `make bootstrap-fork` does
 
-The pipeline has 19 step classes. CI mode (`RELEASE_MODE=ci`, the default) runs
-17 with default `PLATFORMS=ios,macos`; local mode runs 11. Each step has a
-`check` (no side effects) and a `do_it`.
-A step is skipped if its desired state is already reached, so re-running after
-a partial failure picks up where you left off.
+The pipeline has 19 step classes. CI mode (`RELEASE_MODE=ci`) runs 18 with
+default `PLATFORMS=ios,macos` (excludes `LocalKeychainCerts`); local mode
+(`RELEASE_MODE=local`, the default) runs 14 (excludes the 5 ci-only steps:
+`EditMatchfile`, `CreateCertsRepo`, `GHSecrets`, `BootstrapCerts`,
+`MintInstaller`). Each step has a `check` (no side effects) and a `do_it`.
+A step is skipped if its desired state is already reached, so re-running
+after a partial failure picks up where you left off.
 
-| # | Step | What changes |
-|---|---|---|
-| 1 | Apple credentials | Validates `.p8` + key id + issuer id by probing ASC API |
-| 2 | GitHub credentials | Validates PAT can see `GH_CERTS_REPO` |
-| 3 | Rename HelloApp → APP_NAME | Runs `bin/rename.sh` + `bin/verify-rename.sh` |
-| 4 | Wire fastlane/Matchfile | Substitutes `git_url` to point at your certs repo |
-| 5 | Toolchain | `make bootstrap` (brew bundle + lefthook + xcodegen/tuist + bundler) |
-| 6 | Initial commit + push | First commit (rename + Matchfile) pushed to `origin/main` |
-| 7 | Branch protection | `bin/setup-github.sh` (7 required checks: swiftlint + xcodegen iOS device/sim + macOS + tuist parity, squash-only, linear history) |
-| 8 | Private certs repo | `gh repo create --private` if absent |
-| 9 | 7 GH Secrets | Generates `MATCH_PASSWORD` + `KEYCHAIN_PASSWORD` if absent, encodes the PAT + p8, sets all 7 secrets |
-| 10 | Bundle ID registration | `fastlane register_app_id` (idempotent — Spaceship `BundleId.create` rescues `ALREADY_EXISTS`) |
-| 11 | Verify ASC App | Probes for the App record. **Fails loud with web-UI instructions if missing** — Apple disallows `POST /apps`, so this is the one human-gated step inside the pipeline |
-| 12 | Mint certs (iOS dist + dev + macOS dist) | `fastlane bootstrap_certs` (3 match calls in one process) |
-| 13 | Mac Installer Distribution cert | `bin/mint-installer-cert.rb` + `bin/import-installer-to-match.rb` |
-| 14 | (optional) Replace 1024 icon | If `ICON_1024_PATH` set, copies it to the iOS asset catalog |
-| 15 | (optional) Regenerate macOS icns | `make icons` — only if step 14 ran |
+Mode key: ⚪ both, 🅒 ci-only, 🅛 local-only.
+
+| # | Step | Mode | What changes |
+|---|---|---|---|
+| 1 | Apple credentials (`CheckAppleCreds`) | ⚪ | Validates `.p8` + key id + issuer id by probing ASC API |
+| 2 | GitHub credentials (`CheckGHCreds`) | ⚪ | Validates PAT can see `GH_CERTS_REPO` (CI mode) or `git remote get-url origin` (local mode) |
+| 3 | Origin remote present (`RemoteMatches`) | ⚪ | Verifies `git remote` is configured to the fork |
+| 4 | Rename HelloApp → APP_NAME (`RenameStub`) | ⚪ | Runs `bin/rename.sh` + `bin/verify-rename.sh` |
+| 5 | Wire fastlane/Matchfile (`EditMatchfile`) | 🅒 | Substitutes `git_url` to point at your certs repo |
+| 6 | Toolchain (`BrewBootstrap`) | ⚪ | `make bootstrap` (brew bundle + lefthook + xcodegen/tuist + bundler) |
+| 7 | (optional) Replace 1024 icon (`Icon1024`) | ⚪ | If `ICON_1024_PATH` set, copies it to the iOS asset catalog |
+| 8 | (optional) Regenerate macOS icns (`MakeIcons`) | ⚪ | `make icons` — only if step 7 ran |
+| 9 | Initial commit + push (`InitialPush`) | ⚪ | First commit (rename + Matchfile + icons) pushed to `origin/main` |
+| 10 | Branch protection (`BranchProtection`) | ⚪ | `bin/setup-github.sh` (7 required checks: swiftlint + xcodegen iOS device/sim + macOS + tuist parity, squash-only, linear history) |
+| 11 | Private certs repo (`CreateCertsRepo`) | 🅒 | `gh repo create --private` if absent |
+| 12 | 7 GH Secrets (`GHSecrets`) | 🅒 | Generates `MATCH_PASSWORD` + `KEYCHAIN_PASSWORD` if absent, encodes the PAT + p8, sets all 7 secrets |
+| 13 | Bundle ID registration (`RegisterAppId`) | ⚪ | `fastlane register_app_id` (idempotent — Spaceship `BundleId.create` rescues `ALREADY_EXISTS`) |
+| 14 | Verify ASC App (`VerifyAscApp`) | ⚪ | Probes for the App record. **Fails loud with web-UI instructions if missing** — Apple disallows `POST /apps`, so this is the one human-gated step inside the pipeline |
+| 15 | Mint match certs iOS dist + dev + macOS dist (`BootstrapCerts`) | 🅒 | `fastlane bootstrap_certs` (3 match calls in one process) |
+| 16 | Mac Installer Distribution cert (`MintInstaller`) | 🅒 (macOS only) | `bin/mint-installer-cert.rb` + `bin/import-installer-to-match.rb` |
+| 17 | Local keychain has signing identities (`LocalKeychainCerts`) | 🅛 | Auto-mints any missing local-mode cert types (Apple Distribution, Apple Development, 3rd Party Mac Developer Installer) via `fastlane cert` into `login.keychain-db`. New in v1.4 — replaces the v1.3 hard-blocker requiring manual remediation |
+| 18 | Scan metadata (`ScanMetadata`) | ⚪ | Informational — counts present-vs-placeholder strings under `fastlane/metadata/` |
+| 19 | Scan screenshots (`ScanScreenshots`) | ⚪ | Informational — counts present screenshots under `fastlane/screenshots/` |
 
 ## What you still have to do by hand
 
@@ -128,8 +136,8 @@ to public APIs:
 - **Enroll in the Apple Developer Program** ($99/yr; ~24-48 hr Apple review)
 - **Create the App Store Connect API Key** (web UI; Apple shows the `.p8` once)
 - **Create the App Store Connect App record** (Apple disallows `POST /apps`).
-  Step 11 of `make bootstrap-fork` fails loud with the exact form values to
-  paste — re-run after creating, and step 11 turns ✓
+  The `VerifyAscApp` step of `make bootstrap-fork` fails loud with the
+  exact form values to paste — re-run after creating, and the step turns ✓
 - **Generate a fine-grained PAT** for the certs repo (web UI)
 - **Provide a 1024 icon and metadata text** (designer + product artifacts —
   see "After bootstrap" below)
@@ -189,14 +197,19 @@ worth keeping out of source control.
 - **`make doctor` says PAT 404s on certs repo, but I just created it** —
   fine-grained PATs are pinned to repo database IDs. If you recreated the
   certs repo, edit the PAT's repo list at github.com/settings/tokens.
-- **Step 11 (Verify ASC App) is blocked but I created the App** — ASC API
+- **`VerifyAscApp` is blocked but I created the App** — ASC API
   is eventually consistent. Wait 30 seconds and re-run `make doctor`.
-- **Step 12 (match) hits "Could not create another Distribution certificate,
+- **`BootstrapCerts` (CI mode) or `MintInstaller` (CI mode) or `LocalKeychainCerts` (local mode) hits "Could not create another Distribution certificate,
   reached the maximum number of available Distribution certificates"** —
-  Apple's distribution cert quota is 3/team. Revoke an unused one via
-  `bundle exec fastlane revoke_cert id:<CERT_ID>` (run `make doctor` after,
-  the cert step will retry).
-- **Step 12 hits "Could not find the newly generated certificate installed"
+  Apple's per-team cert quotas (verified empirically May 2026 against team
+  `A26TJZ8QHQ`): Apple Distribution = 3, Apple Development ≥ 5, 3rd Party
+  Mac Developer Installer = 2. Forkers shipping macOS commonly hit the
+  installer cap (2) before the distribution cap (3). Revoke an unused one
+  via `bundle exec fastlane revoke_cert id:<CERT_ID>` (singular) or
+  `revoke_certs ids:A,B,C` (plural batch, idempotent), then re-run
+  `make doctor`. See [docs/CONTINUOUS-VALIDATION.md](CONTINUOUS-VALIDATION.md)
+  for the full ecosystem-constraints note.
+- **`BootstrapCerts` / `LocalKeychainCerts` hits "Could not find the newly generated certificate installed"
   on a populated login keychain** — see `docs/CONTINUOUS-VALIDATION.md` G11.
   The bootstrap pipeline sets `CERT_KEYCHAIN_PATH` to a temp keychain to
   avoid this; if you still hit it, run match against a fresh keychain.

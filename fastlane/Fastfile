@@ -903,7 +903,13 @@ platform :ios do
       #
       # RELEASE_CHANGELOG (optional) — TestFlight "What to Test" annotation.
       # Empty for real ships (testers read the git tag); canary workflows
-      # set it to identify which cell + run produced a build.
+      # set it to identify which cell + run produced a build. Sent to pilot
+      # via `localized_build_info:` (NOT `changelog:`) — pilot 2.233.1's
+      # `changelog:` path silently no-ops on builds with no pre-existing
+      # BetaBuildLocalization (its update loop iterates an empty hash; see
+      # pilot/lib/pilot/build_manager.rb:575-586). The localized_build_info:
+      # path explicitly seeds the locale-keyed hash, so the post-create
+      # branch fires correctly.
       #
       # RELEASE_NOTIFY_EXTERNAL ("false") — pass notify_external_testers:false
       # to pilot. Default-true at ASC means external testers get an email
@@ -916,7 +922,7 @@ platform :ios do
       # which never go to humans, force false.
       pilot_extras = {}
       cl = ENV["RELEASE_CHANGELOG"].to_s.strip
-      pilot_extras[:changelog] = cl unless cl.empty?
+      pilot_extras[:localized_build_info] = { "en-US" => { whats_new: cl } } unless cl.empty?
       pilot_extras[:notify_external_testers] = false if ENV["RELEASE_NOTIFY_EXTERNAL"].to_s == "false"
       pilot_extras[:distribute_external]     = false if ENV["RELEASE_DISTRIBUTE_EXTERNAL"].to_s == "false"
 

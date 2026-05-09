@@ -95,7 +95,7 @@ end
 # diagnosing days later.
 #
 # Mirrors ci/local-release-check.sh's with_timestamp_retry pattern.
-def pilot_with_retry(opts, max_attempts: 3)
+def pilot_with_retry(max_attempts: 3, **opts)
   attempts = 0
   begin
     attempts += 1

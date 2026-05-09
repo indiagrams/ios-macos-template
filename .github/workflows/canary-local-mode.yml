@@ -441,6 +441,15 @@ jobs:
           RELEASE_BUILD_NUMBER: ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }}
           # Both platforms — exercises iOS .ipa + macOS .pkg signing paths.
           PLATFORMS: ios,macos
+          # The What-to-Test text. Picked up by the release lane's
+          # annotate_testflight_whats_new step (apple-shipkit#149+). ASCII-only —
+          # ASC's BetaBuildLocalization endpoint rejects non-Latin in whatsNew.
+          RELEASE_CHANGELOG: |
+            [CANARY] Local-mode shipping path validation
+            generator:  ${{ matrix.generator }}
+            run:        #${{ github.run_number }} (cell build ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }})
+            commit:     ${{ github.sha }}
+            workflow:   https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           if [ "${{ inputs.dry_run }}" = "true" ]; then
@@ -535,100 +544,6 @@ jobs:
         if: ${{ !inputs.dry_run }}
         run: bundle exec ruby bin/verify-testflight.rb
 
-      - name: Annotate canary builds in TestFlight (workaround pilot bug)
-        # fastlane pilot 2.233.1's set_changelog path is broken for new
-        # builds with no pre-existing BetaBuildLocalization (logs success
-        # but never POSTs the localization). Bypass via direct Spaceship
-        # POST: find the just-uploaded build by version + POST the BBL
-        # explicitly. See PR description for fastlane bug details.
-        #
-        # iOS + macOS uploads share the same CFBundleVersion in this canary
-        # cell, so we annotate both build records (one per platform).
-        if: ${{ !inputs.dry_run }}
-        env:
-          BUILD_NUMBER: ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }}
-          # The What-to-Test text. ASCII-only — ASC's BetaBuildLocalization
-          # endpoint rejects non-Latin characters in whatsNew with a
-          # 'contains invalid characters' error.
-          RELEASE_CHANGELOG: |
-            [CANARY] Local-mode shipping path validation
-            generator:  ${{ matrix.generator }}
-            run:        #${{ github.run_number }} (cell build ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }})
-            commit:     ${{ github.sha }}
-            workflow:   https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          bundle exec ruby <<'RUBY'
-          require "spaceship"
-          require "base64"
-
-          token = Spaceship::ConnectAPI::Token.create(
-            key_id:    ENV.fetch("ASC_API_KEY_ID"),
-            issuer_id: ENV.fetch("ASC_API_KEY_ISSUER_ID"),
-            key:       Base64.decode64(ENV.fetch("ASC_API_KEY_P8_BASE64")),
-          )
-          Spaceship::ConnectAPI.token = token
-
-          bundle_id    = ENV.fetch("BUNDLE_ID")
-          build_number = ENV.fetch("BUILD_NUMBER")
-          changelog    = ENV.fetch("RELEASE_CHANGELOG")
-
-          app = Spaceship::ConnectAPI::App.find(bundle_id)
-          abort "::error::App not found for bundle #{bundle_id}" unless app
-
-          # Poll for the just-uploaded builds to appear in ASC's Build
-          # collection. fastlane's pilot returns once the upload bytes are
-          # accepted, but ASC takes a couple of minutes to register the build
-          # records that BetaBuildLocalization attaches to. Without this
-          # wait, the annotate step routinely runs before Apple has indexed
-          # the build and skips with "no builds found".
-          #
-          # We expect 2 records per cell (iOS + macOS) sharing build_number.
-          # Cap at ~10 min total (40 × 15s) — uploads that miss this window
-          # are surfaced as a warning, not a failure (the canary's primary
-          # contract is the build+sign+upload path; annotation is cosmetic).
-          targets       = []
-          poll_attempts = 40
-          poll_attempts.times do |i|
-            builds  = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 50)
-            targets = builds.select { |b| b.version == build_number }
-            break if targets.length >= 2 # iOS + macOS both registered
-            sleep 15
-            puts "  poll #{i + 1}/#{poll_attempts}: found #{targets.length} build(s) with version=#{build_number}"
-          end
-
-          if targets.empty?
-            warn "::warning::No builds found with version=#{build_number} for #{bundle_id} after #{poll_attempts * 15}s; skipping annotation"
-            exit 0
-          end
-
-          targets.each do |b|
-            begin
-              # pilot's upload path can pre-create an empty BetaBuildLocalization
-              # for en-US (the bug we're working around — it logs success but
-              # never writes whatsNew). Whether ASC has indexed that empty BBL
-              # by the time we get here is racy: in practice the second
-              # matrix cell often sees it (returns "entity with same 'locale'"
-              # on POST), the first cell often doesn't. Handle both:
-              # PATCH if a BBL[en-US] already exists for this build, else POST.
-              existing = b.get_beta_build_localizations.find { |x| x.locale == "en-US" }
-              if existing
-                Spaceship::ConnectAPI.patch_beta_build_localizations(
-                  localization_id: existing.id,
-                  attributes:      { whatsNew: changelog },
-                )
-                puts "Annotated build #{b.version} (#{b.platform}) via PATCH (BBL #{existing.id})"
-              else
-                Spaceship::ConnectAPI.post_beta_build_localizations(
-                  build_id:   b.id,
-                  attributes: { locale: "en-US", whatsNew: changelog },
-                )
-                puts "Annotated build #{b.version} (#{b.platform}) via POST"
-              end
-            rescue Spaceship::UnexpectedResponse => e
-              warn "::warning::Failed to annotate build #{b.version} (#{b.platform}): #{e.message[0, 250]}"
-            end
-          end
-          RUBY
 
       # ─── ALWAYS-RUN POST STEPS ──────────────────────────────────────────────
       # Even if mint/ship/verify failed, revoke whatever ids were captured.

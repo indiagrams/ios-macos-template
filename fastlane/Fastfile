@@ -161,6 +161,152 @@ def cert_options_for_type(type_str)
   end
 end
 
+# Build the "What to Test" text for a TestFlight build.
+#
+# Resolution order:
+#   1. `override` (the lane's :changelog option) if non-empty
+#   2. ENV["RELEASE_CHANGELOG"] if non-empty
+#   3. The first `## [<version>]` block in CHANGELOG.md (skipping a
+#      leading empty `[Unreleased]`); empty body falls through
+#   4. "Build #{tag} via apple-shipkit" — guaranteed-non-empty fallback
+#
+# All resolved text is then ASCII-sanitized: ASC's BetaBuildLocalization
+# endpoint rejects non-Latin1 in `whatsNew` with a 'contains invalid
+# characters' error and `pilot` swallows the response (G15 in
+# docs/CONTINUOUS-VALIDATION.md). Common typographic punctuation
+# (em/en-dashes, smart quotes, ellipsis, arrows, ✓/✗/⚠) is mapped to
+# ASCII fallbacks; anything else outside the 0x20-0x7E range plus
+# tab/CR/LF is stripped.
+#
+# Truncated to 4000 chars (TestFlight's whatsNew limit).
+def changelog_text(repo_root, tag, override = nil)
+  raw = override.to_s.strip
+  raw = ENV["RELEASE_CHANGELOG"].to_s.strip if raw.empty?
+  raw = extract_changelog_section(File.join(repo_root, "CHANGELOG.md")).to_s.strip if raw.empty?
+  raw = "Build #{tag} via apple-shipkit" if raw.empty?
+  ascii_sanitize(raw, max_chars: 4000)
+end
+
+# Pull the FIRST non-empty `## [<version>]` block out of CHANGELOG.md.
+# Skips a leading `[Unreleased]` IF its body is empty (right after a
+# release cut), so the user sees the actual just-released text instead
+# of an empty Unreleased shell. Returns nil if the file is missing or
+# every block is empty.
+def extract_changelog_section(path)
+  return nil unless File.exist?(path)
+  text = File.read(path)
+  # Greedy across blocks; pick the first one with non-empty body.
+  text.scan(/^## \[[^\]]+\][^\n]*\n(.*?)(?=^## \[|\z)/m).each do |(body)|
+    body = body.to_s.strip
+    return body unless body.empty?
+  end
+  nil
+end
+
+# Replace common typographic non-ASCII with ASCII fallbacks; strip the
+# rest. Preserves tab/CR/LF (whatsNew accepts newlines). Truncates the
+# result to `max_chars`. ASC's whatsNew limit is 4000 chars in 2026;
+# truncate at the boundary, do NOT raise — we'd rather ship a trimmed
+# annotation than block on a long entry.
+def ascii_sanitize(text, max_chars:)
+  replacements = {
+    "\u2014" => "--", "\u2013" => "-",  "\u2026" => "...",
+    "\u2018" => "'",  "\u2019" => "'",
+    "\u201C" => '"',  "\u201D" => '"',
+    "\u2192" => "->", "\u2190" => "<-",
+    "\u2713" => "+",  "\u2717" => "x",  "\u26A0" => "!",
+    "\u00A0" => " ",
+  }
+  out = text.dup
+  replacements.each { |from, to| out.gsub!(from, to) }
+  out = out.gsub(/[^\x20-\x7E\n\r\t]/, "")
+  out.length > max_chars ? out[0, max_chars] : out
+end
+
+# Annotate the just-uploaded TestFlight build's BetaBuildLocalization[en-US].whatsNew
+# field via direct Spaceship POST/PATCH. Workaround for fastlane pilot
+# 2.233.1's broken `set_changelog` (G15 in docs/CONTINUOUS-VALIDATION.md):
+# the inner `update_localized_build_review` at pilot/lib/pilot/build_manager.rb
+# iterates an empty hash for new builds with no pre-existing BBL, logs
+# "Successfully set the changelog" without ever POSTing the localization.
+#
+# Polls for ASC to register the just-uploaded build records (pilot returns
+# ~1-3 min before ASC indexes them into the Build collection). Filters by
+# CFBundleShortVersionString (marketing version) AND CFBundleVersion (build
+# number) to disambiguate when the same bundle id has multiple shippers
+# (e.g. canary cells, multi-dev teams).
+#
+# Errors are caught and logged as `UI.important` warnings — annotation
+# failure does NOT fail the release. The shipping path's primary contract
+# is the binary upload; "What to Test" is cosmetic.
+#
+# Returns nothing meaningful.
+def annotate_testflight_whats_new(app_identifier:, marketing_version:, build_number:, changelog:, expected_count:)
+  require "spaceship"
+
+  Spaceship::ConnectAPI.token ||= Spaceship::ConnectAPI::Token.create(
+    key_id:    ENV.fetch("ASC_API_KEY_ID"),
+    issuer_id: ENV.fetch("ASC_API_KEY_ISSUER_ID"),
+    key:       File.read(@asc_p8_path),
+  )
+
+  app = Spaceship::ConnectAPI::App.find(app_identifier)
+  unless app
+    UI.important("Annotate: App not found for bundle #{app_identifier}; skipping What to Test.")
+    return
+  end
+
+  # Cap at ~10 min total (40 × 15s). The canary's empirical observation:
+  # ASC indexing typically completes within 1-3 min after pilot returns,
+  # but we've seen up to ~6 min on backed-up Apple infra.
+  poll_attempts = 40
+  targets = []
+  poll_attempts.times do |i|
+    builds = Spaceship::ConnectAPI::Build.all(
+      app_id:  app.id,
+      version: marketing_version,
+      sort:    "-uploadedDate",
+      limit:   50,
+    )
+    targets = builds.select { |b| b.version == build_number.to_s }
+    break if targets.length >= expected_count
+    sleep 15
+    UI.message("  poll #{i + 1}/#{poll_attempts}: found #{targets.length}/#{expected_count} build(s) with version=#{marketing_version} build=#{build_number}")
+  end
+
+  if targets.empty?
+    UI.important("Annotate: no builds matched version=#{marketing_version} build=#{build_number} after #{poll_attempts * 15}s; skipping What to Test.")
+    return
+  end
+
+  targets.each do |b|
+    begin
+      # pilot's upload path can pre-create an empty BetaBuildLocalization
+      # for en-US (the bug we're working around — it logs success but
+      # never writes whatsNew). Whether ASC has indexed that empty BBL
+      # by the time we get here is racy. Handle both:
+      # PATCH if a BBL[en-US] already exists for this build, else POST.
+      existing = b.get_beta_build_localizations.find { |x| x.locale == "en-US" }
+      if existing
+        Spaceship::ConnectAPI.patch_beta_build_localizations(
+          localization_id: existing.id,
+          attributes:      { whatsNew: changelog },
+        )
+        UI.message("  Annotated build #{b.version} (#{b.platform}) via PATCH (BBL #{existing.id})")
+      else
+        Spaceship::ConnectAPI.post_beta_build_localizations(
+          build_id:   b.id,
+          attributes: { locale: "en-US", whatsNew: changelog },
+        )
+        UI.message("  Annotated build #{b.version} (#{b.platform}) via POST")
+      end
+    rescue Spaceship::UnexpectedResponse => e
+      UI.important("  Annotate: failed to annotate build #{b.version} (#{b.platform}): #{e.message[0, 250]}")
+    end
+  end
+end
+
+
 # Reads every metadata file directly and passes explicit hashes to deliver.
 # Bypasses deliver's load_from_filesystem, which silently drops fields when
 # metadata_path is passed alone (we've reproduced this for support_url,
@@ -687,8 +833,10 @@ platform :ios do
   desc "Dry run:  fastlane release tag:v0.1.0 skip_upload:true skip_tag:true"
   lane :release do |options|
     tag         = options[:tag] or UI.user_error!("tag: option is required (e.g. tag:v0.1.0)")
-    skip_upload = options[:skip_upload] || false
-    skip_tag    = options[:skip_tag]    || false
+    skip_upload    = options[:skip_upload]    || false
+    skip_tag       = options[:skip_tag]       || false
+    skip_changelog = options[:skip_changelog] || false
+    changelog_arg  = options[:changelog]
 
     repo_root = File.expand_path("..", __dir__)
     version   = tag.sub(/^v/, "")
@@ -896,8 +1044,8 @@ platform :ios do
     api_key = asc_api_key
 
     if skip_upload
-      UI.important("Step 3/5: Skipping iOS TestFlight upload (skip_upload:true)")  if do_ios
-      UI.important("Step 4/5: Skipping macOS TestFlight upload (skip_upload:true)") if do_macos
+      UI.important("Step 3/6: Skipping iOS TestFlight upload (skip_upload:true)")  if do_ios
+      UI.important("Step 4/6: Skipping macOS TestFlight upload (skip_upload:true)") if do_macos
     else
       # Build the optional/defensive pilot options for this build.
       #
@@ -905,9 +1053,9 @@ platform :ios do
       # set_changelog path is broken for new builds with no pre-existing
       # BetaBuildLocalization (the inner update_localized_build_review at
       # build_manager.rb:560-588 iterates an empty hash and no-ops, but
-      # logs success regardless). The canary workflow handles changelog
-      # annotation via a separate post-upload step that POSTs the BBL
-      # directly via Spaceship::ConnectAPI. See canary-local-mode.yml.
+      # logs success regardless). The annotate_testflight_whats_new step
+      # below (Step 5/6) handles changelog annotation via direct
+      # Spaceship POST/PATCH. See docs/CONTINUOUS-VALIDATION.md G15.
       #
       # No notify_external_testers / distribute_external overrides — pilot's
       # defaults match what we want (distribute_external defaults to false;
@@ -919,19 +1067,46 @@ platform :ios do
       # canary path mirrors a real fork's release.yml behavior more closely
       # → catches drift in default-pilot behavior too.
       if do_ios
-        UI.message("Step 3/5: Uploading iOS .ipa to TestFlight…")
+        UI.message("Step 3/6: Uploading iOS .ipa to TestFlight…")
         pilot_with_retry(api_key: api_key, ipa: ipa_path, skip_waiting_for_build_processing: true)
       end
       if do_macos
-        UI.message("Step 4/5: Uploading macOS .pkg to TestFlight…")
+        UI.message("Step 4/6: Uploading macOS .pkg to TestFlight…")
         pilot_with_retry(api_key: api_key, pkg: pkg_path, skip_waiting_for_build_processing: true)
       end
     end
 
-    if skip_tag
-      UI.important("Step 5/5: Skipping tag push (skip_tag:true). Run 'git tag #{tag} && git push origin #{tag}' manually when ready.")
+    # Step 5/6: annotate "What to Test" via direct Spaceship POST/PATCH.
+    # Workaround for fastlane pilot 2.233.1's broken set_changelog
+    # (G15 in docs/CONTINUOUS-VALIDATION.md). Skipped on dry runs and
+    # when explicitly opted out via skip_changelog:true.
+    if dry_run
+      UI.important("Step 5/6: Skipping What to Test annotation (dry run).")
+    elsif skip_changelog
+      UI.important("Step 5/6: Skipping What to Test annotation (skip_changelog:true).")
     else
-      UI.message("Step 5/5: Tagging and pushing #{tag}…")
+      changelog = changelog_text(repo_root, tag, changelog_arg)
+      if changelog.strip.empty?
+        UI.important("Step 5/6: No changelog text resolved; skipping What to Test annotation.")
+      else
+        marketing_version = ENV["RELEASE_MARKETING_VERSION"].to_s.strip.empty? ? version.split("-", 2).first : ENV["RELEASE_MARKETING_VERSION"]
+        build_number      = ENV["RELEASE_BUILD_NUMBER"].to_s.strip.empty? ? "0" : ENV["RELEASE_BUILD_NUMBER"]
+        expected_count    = (do_ios && do_macos) ? 2 : 1
+        UI.message("Step 5/6: Annotating What to Test in TestFlight (version=#{marketing_version} build=#{build_number}, expecting #{expected_count} build record#{expected_count == 1 ? '' : 's'})…")
+        annotate_testflight_whats_new(
+          app_identifier:    APP_IDENTIFIER,
+          marketing_version: marketing_version,
+          build_number:      build_number,
+          changelog:         changelog,
+          expected_count:    expected_count,
+        )
+      end
+    end
+
+    if skip_tag
+      UI.important("Step 6/6: Skipping tag push (skip_tag:true). Run 'git tag #{tag} && git push origin #{tag}' manually when ready.")
+    else
+      UI.message("Step 6/6: Tagging and pushing #{tag}…")
       sh("cd #{repo_root} && git tag #{tag} && git push origin #{tag}")
     end
 

@@ -441,6 +441,17 @@ jobs:
           RELEASE_BUILD_NUMBER: ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }}
           # Both platforms — exercises iOS .ipa + macOS .pkg signing paths.
           PLATFORMS: ios,macos
+          # Annotates each canary build's TestFlight "What to Test" entry so
+          # a human looking at App Store Connect can identify which matrix
+          # cell + run produced a given build (vs. having to decode the
+          # build-number suffix). Empty for real release.yml runs; set only
+          # by canary workflows.
+          RELEASE_CHANGELOG: |
+            🐤 Canary build — local-mode shipping path validation
+            generator:  ${{ matrix.generator }}
+            run:        #${{ github.run_number }} (cell build ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }})
+            commit:     ${{ github.sha }}
+            workflow:   https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           if [ "${{ inputs.dry_run }}" = "true" ]; then

@@ -203,14 +203,25 @@ jobs:
         # fastlane match's auto-install path can hang for ~5min and then fail
         # with "Could not install WWDR certificate" on GH Actions runners
         # (known issue: fastlane/fastlane#20960; CircleCI confirms same).
-        # Install the active WWDR Intermediate (G6) into the system keychain
-        # ourselves so match's import has a valid chain to validate against.
+        #
+        # Install all currently-deployed WWDR intermediates (G2-G6) so any
+        # cert in the certs repo — regardless of which generation issued it —
+        # has a valid chain to validate against. Apple has rotated WWDR
+        # several times; certs issued under G3 (2014-2025) are still valid
+        # until 2027 even though Apple now issues new certs under G6.
+        # Without G3 trusted, an exportArchive of a G3-issued cert fails
+        # with "Signing certificate is invalid" — surfaced today on
+        # prakashrj/my-cool-app reusing indiagrams/ios-macos-smoketest-certs
+        # (cert G5HJYWLM9Z, issued by WWDR G3, exp 2027-05-06).
         run: |
-          curl -fsSL --retry 3 -o /tmp/AppleWWDRCAG6.cer \
-            https://www.apple.com/certificateauthority/AppleWWDRCAG6.cer
-          sudo security add-trusted-cert -d -r trustRoot \
-            -k /Library/Keychains/System.keychain \
-            /tmp/AppleWWDRCAG6.cer
+          set -euo pipefail
+          for gen in G2 G3 G4 G5 G6; do
+            curl -fsSL --retry 3 -o "/tmp/AppleWWDRCA${gen}.cer" \
+              "https://www.apple.com/certificateauthority/AppleWWDRCA${gen}.cer"
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain \
+              "/tmp/AppleWWDRCA${gen}.cer"
+          done
 
       - name: Bootstrap ASC + Dev Portal records (idempotent)
         # First run on a fresh repo: creates Dev Portal App ID + verifies

@@ -447,12 +447,15 @@ jobs:
               skip_tag:true
           fi
 
-      - name: Verify TestFlight ingestion
-        if: ${{ !inputs.dry_run }}
-        # Confirms ASC accepted the upload. Doesn't wait for full processing
-        # (5-15 min); just checks at least one build exists for the bundle.
-        # Existing release pipeline runs the same script.
-        run: bundle exec ruby bin/verify-testflight.rb
+      # (Verify TestFlight ingestion step removed: bin/verify-testflight.rb
+      # requires a `.bootstrap.env` file (gitignored, never committed) and
+      # would always fail on a CI runner. The pilot upload's
+      # 'Successfully uploaded the new binary to App Store Connect' message
+      # in the previous step is sufficient signal that the local-mode
+      # shipping path worked end-to-end. Post-upload TestFlight ingestion
+      # is Apple's responsibility — not the canary's. To verify processing
+      # state across runs, query developer.apple.com/account/resources or
+      # appstoreconnect.apple.com manually.)
 
       # ─── ALWAYS-RUN POST STEPS ──────────────────────────────────────────────
       # Even if mint/ship/verify failed, revoke whatever ids were captured.

@@ -413,10 +413,20 @@ jobs:
           set -euo pipefail
           # Tag must match ci/local-release-check.sh's regex
           # ^v[0-9]+\.[0-9]+\.[0-9]+([-+].+)?$ (e.g. v0.1.0, v0.1.0-rc1).
-          # `v0.0.0-canary-<calver>-<generator>` satisfies it AND keeps each
-          # cell's tag unique within a run, AND is visually distinct from real
-          # release tags so it can never be confused with one.
-          CALVER="v0.0.0-canary-$(date -u +%Y.%V).${{ github.run_number }}-${{ matrix.generator }}"
+          # `v0.YYYY.WW-canary-<run>-<generator>` satisfies it AND:
+          #   - leading `0.` clearly signals canary (any real release would
+          #     have a non-zero major) without the version field looking
+          #     broken in TestFlight (vs. the previous `0.0.0`)
+          #   - `YYYY.WW` carries date context — testers seeing a canary
+          #     build know which week's run it came from
+          #   - `-canary-<run>-<generator>` ensures uniqueness per cell
+          #     (run_number + generator) and unmistakable canary signal
+          #     even at a glance at the raw tag.
+          # Marketing version (CFBundleShortVersionString) becomes
+          # `0.YYYY.WW` after ci/local-release-check.sh strips the
+          # pre-release suffix. ASC accepts 1-3-component versions so this
+          # is well within Apple's contract.
+          CALVER="v0.$(date -u +%Y).$(date -u +%V)-canary-${{ github.run_number }}-${{ matrix.generator }}"
           echo "tag=${CALVER}" >> "$GITHUB_OUTPUT"
           echo "Canary tag: ${CALVER}"
 

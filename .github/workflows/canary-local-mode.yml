@@ -441,24 +441,6 @@ jobs:
           RELEASE_BUILD_NUMBER: ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }}
           # Both platforms — exercises iOS .ipa + macOS .pkg signing paths.
           PLATFORMS: ios,macos
-          # Annotates each canary build's TestFlight "What to Test" entry so
-          # a human looking at App Store Connect can identify which matrix
-          # cell + run produced a given build (vs. having to decode the
-          # build-number suffix). Empty for real release.yml runs; set only
-          # by canary workflows.
-          #
-          # ASCII-only: ASC's BetaBuildLocalization endpoint REJECTS non-Latin
-          # characters in whatsNew with a 'contains invalid characters' error
-          # that fastlane's pilot silently swallows (logs "Successfully set
-          # the changelog for build" anyway, but the BBL never gets written).
-          # Caught by manual probe via Spaceship after canary run #9. Stick
-          # to ASCII letters / digits / common punctuation in this string.
-          RELEASE_CHANGELOG: |
-            [CANARY] Local-mode shipping path validation
-            generator:  ${{ matrix.generator }}
-            run:        #${{ github.run_number }} (cell build ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }})
-            commit:     ${{ github.sha }}
-            workflow:   https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           if [ "${{ inputs.dry_run }}" = "true" ]; then
@@ -565,6 +547,15 @@ jobs:
         if: ${{ !inputs.dry_run }}
         env:
           BUILD_NUMBER: ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }}
+          # The What-to-Test text. ASCII-only — ASC's BetaBuildLocalization
+          # endpoint rejects non-Latin characters in whatsNew with a
+          # 'contains invalid characters' error.
+          RELEASE_CHANGELOG: |
+            [CANARY] Local-mode shipping path validation
+            generator:  ${{ matrix.generator }}
+            run:        #${{ github.run_number }} (cell build ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }})
+            commit:     ${{ github.sha }}
+            workflow:   https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           bundle exec ruby <<'RUBY'
           require "spaceship"

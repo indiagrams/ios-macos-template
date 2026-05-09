@@ -34,7 +34,13 @@ is the only section you really need.
 > `bin/switch-to-tuist.sh`, then `make check` / `make check-sim` /
 > `make check-macos` all green. The script's
 > `ci/test-switch-to-tuist.sh` harness re-runs that validation in CI.
-
+>
+> Generator parity is also gated **at release time**, not just PR time.
+> Since v1.5, `.github/workflows/canary-local-mode.yml` ships a
+> `[xcodegen, tuist]` matrix that exercises both generators end-to-end
+> through `fastlane release` weekly on the smoketest fork — so a
+> Tuist-only fork's release pipeline is itself canary-validated upstream.
+>
 ## Why this exists
 
 Two-of-two r/iOSProgramming commenters on the v1.0.0 launch post

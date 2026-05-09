@@ -141,9 +141,42 @@ You'll want CI mode if any of these become true:
 - A second human starts contributing
 - You ship from multiple machines
 - You want PR-time test signal (xcodebuild + xcodebuild test on every PR)
-- You want the weekly canary pattern to catch Apple-side state drift (see [docs/CONTINUOUS-VALIDATION.md](CONTINUOUS-VALIDATION.md))
+- You want match-based shared signing across multiple developers (with `canary-local-mode.yml` already in the template, **continuous validation is no longer a CI-mode-only feature** — local-mode forks get it via the Saturday canary; see § "Continuous validation in local mode" below)
 
 The switch is reversible: change `RELEASE_MODE=ci`, run `make bootstrap-fork` (the now-active CI-only steps will run), restore the workflows + branch protection.
+
+## Continuous validation in local mode
+
+Local mode is no longer a "no canary" mode. The template ships
+`.github/workflows/canary-local-mode.yml`, which is dormant by default
+(workflow_dispatch only) and can be enabled by uncommenting its `schedule:`
+block (default `30 11 * * 6` = Saturdays 11:30 UTC).
+
+When enabled, the canary mints 3 throwaway signing certs into a controlled
+keychain on the GH runner, runs full `fastlane release` (sigh-based App
+Store profiles, no match), uploads to TestFlight, then revokes the 3
+just-minted certs on `always()`. Net Apple-team cert delta per run = 0;
+your existing shipping certs are never touched.
+
+Prerequisites for enabling on your fork:
+
+1. Configure 5 GitHub Secrets on the fork — `ASC_API_KEY_ID`,
+   `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`,
+   `KEYCHAIN_PASSWORD`. Optional: `DISCORD_CANARY_WEBHOOK` for failure
+   notifications.
+2. Run the v1.5 one-time cert-slot dedication: revoke 1 spare DIST + 1
+   spare MAC_INSTALLER cert per team (~30 sec via
+   [developer.apple.com/account/resources/certificates](https://developer.apple.com/account/resources/certificates)
+   or `bundle exec fastlane revoke_certs ids:A,B`). This dedicates one
+   cycling slot per at-cap type so the canary can mint without hitting
+   Apple's per-team caps. See [docs/CONTINUOUS-VALIDATION.md](CONTINUOUS-VALIDATION.md)
+   for the empirical caps (DIST=3, DEV≥5, MAC_INSTALLER=2).
+3. Uncomment the `schedule:` block in
+   `.github/workflows/canary-local-mode.yml`.
+
+That's it. Saturday morning runs ship a clean canary build to TestFlight
+under your bundle ID + ASC app, verifying the entire local-mode shipping
+pipeline weekly.
 
 ## Troubleshooting
 
@@ -151,8 +184,8 @@ The switch is reversible: change `RELEASE_MODE=ci`, run `make bootstrap-fork` (t
 |---|---|---|
 | `make doctor` step 12 (`Local keychain has signing identities`) is `:pending` even after `make mint-local-certs` | Keychain access denied (Apple's keychain prompts) | Check `Console.app` for keychain prompts; click Allow when fastlane asks. Re-run. |
 | `make doctor` step 12 says "Found certs … but none for team X" | Your keychain has certs from a different team | `make mint-local-certs` mints a fresh cert for the right team. The wrong-team certs remain in your keychain (use Keychain Access to remove if desired). |
-| `fastlane cert` fails with "Could not create another …, reached the maximum" | Apple's per-team cert quota (~3) is full | `bundle exec fastlane list_certs` to enumerate, `bundle exec fastlane revoke_cert id:<id>` to revoke an unused one, then re-run. |
-| `make ship` fails uploading to TestFlight | Transient ASC / altool flake | The `pilot_with_retry` wrapper retries 3× with exponential backoff. If all 3 fail, check the smoketest's [G1-G12 catalog](CONTINUOUS-VALIDATION.md). |
+| `fastlane cert` fails with "Could not create another …, reached the maximum" | Apple's per-team cert quota is full (DIST=3, DEV≥5, MAC_INSTALLER=2 — verified empirically May 2026; see [docs/CONTINUOUS-VALIDATION.md](CONTINUOUS-VALIDATION.md)) | `bundle exec fastlane list_certs` to enumerate, `bundle exec fastlane revoke_cert id:<id>` (singular) or `revoke_certs ids:A,B,C` (plural batch, idempotent) to revoke unused ones, then re-run. |
+| `make ship` fails uploading to TestFlight | Transient ASC / altool flake | The `pilot_with_retry` wrapper retries 3× with exponential backoff. If all 3 fail, check the smoketest's [G1–G15 catalog](CONTINUOUS-VALIDATION.md). |
 | `make all` aborts at doctor | Genuine `:blocked` step (e.g., ASC App record missing) | The blocker requires a manual one-time human step Apple's API doesn't allow. Doctor's tail names which step + what to do. |
 
 ## See also

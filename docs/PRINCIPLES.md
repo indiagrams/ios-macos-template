@@ -11,11 +11,12 @@ first and let's talk.
 
 ## Quality gates
 
-1. **Every PR runs CI.** Six jobs (3 XcodeGen — `app (iOS device)`,
-   `app (iOS Simulator)`, `app (macOS)` — plus 3 Tuist parity —
-   `app (Tuist iOS device)`, `app (Tuist iOS Simulator)`, `app (Tuist macOS)`)
-   must be green before merge. Branch protection enforces this for
-   everyone, including maintainers.
+1. **Every PR runs CI.** Seven required checks: swiftlint plus six matrix
+   cells (3 XcodeGen — `app (iOS device)`, `app (iOS Simulator)`,
+   `app (macOS)` — plus 3 Tuist parity — `app (Tuist iOS device)`,
+   `app (Tuist iOS Simulator)`, `app (Tuist macOS)`) — must be green
+   before merge. Branch protection enforces this for everyone, including
+   maintainers.
 2. **No direct pushes to `main`.** Even one-line fixes go through a PR. The
    pre-push hook (`lefthook` → `ci/local-check.sh --fast`) catches breakage
    before it reaches GitHub.
@@ -30,13 +31,17 @@ first and let's talk.
    warning.
 6. **The release pipeline is continuously validated by a public downstream.**
    [`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)
-   runs `.github/workflows/release.yml` weekly to TestFlight against this
-   template's signing pattern. Because Apple's signing infra (certs,
-   profiles, `timestamp.apple.com`, ASC ingestion) and the fastlane / match
-   stack drift independently of this template, the smoketest catches rot
-   before forkers do. Patterns + fixes there land back here in PRs that cite
+   runs **two** complementary canaries weekly to TestFlight against this
+   template's signing pattern: `release.yml` (CI mode, match-based) on
+   Mondays 09:00 UTC via `canary-trigger.yml`, and `canary-local-mode.yml`
+   (local mode, sigh-based, mint-then-revoke) on Saturdays 11:30 UTC.
+   Because Apple's signing infra (certs, profiles, `timestamp.apple.com`,
+   ASC ingestion) and the fastlane / match / pilot stacks drift
+   independently of this template, the smoketest catches rot before
+   forkers do. Patterns + fixes there land back here in PRs that cite
    the failing smoketest run. See [`docs/CONTINUOUS-VALIDATION.md`](CONTINUOUS-VALIDATION.md)
-   for the ten canonical failure modes the smoketest has surfaced.
+   for the catalog of canonical failure modes (currently 15) the smoketest
+   has surfaced.
 
 ## Documentation
 

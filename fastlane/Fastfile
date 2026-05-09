@@ -899,13 +899,19 @@ platform :ios do
       UI.important("Step 3/5: Skipping iOS TestFlight upload (skip_upload:true)")  if do_ios
       UI.important("Step 4/5: Skipping macOS TestFlight upload (skip_upload:true)") if do_macos
     else
+      # Build a "What to Test" changelog string from RELEASE_CHANGELOG. Empty
+      # by default (real ships don't need it; testers can read git tag);
+      # canary workflows set it to identify which cell + run produced a build.
+      cl = ENV["RELEASE_CHANGELOG"].to_s.strip
+      changelog_opts = cl.empty? ? {} : { changelog: cl }
+
       if do_ios
         UI.message("Step 3/5: Uploading iOS .ipa to TestFlight…")
-        pilot_with_retry(api_key: api_key, ipa: ipa_path, skip_waiting_for_build_processing: true)
+        pilot_with_retry(api_key: api_key, ipa: ipa_path, skip_waiting_for_build_processing: true, **changelog_opts)
       end
       if do_macos
         UI.message("Step 4/5: Uploading macOS .pkg to TestFlight…")
-        pilot_with_retry(api_key: api_key, pkg: pkg_path, skip_waiting_for_build_processing: true)
+        pilot_with_retry(api_key: api_key, pkg: pkg_path, skip_waiting_for_build_processing: true, **changelog_opts)
       end
     end
 

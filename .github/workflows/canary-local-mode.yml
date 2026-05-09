@@ -459,14 +459,6 @@ jobs:
             run:        #${{ github.run_number }} (cell build ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }})
             commit:     ${{ github.sha }}
             workflow:   https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          # Isolate canary uploads from external testers. notify_external=false
-          # silences emails on every canary upload (~16/year if cron lands).
-          # distribute_external=false skips Beta App Review submission and
-          # prevents the build from being pushed to external testing groups.
-          # Both default to "would notify/distribute" at ASC; we explicitly
-          # opt out for canary builds, which never reach humans.
-          RELEASE_NOTIFY_EXTERNAL:     'false'
-          RELEASE_DISTRIBUTE_EXTERNAL: 'false'
         run: |
           set -euo pipefail
           if [ "${{ inputs.dry_run }}" = "true" ]; then
@@ -550,6 +542,9 @@ jobs:
           echo "Synthesized .bootstrap.env:"
           # Print the file but mask the real ASC ids (they're already secrets in CI logs)
           sed 's/=.*/=***MASKED***/' .bootstrap.env
+          # Export BUNDLE_ID for downstream steps (TestFlight annotation step
+          # needs it to find the just-uploaded build via Spaceship API).
+          echo "BUNDLE_ID=${BUNDLE_ID}" >> "${GITHUB_ENV}"
 
       - name: Verify TestFlight ingestion
         # Confirms ASC accepted the upload. Doesn't wait for full processing
@@ -557,6 +552,60 @@ jobs:
         # Real local-mode users run `make verify` which calls the same script.
         if: ${{ !inputs.dry_run }}
         run: bundle exec ruby bin/verify-testflight.rb
+
+      - name: Annotate canary builds in TestFlight (workaround pilot bug)
+        # fastlane pilot 2.233.1's set_changelog path is broken for new
+        # builds with no pre-existing BetaBuildLocalization (logs success
+        # but never POSTs the localization). Bypass via direct Spaceship
+        # POST: find the just-uploaded build by version + POST the BBL
+        # explicitly. See PR description for fastlane bug details.
+        #
+        # iOS + macOS uploads share the same CFBundleVersion in this canary
+        # cell, so we annotate both build records (one per platform).
+        if: ${{ !inputs.dry_run }}
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }}
+        run: |
+          bundle exec ruby <<'RUBY'
+          require "spaceship"
+          require "base64"
+
+          token = Spaceship::ConnectAPI::Token.create(
+            key_id:    ENV.fetch("ASC_API_KEY_ID"),
+            issuer_id: ENV.fetch("ASC_API_KEY_ISSUER_ID"),
+            key:       Base64.decode64(ENV.fetch("ASC_API_KEY_P8_BASE64")),
+          )
+          Spaceship::ConnectAPI.token = token
+
+          bundle_id    = ENV.fetch("BUNDLE_ID")
+          build_number = ENV.fetch("BUILD_NUMBER")
+          changelog    = ENV.fetch("RELEASE_CHANGELOG")
+
+          app = Spaceship::ConnectAPI::App.find(bundle_id)
+          abort "::error::App not found for bundle #{bundle_id}" unless app
+
+          # Get the latest builds; the just-uploaded ones are at the top.
+          # Limit 50 covers ~25 cell-runs of history (more than enough).
+          builds  = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 50)
+          targets = builds.select { |b| b.version == build_number }
+
+          if targets.empty?
+            warn "::warning::No builds found with version=#{build_number} for #{bundle_id}; skipping annotation"
+            exit 0
+          end
+
+          targets.each do |b|
+            begin
+              Spaceship::ConnectAPI.post_beta_build_localizations(
+                build_id:   b.id,
+                attributes: { locale: "en-US", whatsNew: changelog },
+              )
+              puts "Annotated build #{b.version} (#{b.platform}) with What-to-Test"
+            rescue Spaceship::UnexpectedResponse => e
+              warn "::warning::Failed to annotate build #{b.version} (#{b.platform}): #{e.message[0, 250]}"
+            end
+          end
+          RUBY
 
       # ─── ALWAYS-RUN POST STEPS ──────────────────────────────────────────────
       # Even if mint/ship/verify failed, revoke whatever ids were captured.

@@ -603,11 +603,27 @@ jobs:
 
           targets.each do |b|
             begin
-              Spaceship::ConnectAPI.post_beta_build_localizations(
-                build_id:   b.id,
-                attributes: { locale: "en-US", whatsNew: changelog },
-              )
-              puts "Annotated build #{b.version} (#{b.platform}) with What-to-Test"
+              # pilot's upload path can pre-create an empty BetaBuildLocalization
+              # for en-US (the bug we're working around — it logs success but
+              # never writes whatsNew). Whether ASC has indexed that empty BBL
+              # by the time we get here is racy: in practice the second
+              # matrix cell often sees it (returns "entity with same 'locale'"
+              # on POST), the first cell often doesn't. Handle both:
+              # PATCH if a BBL[en-US] already exists for this build, else POST.
+              existing = b.get_beta_build_localizations.find { |x| x.locale == "en-US" }
+              if existing
+                Spaceship::ConnectAPI.patch_beta_build_localizations(
+                  localization_id: existing.id,
+                  attributes:      { whatsNew: changelog },
+                )
+                puts "Annotated build #{b.version} (#{b.platform}) via PATCH (BBL #{existing.id})"
+              else
+                Spaceship::ConnectAPI.post_beta_build_localizations(
+                  build_id:   b.id,
+                  attributes: { locale: "en-US", whatsNew: changelog },
+                )
+                puts "Annotated build #{b.version} (#{b.platform}) via POST"
+              end
             rescue Spaceship::UnexpectedResponse => e
               warn "::warning::Failed to annotate build #{b.version} (#{b.platform}): #{e.message[0, 250]}"
             end

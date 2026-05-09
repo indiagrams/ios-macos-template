@@ -1,16 +1,28 @@
 # Continuous Validation via a Downstream Smoketest
 
 The signing pipeline in this template (`fastlane release` lane,
-`ci/local-release-check.sh`, `.github/workflows/release.yml`) is exercised
-**weekly** by a public reference fork:
+`ci/local-release-check.sh`, `.github/workflows/release.yml`,
+`.github/workflows/canary-local-mode.yml`) is exercised **weekly** by a
+public reference fork:
 
 > [`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)
 
-Every Monday 09:00 UTC the smoketest runs `fastlane release` end-to-end on a
-fresh `macos-15` GitHub Actions runner, signs an iOS `.ipa` + macOS `.pkg`,
-and uploads both to TestFlight. A red run there means the pipeline has broken
-somewhere between fastlane, match, Apple's signing infrastructure, the ASC
-API, and the macos-15 image — usually before any active fork hits the same
+Two canaries run there on complementary cadences:
+
+- **Mondays 09:00 UTC** — `canary-trigger.yml` dispatches `release.yml` on
+  the smoketest. Exercises the **CI-mode** shipping path (match-based
+  signing, certs sourced from a private repo via fastlane match). Pre-existing
+  shipping certs; no mint/revoke loop.
+- **Saturdays 11:30 UTC** — `canary-local-mode.yml` runs in-place on the
+  smoketest. Exercises the **local-mode** shipping path (sigh-based App Store
+  profiles minted via API key, signing certs minted fresh into a controlled
+  keychain, β cert SHA-1 pinning via `DeveloperCertificates[0]` from the
+  .mobileprovision). Mint→ship→verify→revoke loop in the same Apple team;
+  net team-cert delta per run = 0.
+
+Either canary going red means the pipeline has broken somewhere between
+fastlane, match (CI-mode only), Apple's signing infrastructure, the ASC API,
+and the macos-15 image — usually before any active fork hits the same
 breakage in their own release window.
 
 ## Why a separate fork instead of CI on the template itself
@@ -25,14 +37,15 @@ inspectable form so:
   the gotchas in failed runs).
 - Patterns + fixes are discovered against a real Apple ecosystem, not a
   mocked one.
-- The template's release.yml is provably executable — it's the same file
-  shape the smoketest runs against.
+- The template's two release workflows (`release.yml`, `canary-local-mode.yml`)
+  are provably executable — the same file shape the smoketest runs against.
 
 ## What's been validated end-to-end
 
 The smoketest's phase 4-7 work (April-May 2026) discovered and fixed fourteen
-distinct CI failure modes between "looks like it should work" and
-"actually pushes a build to TestFlight":
+distinct shipping-pipeline failure modes between "looks like it should work"
+and "actually pushes a build to TestFlight" (G14 covers the local-mode path
+specifically; the rest are CI-mode):
 
 | # | Failure mode | Fix landed in |
 |---|---|---|
@@ -50,6 +63,7 @@ distinct CI failure modes between "looks like it should work" and
 | G12 | `MATCH_GIT_BASIC_AUTHORIZATION` 404s on the certs repo after delete + recreate. Fine-grained GitHub PATs are pinned to a *repo's database ID*, not its name — when the certs repo is deleted and a new one with identical name is created, the new repo has a fresh ID and the existing PAT loses access. `fastlane match` then dies at the first clone with "Error cloning certificates git repo". This blocks the template's E2E refork test from running unattended (every cycle would require manual PAT scope updates via `github.com/settings/tokens`). | Don't delete the certs repo as part of the E2E loop. Reset its branches via force-push instead — the certs repo's lifecycle is logically separate from the app fork's. `bin/refork-smoketest.sh` does this by default. The repo's database ID is preserved, so the existing fine-grained PAT (correctly scoped to "Only select repositories" → certs repo) stays valid across E2E cycles. |
 | G13 | xcodebuild archive fails with `Signing certificate is invalid. Signing certificate "Apple Distribution: <name>", serial number "...", is not valid for code signing. It may have been revoked or expired.` Even though `security find-identity -v` shows the cert as valid (it's not expired, has a private key). Cause: the cert is revoked at Apple's side but still locally cached. `find-identity -v` only filters expired certs, not revoked-at-Apple ones. xcodebuild's `CODE_SIGN_IDENTITY=Apple Distribution` substring-matches multiple certs; if any matching cert is revoked, the archive can fail when xcodebuild picks that one. | New `make clean-revoked-certs` target — queries ASC API for valid cert serials, diffs against local keychain certs, deletes the revoked locals after confirmation. Surgical user-state cleanup; doesn't touch the template's normal build path. Run once when you hit this; subsequent builds use only Apple-valid certs. (`bundle exec fastlane clean_revoked_certs dry_run:true` to preview.) |
 | G14 | The local-mode shipping path (RELEASE_MODE=local) was 0% covered by automation through v1.4 — only validated via manual cold-fork tests at release time. Regressions in `setup_ci` mode-gating, `match`-skip gating, sigh-based App Store profile minting, β cert SHA-1 pinning (extracting `DeveloperCertificates[0]` from the .mobileprovision), ExportOptions plist patching for manual signing, and bash-3.2 `${arr[@]}`-under-`set -u` array safety would surface only when a forker tried to ship — typically weeks after the regressing commit landed. | New `.github/workflows/canary-local-mode.yml` — weekly mint→ship→verify→revoke loop in the same Apple team. Mints 3 throwaway certs (`apple_distribution` + `apple_development` + `mac_installer_distribution`), runs full local-mode `fastlane release` against TestFlight, revokes the 3 just-minted certs (`if: always()`). Net team-cert delta per run = 0; user's existing shipping certs untouched. Cache-tracked orphan recovery (`actions/cache@v5`) handles partial-failure scenarios — next run's pre-step revokes any ids the prior run's post-step missed. New `revoke_certs` (plural, idempotent) and `mint_canary_certs` (capture-ids) lanes in `fastlane/Fastfile` are the building blocks. |
+| G15 | TestFlight "What to Test" annotation never persists for new builds. fastlane pilot 2.233.1's `set_changelog` path (called by `pilot(... changelog: ...)` after upload) iterates `update_localized_build_review` over an empty hash for builds with no pre-existing `BetaBuildLocalization`, then logs `Successfully set the changelog for build` without ever POSTing the localization to ASC. Affects every fresh upload (the common case for canaries; surfaces less for releases that re-upload over an existing build). Confirmed empirically across 6 canary runs (PR #135-#142) and against pilot's source (`pilot/lib/pilot/build_manager.rb:560-588`). Compounded by ASC's BetaBuildLocalization endpoint silently rejecting non-ASCII in `whatsNew` ("contains invalid characters" — pilot eats the error too). | The canary's "Annotate canary builds in TestFlight" step bypasses pilot entirely: poll for ≤10 min for ASC to register the just-uploaded builds (pilot returns from upload ~1-3 min before ASC indexes them), then PATCH the BBL via `Spaceship::ConnectAPI.patch_beta_build_localizations` if pilot's empty-creation has materialized, or POST a fresh one via `post_beta_build_localizations` if not. ASCII-only `whatsNew`. Workaround preserved as a Fastfile comment until upstream pilot is fixed. |
 
 The smoketest also surfaced two ecosystem-level constraints:
 
@@ -68,10 +82,30 @@ The smoketest also surfaced two ecosystem-level constraints:
   cert` defaults to no `--force`, which is the safe default). The
   `revoke_cert` lane (singular, ad-hoc) and `revoke_certs` lane (plural,
   idempotent batch) in `fastlane/Fastfile` help free a slot or clean up
-  canary cycles.
+  canary cycles. Forks enabling `canary-local-mode.yml` need to dedicate
+  one cycling slot per at-cap type via a one-time setup — revoke 1 spare
+  DIST + 1 spare MAC_INSTALLER cert via `developer.apple.com/account/resources/certificates`
+  (or `bundle exec fastlane revoke_certs ids:A,B`); see the v1.5 entry in
+  the [CHANGELOG](../CHANGELOG.md) for context.
 
 ## How to run the smoketest pattern in your own fork
 
-See [README → Setting up signing + ASC → Optional: enable CI signing via fastlane match](../README.md#optional-enable-ci-signing-via-fastlane-match)
-for the 8-step bootstrap. Once configured, the same `release.yml` runs
-weekly against your fork.
+There are two opt-in canaries; pick whichever matches your fork's
+`RELEASE_MODE`:
+
+- **CI mode** (`RELEASE_MODE=ci`, match-based signing) — see
+  [docs/BOOTSTRAP.md](BOOTSTRAP.md) for the certs-repo + GH Secrets
+  setup. The same `release.yml` then runs on `workflow_dispatch` and
+  whenever you tag a release; `canary-trigger.yml` (template-only)
+  dispatches it weekly against the smoketest from upstream.
+- **Local mode** (`RELEASE_MODE=local`, sigh-based, no match) — uncomment
+  the `schedule:` block in `.github/workflows/canary-local-mode.yml`
+  (default `30 11 * * 6` = Saturdays 11:30 UTC), configure five GH
+  Secrets on the fork (`ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`,
+  `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`, `KEYCHAIN_PASSWORD`),
+  and run the v1.5 one-time cert-slot dedication described in the
+  cert-caps bullet above. Optional `DISCORD_CANARY_WEBHOOK` for failure
+  notifications.
+
+Either way, the workflow runs against your fork's bundle ID + ASC app
+record + signing identity — same shape as the smoketest.

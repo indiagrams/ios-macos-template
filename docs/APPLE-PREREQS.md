@@ -63,7 +63,7 @@ The `.gitignore` already blocks the common ones, but be aware:
 |------|---------------|------------------|
 | `*.p8` | App Store Connect API private key | `~/.appstoreconnect/` |
 | `*.mobileprovision` | Provisioning profiles (manual signing) | `~/Library/MobileDevice/Provisioning Profiles/` (Xcode manages) |
-| `*.cer`, `*.p12` | Distribution certificates | macOS Keychain |
+| `*.cer`, `*.p12` | Distribution certificates. Three types are needed for full ship: **Apple Distribution** (codesign for the .app), **Apple Development** (provisioning), **3rd Party Mac Developer Installer** (signs the `.pkg` wrapper around macOS apps via `productbuild`). Per-team caps verified empirically May 2026: DIST=3, DEV≥5, MAC_INSTALLER=2. | macOS Keychain |
 | `.bootstrap.env` | Local fork config (paths, identifiers; secrets stay outside repo) | repo root, gitignored |
 
 If you accidentally commit any of these, treat it as a credential leak: revoke the key/cert immediately on Apple's side, then `git rm --cached` + force-rotate.
@@ -74,6 +74,44 @@ If you accidentally commit any of these, treat it as a credential leak: revoke t
 - **Team membership ≠ ownership.** If you're added to someone else's Apple Developer team as a member, you can sign builds but may not have App Store Connect access. Coordinate with your team's Account Holder.
 - **D-U-N-S number lookup is free.** If Apple says you need to "obtain" one for an Organization enrollment, use the free Apple lookup tool — don't pay D&B for one.
 - **Apple ID without 2FA can't be added to a developer team** (Apple requirement). Enable 2FA before enrollment.
+
+## Per-team certificate quotas (verified empirically)
+
+Apple's per-team cert caps, probed via the ASC API on 2026-05-08 against
+team `A26TJZ8QHQ` (community docs are stale or contradictory):
+
+| Cert type | Cap | Notes |
+|---|---|---|
+| Apple Distribution | **3** | Used for codesigning `.app` bundles. fastlane match's standard distribution path. |
+| Apple Development | **≥ 5** | Provisioning + dev signing. We didn't probe the upper bound; the v1.5 canary mints 1 per run with no observed cap hit. |
+| 3rd Party Mac Developer Installer | **2** | Used by `productbuild` to sign `.pkg` wrappers for macOS apps. Lower than DIST — Mac shippers commonly hit this first. |
+| Developer ID Application G2 | (separate, untested) | Apple's notarization-bound cert for direct distribution outside the App Store. Not exercised by this template. |
+
+At-cap mint without `--force` returns HTTP 409 (non-destructive). At-cap
+mint **with** `--force` revokes the OLDEST cert by creation date — could
+be your production cert. `fastlane cert` defaults to no `--force` (safe).
+The `revoke_cert` lane (singular) and `revoke_certs` lane (plural,
+idempotent batch) in `fastlane/Fastfile` help free a slot.
+
+### Optional: dedicate cycling slots for continuous validation
+
+If you plan to enable `.github/workflows/canary-local-mode.yml` (the
+Saturday local-mode canary added in v1.5), dedicate 1 cycling slot per
+at-cap type up front:
+
+```bash
+# Via Apple Developer portal (~30 sec)
+# https://developer.apple.com/account/resources/certificates
+# Revoke 1 spare DIST cert + 1 spare MAC_INSTALLER cert.
+
+# Or via fastlane (if you know the cert ids):
+bundle exec fastlane revoke_certs ids:CERT_ID_1,CERT_ID_2
+```
+
+The canary then mints into the freed slots per run and revokes on
+`always()`. Net team-cert delta per run = 0; your existing shipping
+certs are never touched. See [docs/CONTINUOUS-VALIDATION.md](CONTINUOUS-VALIDATION.md)
+for the full architecture.
 
 ## Reference
 

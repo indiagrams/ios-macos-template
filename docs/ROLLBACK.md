@@ -35,7 +35,7 @@ The tag's TestFlight build is still in ASC — handle that separately via the st
 
 ## Roll back a partial bootstrap-fork
 
-If `make bootstrap-fork` fails on step N of 17, the pipeline is **idempotent** — re-running picks up where it left off:
+If `make bootstrap-fork` fails on step N (CI mode runs 18, local mode runs 14 — `make doctor` prints the live count), the pipeline is **idempotent** — re-running picks up where it left off:
 
 ```bash
 make doctor          # see which step is the next pending one
@@ -73,7 +73,19 @@ make bootstrap-fork
 
 ## Reset the smoketest fork (maintainer-only)
 
-For canary-related rollback see `bin/refork-smoketest.sh` — destructive E2E that recreates the smoketest fork from scratch.
+Two canaries run on the smoketest, with different rollback semantics:
+
+- **CI canary** (`canary-trigger.yml` dispatches `release.yml` on Mondays
+  09:00 UTC) — uses persistent shipping certs from the certs repo. If the
+  smoketest's signing state needs a reset, run `bin/refork-smoketest.sh`
+  (destructive E2E that recreates the smoketest fork from scratch).
+- **Local-mode canary** (`canary-local-mode.yml` on Saturdays 11:30 UTC) —
+  self-rolls back per run via the `if: always()` post-step that revokes the
+  3 just-minted certs. Orphan ids from a runner crash mid-mint are tracked
+  via `actions/cache@v5` and cleaned up by the next run's pre-step (worst
+  case: 1 week stale). If the cache is also lost (>7 days idle), revoke
+  manually at <https://developer.apple.com/account/resources/certificates>
+  (~30 sec). The canary's workflow header has the full failure-mode matrix.
 
 ## See also
 

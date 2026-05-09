@@ -452,6 +452,14 @@ jobs:
             run:        #${{ github.run_number }} (cell build ${{ github.run_number }}${{ matrix.generator == 'xcodegen' && '01' || '02' }})
             commit:     ${{ github.sha }}
             workflow:   https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Isolate canary uploads from external testers. notify_external=false
+          # silences emails on every canary upload (~16/year if cron lands).
+          # distribute_external=false skips Beta App Review submission and
+          # prevents the build from being pushed to external testing groups.
+          # Both default to "would notify/distribute" at ASC; we explicitly
+          # opt out for canary builds, which never reach humans.
+          RELEASE_NOTIFY_EXTERNAL:     'false'
+          RELEASE_DISTRIBUTE_EXTERNAL: 'false'
         run: |
           set -euo pipefail
           if [ "${{ inputs.dry_run }}" = "true" ]; then

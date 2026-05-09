@@ -1,12 +1,35 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Confirm the latest tagged release built+uploaded by `make ship` actually
-# made it into App Store Connect. Probes ASC for the most recent build
-# attached to the configured Bundle ID; prints version + state. Exits 0 if
-# any build exists for this app, else 2.
+# Confirm the build that `make ship` just produced actually made it into
+# App Store Connect — and that ALL platform variants (iOS + macOS, when
+# both are active) are processed.
+#
+# Strategy: derive the expected marketing version from the latest local
+# `v*` git tag (which `make ship` pushed), then server-side filter ASC's
+# Build collection on that version. Each `make ship` produces a unique
+# tag (`v#{Time.now.utc.strftime('%Y.%V.%H%M')}` in local mode; release
+# tag pushed by release.yml in CI mode), so the version → match is
+# deterministic and immune to upload-time races with concurrent shippers
+# on the same bundle id (e.g. the smoketest's canary, which uploads
+# every Saturday and would otherwise dominate `sort: -uploadedDate`).
+#
+# Falls back to "newest by uploaded date" only if no local v* tag is
+# found (e.g. fresh fork that hasn't shipped yet, or user ran from a
+# non-tagged worktree); prints a warning when this fallback engages.
+#
+# ASC indexes uploads asynchronously (~1-3 min after pilot returns).
+# Tag exists but no matching build = "still indexing", not "failure" —
+# we exit 2 with a "re-run in 1-2 min" hint, not a hard error.
 #
 # Usage: bundle exec ruby bin/verify-testflight.rb
+#
+# Exit:
+#   0  build(s) matching the tag are processed (or processing — caller
+#      can re-poll)
+#   2  no matching build found (still indexing OR upload failed silently),
+#      or any matching build is in a non-VALID/non-PROCESSING state, or
+#      no builds at all for this app
 
 require_relative "lib/bootstrap"
 
@@ -22,6 +45,102 @@ unless app
   puts "  Did you create it? See `make doctor` output."
   exit 2
 end
+
+# ─── Derive expected marketing version from latest local v* tag ───────────────
+#
+# Tag format conventions (apple-shipkit + forks):
+#   v2026.19.1214             — local mode `make ship` (UTC YYYY.WW.HHMM)
+#   v0.1.0                    — historical / pre-CalVer
+#   v1.5.0                    — apple-shipkit upstream releases
+#   v0.YYYY.WW-canary-N-gen   — smoketest local-mode canary (#129/#134)
+#
+# Marketing version = strip leading "v" + drop any "-suffix":
+#   v2026.19.1214             → 2026.19.1214
+#   v0.YYYY.WW-canary-N-gen   → 0.YYYY.WW
+#
+# Run from the repo root (where the user invokes `make verify`); fall
+# back gracefully if git fails (detached worktree, no tags yet, etc.).
+expected_version = nil
+latest_tag = nil
+begin
+  raw = `git tag --sort=-creatordate --list 'v*' 2>/dev/null`.strip
+  unless raw.empty?
+    latest_tag = raw.lines.first.strip
+    expected_version = latest_tag.sub(/^v/, "").split("-", 2).first
+  end
+rescue StandardError
+  # leave nil; fallback engages below
+end
+
+# ─── Fetch builds (filtered by version when known) ────────────────────────────
+if expected_version
+  matches = Spaceship::ConnectAPI::Build.all(
+    app_id: app.id,
+    version: expected_version,         # spaceship: `version:` filters CFBundleShortVersionString
+    sort: "-uploadedDate",
+    limit: 50
+  )
+
+  if matches.empty?
+    # Tag exists locally but no build matches yet. Two possibilities:
+    #   1. ASC is still indexing the just-uploaded build (~1-3 min lag)
+    #   2. Upload failed silently and the user didn't notice
+    # We can't distinguish without context, so show recent unrelated
+    # builds (so the user sees "yes, ASC is reachable, just no match
+    # for OUR tag") and advise a retry.
+    puts Bootstrap::UI.warn("Tag #{latest_tag} (marketing version #{expected_version}) not yet visible in App Store Connect.")
+    puts "  ASC indexes uploads asynchronously (~1-3 min after pilot returns)."
+    puts
+    recent = Spaceship::ConnectAPI::Build.all(
+      app_id: app.id, sort: "-uploadedDate", limit: 5
+    )
+    unless recent.empty?
+      puts Bootstrap::UI.dim("  Recent builds for #{config['BUNDLE_ID']} (for context — none match tag #{latest_tag}):")
+      recent.each do |b|
+        puts Bootstrap::UI.dim("    #{b.version} (#{b.app_version})  state=#{b.processing_state}  uploaded=#{b.uploaded_date}  platform=#{b.platform}")
+      end
+      puts
+    end
+    puts Bootstrap::UI.warn("Re-run `make verify` in 1-2 minutes. If still missing after 15 min, re-run `make ship`.")
+    exit 2
+  end
+
+  puts Bootstrap::UI.bold("Verifying tag #{latest_tag} (marketing version #{expected_version}):")
+  matches.each do |b|
+    state_marker = case b.processing_state
+                   when "VALID"      then Bootstrap::UI.ok(b.version.to_s)
+                   when "PROCESSING" then Bootstrap::UI.warn(b.version.to_s)
+                   else                  Bootstrap::UI.miss(b.version.to_s)
+                   end
+    puts "  #{state_marker} (#{b.app_version}) [#{b.platform}]  state=#{b.processing_state}  uploaded=#{b.uploaded_date}"
+  end
+
+  states = matches.map(&:processing_state).uniq
+  if states == ["VALID"]
+    puts
+    puts Bootstrap::UI.bold("✅ All #{matches.length} build#{matches.length == 1 ? '' : 's'} for #{latest_tag} are processed and ready for TestFlight testers.")
+    exit 0
+  elsif states.all? { |s| %w[VALID PROCESSING].include?(s) }
+    pending = matches.count { |b| b.processing_state == "PROCESSING" }
+    puts
+    puts Bootstrap::UI.warn("⏳ #{pending}/#{matches.length} build#{matches.length == 1 ? '' : 's'} for #{latest_tag} still processing. Re-run in 5-10 min.")
+    exit 2
+  else
+    bad = matches.reject { |b| %w[VALID PROCESSING].include?(b.processing_state) }
+    puts
+    puts Bootstrap::UI.miss("❌ #{bad.length}/#{matches.length} build#{matches.length == 1 ? '' : 's'} for #{latest_tag} in non-VALID state — check ASC for details.")
+    exit 2
+  end
+end
+
+# ─── Fallback: no local v* tag, report newest build by upload time ────────────
+#
+# Warn loudly because this can surface a build belonging to another
+# shipper on the same bundle id (e.g. the canary).
+puts Bootstrap::UI.warn("No local `v*` tag found — `make verify` falls back to reporting the newest TestFlight build,")
+puts Bootstrap::UI.warn("which may belong to another shipper (e.g. the canary on a smoketest fork).")
+puts Bootstrap::UI.warn("Run `make ship` (which pushes a v* tag) to enable precise verify targeting.")
+puts
 
 builds = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 5)
 if builds.empty?

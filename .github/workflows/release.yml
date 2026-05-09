@@ -215,13 +215,27 @@ jobs:
         # (cert G5HJYWLM9Z, issued by WWDR G3, exp 2027-05-06).
         run: |
           set -euo pipefail
+          # Install into BOTH the System keychain AND the user's login keychain.
+          # `setup_ci` (called by the release lane in CI mode) creates a temp
+          # keychain and adjusts xcodebuild's keychain search list — depending
+          # on whether System keychain is in the search list, intermediates
+          # added there may not be visible. Adding to login keychain too
+          # provides redundant discoverability.
+          #
+          # `security import -A` allows access by any code-signing tool
+          # without per-tool ACL prompts. We don't use `add-trusted-cert -r
+          # trustRoot` because WWDR are intermediates, not roots — they should
+          # anchor at Apple Root CA (already trusted in the system keychain),
+          # not be elevated to roots themselves.
           for gen in G2 G3 G4 G5 G6; do
             curl -fsSL --retry 3 -o "/tmp/AppleWWDRCA${gen}.cer" \
               "https://www.apple.com/certificateauthority/AppleWWDRCA${gen}.cer"
-            sudo security add-trusted-cert -d -r trustRoot \
-              -k /Library/Keychains/System.keychain \
-              "/tmp/AppleWWDRCA${gen}.cer"
+            sudo security import "/tmp/AppleWWDRCA${gen}.cer" \
+              -k /Library/Keychains/System.keychain -A 2>/dev/null || true
+            security import "/tmp/AppleWWDRCA${gen}.cer" \
+              -k "$HOME/Library/Keychains/login.keychain-db" -A 2>/dev/null || true
           done
+          echo "Installed WWDR G2-G6 into System + login keychains."
 
       - name: Bootstrap ASC + Dev Portal records (idempotent)
         # First run on a fresh repo: creates Dev Portal App ID + verifies

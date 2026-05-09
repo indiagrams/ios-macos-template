@@ -899,19 +899,34 @@ platform :ios do
       UI.important("Step 3/5: Skipping iOS TestFlight upload (skip_upload:true)")  if do_ios
       UI.important("Step 4/5: Skipping macOS TestFlight upload (skip_upload:true)") if do_macos
     else
-      # Build a "What to Test" changelog string from RELEASE_CHANGELOG. Empty
-      # by default (real ships don't need it; testers can read git tag);
-      # canary workflows set it to identify which cell + run produced a build.
+      # Build the optional/defensive pilot options for this build.
+      #
+      # RELEASE_CHANGELOG (optional) — TestFlight "What to Test" annotation.
+      # Empty for real ships (testers read the git tag); canary workflows
+      # set it to identify which cell + run produced a build.
+      #
+      # RELEASE_NOTIFY_EXTERNAL ("false") — pass notify_external_testers:false
+      # to pilot. Default-true at ASC means external testers get an email
+      # for every upload. For canary uploads (which testers should never
+      # see), force false.
+      #
+      # RELEASE_DISTRIBUTE_EXTERNAL ("false") — pass distribute_external:false
+      # to pilot. Prevents the build from being pushed to external testing
+      # groups + skips the Beta App Review submission. For canary builds,
+      # which never go to humans, force false.
+      pilot_extras = {}
       cl = ENV["RELEASE_CHANGELOG"].to_s.strip
-      changelog_opts = cl.empty? ? {} : { changelog: cl }
+      pilot_extras[:changelog] = cl unless cl.empty?
+      pilot_extras[:notify_external_testers] = false if ENV["RELEASE_NOTIFY_EXTERNAL"].to_s == "false"
+      pilot_extras[:distribute_external]     = false if ENV["RELEASE_DISTRIBUTE_EXTERNAL"].to_s == "false"
 
       if do_ios
         UI.message("Step 3/5: Uploading iOS .ipa to TestFlight…")
-        pilot_with_retry(api_key: api_key, ipa: ipa_path, skip_waiting_for_build_processing: true, **changelog_opts)
+        pilot_with_retry(api_key: api_key, ipa: ipa_path, skip_waiting_for_build_processing: true, **pilot_extras)
       end
       if do_macos
         UI.message("Step 4/5: Uploading macOS .pkg to TestFlight…")
-        pilot_with_retry(api_key: api_key, pkg: pkg_path, skip_waiting_for_build_processing: true, **changelog_opts)
+        pilot_with_retry(api_key: api_key, pkg: pkg_path, skip_waiting_for_build_processing: true, **pilot_extras)
       end
     end
 

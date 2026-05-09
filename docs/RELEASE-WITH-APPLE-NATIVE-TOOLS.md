@@ -208,6 +208,56 @@ the "ideal for CI/CD" path. The implementation is straightforward but
 has more moving parts than `altool`; for a one-page recipe `altool`
 remains simpler.
 
+### 5. (Optional) Annotate the TestFlight build's "What to Test"
+
+Each TestFlight build can carry a localized "What to Test" string (the
+`BetaBuildLocalization` resource). fastlane pilot's `set_changelog`
+path is structurally broken in 2.233.1 (logs success but never POSTs
+the localization for fresh builds — see
+[`docs/CONTINUOUS-VALIDATION.md`](CONTINUOUS-VALIDATION.md) G15);
+the Apple-native equivalent below sidesteps that:
+
+```bash
+APP_ID="1234567890"
+BUILD_VERSION="2026.19.42"   # CFBundleVersion of the just-uploaded build
+LOCALE="en-US"
+CHANGELOG="Bug fixes and new features"   # ASCII only — see caveat below
+
+# 1. Find the just-uploaded build's id (poll for ~1-3 min after altool —
+#    ASC indexes uploads asynchronously after altool returns):
+BUILD_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.appstoreconnect.apple.com/v1/builds?filter[app]=$APP_ID&filter[version]=$BUILD_VERSION&limit=1" \
+  | jq -r '.data[0].id')
+
+# 2. Check whether a BetaBuildLocalization for this locale already exists.
+#    pilot's upload path can pre-create an empty BBL[en-US]; ASC's
+#    indexing is racy — sometimes you'll see it, sometimes you won't.
+EXISTING=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.appstoreconnect.apple.com/v1/builds/$BUILD_ID/betaBuildLocalizations?filter[locale]=$LOCALE&limit=1" \
+  | jq -r '.data[0].id // empty')
+
+if [ -n "$EXISTING" ]; then
+  # 3a. PATCH the existing localization
+  curl -X PATCH -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    "https://api.appstoreconnect.apple.com/v1/betaBuildLocalizations/$EXISTING" \
+    -d "$(jq -n --arg id "$EXISTING" --arg whatsNew "$CHANGELOG" \
+      '{data:{type:"betaBuildLocalizations",id:$id,attributes:{whatsNew:$whatsNew}}}')"
+else
+  # 3b. POST a new one
+  curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    "https://api.appstoreconnect.apple.com/v1/betaBuildLocalizations" \
+    -d "$(jq -n --arg buildId "$BUILD_ID" --arg locale "$LOCALE" --arg whatsNew "$CHANGELOG" \
+      '{data:{type:"betaBuildLocalizations",attributes:{locale:$locale,whatsNew:$whatsNew},relationships:{build:{data:{type:"builds",id:$buildId}}}}}')"
+fi
+```
+
+> **ASCII-only caveat:** ASC's `BetaBuildLocalization` and
+> `AppStoreVersionLocalization` endpoints **silently reject non-Latin
+> characters in `whatsNew`** with a "contains invalid characters" error
+> (no character pointer, no row/column). Stick to ASCII letters, digits,
+> and common punctuation. The same caveat applies to the `whatsNew` field
+> in §2's `AppStoreVersionLocalization` PATCH.
+
 ## macOS App Store flow
 
 Identical to iOS through the export step, then a re-sign hack, then

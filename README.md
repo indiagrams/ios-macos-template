@@ -5,6 +5,7 @@
 [![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org)
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/sExv9eKdA)
 [![Weekly canary](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)
+[![Local-mode canary](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-local-mode.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-local-mode.yml)
 
 > **Goal of this README:** if you've never shipped an iOS or Mac app before, by the end of it you will have one running on your phone (or Mac) via TestFlight. About 30–60 minutes of focused time, $99/year for Apple Developer Program, and a Mac to build on (Xcode and the rest of Apple's build tools only run on macOS — you need a Mac even for an iPhone-only app).
 
@@ -24,7 +25,7 @@ I'm a first-time iOS developer. Before writing a feature of my actual app, I spe
 
 I automated or documented every requirement I encountered. That's what this template is — the boring prep work, done.
 
-A public canary fork ([`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)) real-ships to TestFlight every Monday on both xcodegen and tuist generators, so Apple-side regressions surface upstream. Catalog at [`docs/CONTINUOUS-VALIDATION.md`](docs/CONTINUOUS-VALIDATION.md).
+A public canary fork ([`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)) real-ships to TestFlight on two cadences: CI mode every Monday and local mode every Saturday, both on xcodegen and tuist generators, so Apple-side regressions surface upstream within a week. Catalog at [`docs/CONTINUOUS-VALIDATION.md`](docs/CONTINUOUS-VALIDATION.md).
 
 ---
 
@@ -394,7 +395,7 @@ Most first-time failures fall into a few buckets. Here's what to do:
 | "Provisioning profile doesn't include the device" | You're trying to sideload, not TestFlight-distribute | TestFlight builds don't need device IDs in the profile. If you see this from `make ship`, your `RELEASE_MODE` may be misconfigured |
 | `make doctor` says "ASC App record not found" | One-time human step — Apple's API forbids `POST /apps` | Go to [appstoreconnect.apple.com/apps](https://appstoreconnect.apple.com/apps), click + → New App, fill in your bundle ID + display name, then re-run `make doctor` |
 | Apple rejects with "Account holder must accept Paid Apps Agreement" | Skip-able for free apps | If you're shipping a free app, no fix needed. If paid, log in to ASC → Agreements, Tax, and Banking → accept |
-| Random `make ship` failure during CI mode | Check the latest entries in [docs/CONTINUOUS-VALIDATION.md](docs/CONTINUOUS-VALIDATION.md) — a 12-entry catalog of known CI-only gotchas |
+| Random `make ship` failure during CI mode | Check the latest entries in [docs/CONTINUOUS-VALIDATION.md](docs/CONTINUOUS-VALIDATION.md) — a 14-entry catalog of known shipping-pipeline gotchas |
 
 If something isn't on this list, [open an issue](https://github.com/indiagrams/apple-shipkit/issues/new) with the full `make ship` output. The maintainers care; this template exists to absorb new gotchas as they're discovered.
 
@@ -444,7 +445,7 @@ Once you're past the first ship, these docs cover the rest:
 
 - **[docs/BOOTSTRAP.md](docs/BOOTSTRAP.md)** — every field of `.bootstrap.env` explained; CI-mode setup; manual fallback if you want to drive the bootstrap by hand.
 - **[docs/APPLE-PREREQS.md](docs/APPLE-PREREQS.md)** — Apple-side setup details, especially for the ASC App record.
-- **[docs/CONTINUOUS-VALIDATION.md](docs/CONTINUOUS-VALIDATION.md)** — the 12-entry catalog of CI-only gotchas (G1–G12). Living document; updated whenever something new is caught by the canary.
+- **[docs/CONTINUOUS-VALIDATION.md](docs/CONTINUOUS-VALIDATION.md)** — the 14-entry catalog of shipping-pipeline gotchas (G1–G14, covering both CI and local modes). Living document; updated whenever something new is caught by either canary.
 - **[docs/MIGRATING-TO-TUIST.md](docs/MIGRATING-TO-TUIST.md)** — switching from XcodeGen to Tuist after fork.
 - **[docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md](docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md)** — same archive/export flow without fastlane (uses `xcrun altool` + `notarytool` + ASC API directly).
 - **[docs/PRINCIPLES.md](docs/PRINCIPLES.md)** — design decisions behind the template's structure.
@@ -479,22 +480,24 @@ Each step is its own fastlane lane in `fastlane/Fastfile`. Read the file — it'
 
 ## Continuous validation
 
-[![Weekly canary](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)
+[![Weekly canary (CI mode)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)
+[![Weekly canary (local mode)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-local-mode.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-local-mode.yml)
 
-The badge above reflects the most recent weekly canary run, which exercises **both** the xcodegen and tuist dispatch cells against real Apple infrastructure on the [indiagrams/ios-macos-smoketest](https://github.com/indiagrams/ios-macos-smoketest) fork. Reads as:
+The two badges above reflect the most recent canary runs:
 
-- 🟢 green — the most recent run had **both** `dispatch (xcodegen)` and `dispatch (tuist)` ship successfully to TestFlight.
-- 🔴 red — at least one cell failed. [Click the badge](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml) to see which one (and why).
+- **CI-mode canary** ([`canary-trigger.yml`](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)) — exercises the match-based shipping path used by forks with `RELEASE_MODE=ci`. Both `dispatch (xcodegen)` and `dispatch (tuist)` cells real-ship to TestFlight on the [smoketest fork](https://github.com/indiagrams/ios-macos-smoketest).
+- **Local-mode canary** ([`canary-local-mode.yml`](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-local-mode.yml)) — exercises the no-match sigh-based shipping path used by forks with `RELEASE_MODE=local` (the default). Mints throwaway certs in the same Apple team, ships to TestFlight, revokes the certs on `always()` so net team-cert delta per run is 0.
 
-Per-cell history (xcodegen vs tuist) lives in the workflow's run-by-run breakdown — each run lists two jobs (`dispatch (xcodegen)` + `dispatch (tuist)`) with independent green/red status.
+Either badge red → at least one cell failed. Click the badge to see which cell + why. Per-cell history (xcodegen vs tuist) lives in each workflow's run-by-run breakdown.
 
-The validation infrastructure:
+The validation infrastructure (all on the smoketest fork):
 - **Mondays 07:00 UTC**: read-only doctor matrix (4 cells: xcodegen|tuist × ci|local) — covers bootstrap toolchain.
-- **Mondays 09:00 UTC**: full release ship to TestFlight, both generators in sequence — covers signing pipeline + Apple infrastructure.
+- **Mondays 09:00 UTC**: full release ship to TestFlight via `release.yml`, both generators in sequence — covers the CI-mode signing pipeline + Apple infrastructure.
+- **Saturdays 11:30 UTC**: full release ship to TestFlight via `canary-local-mode.yml`, both generators sequentially — covers the local-mode signing pipeline (no match, sigh-based profiles, β cert SHA-1 pinning, controlled keychain).
 
 Bugs in fastlane / match / Apple's signing infra surface there before they bite forkers — patches land in this template before they hit your repo.
 
-If you fork this template and your build breaks Monday morning out of the blue, [check the smoketest's Actions tab](https://github.com/indiagrams/ios-macos-smoketest/actions) — it's probably broken there too, and a fix is in flight.
+If you fork this template and your build breaks unexpectedly, [check the smoketest's Actions tab](https://github.com/indiagrams/ios-macos-smoketest/actions) — it's probably broken there too (Monday morning for CI-mode regressions, Saturday morning for local-mode), and a fix is in flight.
 
 ---
 
@@ -506,7 +509,8 @@ If you fork this template and your build breaks Monday morning out of the blue, 
 │   ├── pr.yml                   # 6 build jobs on every PR (3 XcodeGen + 3 Tuist)
 │   ├── release.yml              # signed release pipeline (workflow_dispatch + canary-driven)
 │   ├── bootstrap-doctor-matrix.yml  # weekly doctor sweep across 4 cells
-│   ├── canary-trigger.yml       # weekly ship-validation (template-only; no-op on forks)
+│   ├── canary-trigger.yml       # weekly CI-mode ship-validation (template-only; no-op on forks)
+│   ├── canary-local-mode.yml    # weekly local-mode ship-validation (cron commented; forks opt in)
 │   └── verify-rename.yml        # gate: rename script integrity
 ├── Brewfile                     # xcodegen + tuist + fastlane + lefthook
 ├── Makefile                     # init | doctor | bootstrap-fork | ship | verify | all

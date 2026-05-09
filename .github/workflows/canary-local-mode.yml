@@ -447,15 +447,80 @@ jobs:
               skip_tag:true
           fi
 
-      # (Verify TestFlight ingestion step removed: bin/verify-testflight.rb
-      # requires a `.bootstrap.env` file (gitignored, never committed) and
-      # would always fail on a CI runner. The pilot upload's
-      # 'Successfully uploaded the new binary to App Store Connect' message
-      # in the previous step is sufficient signal that the local-mode
-      # shipping path worked end-to-end. Post-upload TestFlight ingestion
-      # is Apple's responsibility — not the canary's. To verify processing
-      # state across runs, query developer.apple.com/account/resources or
-      # appstoreconnect.apple.com manually.)
+      - name: Populate .bootstrap.env from secrets + repo introspection
+        # bin/verify-testflight.rb (called below) reads `.bootstrap.env` via
+        # Bootstrap::Config.load!, which requires 12 fields for local mode.
+        # The file is gitignored (never committed; per-fork user state), so
+        # it doesn't exist on a fresh CI checkout.
+        #
+        # Strategy: synthesize a `.bootstrap.env` from a mix of GH Secrets
+        # (the 4 fields verify-testflight actually USES — BUNDLE_ID, ASC
+        # creds — must have real values) plus repo-extracted values
+        # (GENERATOR from filesystem, GH_ORG/GH_APP_REPO from git remote)
+        # plus presence-only placeholders for fields validate! requires but
+        # verify-testflight doesn't read.
+        #
+        # The .p8 cert is base64-encoded in the secret; decode to a tmpfile
+        # so Bootstrap.ensure_asc_token! can read it via ASC_API_KEY_P8_PATH.
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          # BUNDLE_ID — the canonical source for any fork is fastlane/Fastfile's
+          # APP_IDENTIFIER constant (set by bin/rename.sh during fork creation).
+          BUNDLE_ID=$(grep '^APP_IDENTIFIER' fastlane/Fastfile | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+          if [ -z "${BUNDLE_ID:-}" ]; then
+            echo "::error::Could not extract APP_IDENTIFIER from fastlane/Fastfile"
+            exit 1
+          fi
+
+          # GENERATOR — detect from filesystem. The matrix's preceding switch
+          # step has already mutated the workspace into the cell's shape.
+          if [ -f app/project.yml ]; then
+            GENERATOR=xcodegen
+          else
+            GENERATOR=tuist
+          fi
+
+          # GH_ORG / GH_APP_REPO — extracted from git remote.
+          REMOTE=$(git remote get-url origin)
+          GH_REPO_PATH=$(echo "${REMOTE}" | sed -E 's|.*github\.com[:/]([^/]+/[^/.]+)(\.git)?$|\1|')
+          GH_ORG=$(echo "${GH_REPO_PATH}" | cut -d/ -f1)
+          GH_APP_REPO=$(echo "${GH_REPO_PATH}" | cut -d/ -f2)
+
+          # Decode .p8 to disk so ensure_asc_token! can load it via path.
+          P8_PATH="${RUNNER_TEMP}/asc_api_key_canary.p8"
+          echo "${ASC_API_KEY_P8_BASE64}" | base64 -d > "${P8_PATH}"
+          chmod 600 "${P8_PATH}"
+
+          # Synthesize .bootstrap.env. Fields used by verify-testflight.rb
+          # have real values (BUNDLE_ID, ASC_API_KEY_*); other REQUIRED_ALWAYS
+          # fields get placeholders that satisfy presence checks.
+          cat > .bootstrap.env <<EOF
+          APP_NAME=canary
+          BUNDLE_ID=${BUNDLE_ID}
+          DISPLAY_NAME=Canary
+          APP_EMAIL=canary@local.invalid
+          GENERATOR=${GENERATOR}
+          RELEASE_MODE=local
+          PLATFORMS=ios,macos
+          FASTLANE_TEAM_ID=${FASTLANE_TEAM_ID}
+          ASC_API_KEY_ID=${ASC_API_KEY_ID}
+          ASC_API_KEY_ISSUER_ID=${ASC_API_KEY_ISSUER_ID}
+          ASC_API_KEY_P8_PATH=${P8_PATH}
+          GH_ORG=${GH_ORG}
+          GH_APP_REPO=${GH_APP_REPO}
+          EOF
+          echo "Synthesized .bootstrap.env:"
+          # Print the file but mask the real ASC ids (they're already secrets in CI logs)
+          sed 's/=.*/=***MASKED***/' .bootstrap.env
+
+      - name: Verify TestFlight ingestion
+        # Confirms ASC accepted the upload. Doesn't wait for full processing
+        # (5-15 min); just checks at least one build exists for the bundle.
+        # Real local-mode users run `make verify` which calls the same script.
+        if: ${{ !inputs.dry_run }}
+        run: bundle exec ruby bin/verify-testflight.rb
 
       # ─── ALWAYS-RUN POST STEPS ──────────────────────────────────────────────
       # Even if mint/ship/verify failed, revoke whatever ids were captured.

@@ -901,38 +901,30 @@ platform :ios do
     else
       # Build the optional/defensive pilot options for this build.
       #
-      # RELEASE_CHANGELOG (optional) — TestFlight "What to Test" annotation.
-      # Empty for real ships (testers read the git tag); canary workflows
-      # set it to identify which cell + run produced a build. Sent to pilot
-      # via `localized_build_info:` (NOT `changelog:`) — pilot 2.233.1's
-      # `changelog:` path silently no-ops on builds with no pre-existing
-      # BetaBuildLocalization (its update loop iterates an empty hash; see
-      # pilot/lib/pilot/build_manager.rb:575-586). The localized_build_info:
-      # path explicitly seeds the locale-keyed hash, so the post-create
-      # branch fires correctly.
+      # RELEASE_CHANGELOG is NOT applied here — fastlane pilot 2.233.1's
+      # set_changelog path is broken for new builds with no pre-existing
+      # BetaBuildLocalization (the inner update_localized_build_review at
+      # build_manager.rb:560-588 iterates an empty hash and no-ops, but
+      # logs success regardless). The canary workflow handles changelog
+      # annotation via a separate post-upload step that POSTs the BBL
+      # directly via Spaceship::ConnectAPI. See canary-local-mode.yml.
       #
-      # RELEASE_NOTIFY_EXTERNAL ("false") — pass notify_external_testers:false
-      # to pilot. Default-true at ASC means external testers get an email
-      # for every upload. For canary uploads (which testers should never
-      # see), force false.
-      #
-      # RELEASE_DISTRIBUTE_EXTERNAL ("false") — pass distribute_external:false
-      # to pilot. Prevents the build from being pushed to external testing
-      # groups + skips the Beta App Review submission. For canary builds,
-      # which never go to humans, force false.
-      pilot_extras = {}
-      cl = ENV["RELEASE_CHANGELOG"].to_s.strip
-      pilot_extras[:localized_build_info] = { "en-US" => { whats_new: cl } } unless cl.empty?
-      pilot_extras[:notify_external_testers] = false if ENV["RELEASE_NOTIFY_EXTERNAL"].to_s == "false"
-      pilot_extras[:distribute_external]     = false if ENV["RELEASE_DISTRIBUTE_EXTERNAL"].to_s == "false"
-
+      # No notify_external_testers / distribute_external overrides — pilot's
+      # defaults match what we want (distribute_external defaults to false;
+      # notify_external_testers defaults to ASC's server-side default).
+      # Canary builds end up in "Internal Testing" (App Manager users), which
+      # is fine — for the smoketest the count is 0; for real forks, internal
+      # testers are typically the developers themselves who can ignore canary
+      # builds in TestFlight UI. Letting pilot defaults apply means the
+      # canary path mirrors a real fork's release.yml behavior more closely
+      # → catches drift in default-pilot behavior too.
       if do_ios
         UI.message("Step 3/5: Uploading iOS .ipa to TestFlight…")
-        pilot_with_retry(api_key: api_key, ipa: ipa_path, skip_waiting_for_build_processing: true, **pilot_extras)
+        pilot_with_retry(api_key: api_key, ipa: ipa_path, skip_waiting_for_build_processing: true)
       end
       if do_macos
         UI.message("Step 4/5: Uploading macOS .pkg to TestFlight…")
-        pilot_with_retry(api_key: api_key, pkg: pkg_path, skip_waiting_for_build_processing: true, **pilot_extras)
+        pilot_with_retry(api_key: api_key, pkg: pkg_path, skip_waiting_for_build_processing: true)
       end
     end
 

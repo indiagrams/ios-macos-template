@@ -7,8 +7,9 @@
 #   their generator (#38). This script flips a fork to Tuist-only by:
 #   removing `app/project.yml`, dropping `brew "xcodegen"` from
 #   Brewfile, and replacing every `xcodegen generate` invocation in
-#   Makefile / ci/local-check.sh / ci/local-release-check.sh /
-#   .github/workflows/pr.yml with `tuist generate --no-open`.
+#   Makefile / ci/local-check.sh / ci/local-release-check.sh with
+#   `tuist generate --no-open`. The pr.yml matrix builder auto-detects
+#   that app/project.yml is gone and stops emitting xcodegen cells.
 #
 #   Two callers:
 #     1. `bin/rename.sh ... --generator=tuist` calls this script
@@ -239,17 +240,6 @@ mutate_local_release_check() {
   ok "ci/local-release-check.sh: xcodegen generate → tuist generate --no-open"
 }
 
-mutate_pr_workflow() {
-  step "Editing .github/workflows/pr.yml (3 jobs: xcodegen → tuist)"
-  if [ ! -f ".github/workflows/pr.yml" ]; then
-    fail ".github/workflows/pr.yml missing — unexpected repo state"
-  fi
-  sed -i '' 's|name: install xcbeautify + xcodegen|name: install xcbeautify + tuist|g' .github/workflows/pr.yml
-  sed -i '' 's|run: brew install xcbeautify xcodegen|run: brew install xcbeautify \&\& brew install --cask tuist|g' .github/workflows/pr.yml
-  sed -i '' 's|run: xcodegen generate|run: tuist generate --no-open|g' .github/workflows/pr.yml
-  ok ".github/workflows/pr.yml: xcodegen generate → tuist generate --no-open (3 jobs)"
-}
-
 # ── --dry-run preview ─────────────────────────────────────────────────────
 print_dry_run_plan() {
   step "DRY RUN — no files will be modified"
@@ -262,7 +252,6 @@ print_dry_run_plan() {
   echo "  Makefile                       (cd app && xcodegen generate → cd app && tuist generate --no-open)"
   echo "  ci/local-check.sh              (require_cmd / step / xcodegen generate)"
   echo "  ci/local-release-check.sh      (step + xcodegen generate)"
-  echo "  .github/workflows/pr.yml       (3 jobs: install + generate steps)"
   echo
   echo "Mutation count preview:"
   printf '  %-40s %d hit(s)\n' "Brewfile brew \"xcodegen\"" \
@@ -273,8 +262,6 @@ print_dry_run_plan() {
     "$(grep -c 'xcodegen' ci/local-check.sh 2>/dev/null || echo 0)"
   printf '  %-40s %d hit(s)\n' "ci/local-release-check.sh xcodegen" \
     "$(grep -c 'xcodegen' ci/local-release-check.sh 2>/dev/null || echo 0)"
-  printf '  %-40s %d hit(s)\n' ".github/workflows/pr.yml xcodegen" \
-    "$(grep -c 'xcodegen' .github/workflows/pr.yml 2>/dev/null || echo 0)"
   echo
   ok "dry run complete — re-run without --dry-run to apply"
 }
@@ -343,7 +330,6 @@ main() {
   mutate_makefile
   mutate_local_check
   mutate_local_release_check
-  mutate_pr_workflow
 
   # Success path: disarm rollback traps.
   trap - ERR EXIT INT TERM

@@ -115,11 +115,17 @@ grep -q 'require_cmd xcodegen' "$WORK_DIR/ci/local-check.sh" || \
   fail "post-switch: ci/local-check.sh missing 'require_cmd xcodegen'"
 ! grep -q 'require_cmd tuist' "$WORK_DIR/ci/local-check.sh" || \
   fail "post-switch: ci/local-check.sh still has 'require_cmd tuist'"
-grep -q 'run: xcodegen generate' "$WORK_DIR/.github/workflows/pr.yml" || \
-  fail "post-switch: .github/workflows/pr.yml missing 'run: xcodegen generate'"
-! grep -q 'run: tuist generate --no-open' "$WORK_DIR/.github/workflows/pr.yml" || \
-  fail "post-switch: .github/workflows/pr.yml still has 'run: tuist generate --no-open'"
-ok "all 6 mutation surfaces verified post-switch"
+# pr.yml is intentionally NOT mutated by switch-to-xcodegen.sh anymore — the
+# matrix builder in pr.yml detects which generator manifests are present
+# (app/project.yml ↔ xcodegen, app/Project.swift ↔ tuist) and only emits
+# matching cells. After switch-to-xcodegen restores app/project.yml, pr.yml's
+# matrix gains xcodegen cells at runtime with no edits to the workflow.
+# (Project.swift is left in place — switch-to-xcodegen is an additive restore,
+# not a true inverse; the matrix runs both generators when both manifests
+# coexist, which matches apple-shipkit/smoketest template default.)
+[ -f "$WORK_DIR/app/project.yml" ] || \
+  fail "post-switch: app/project.yml missing (matrix would have no xcodegen cells)"
+ok "all 5 mutation surfaces verified post-switch + pr.yml matrix invariant"
 
 # ── Idempotency: second run is silent no-op ───────────────────────────────
 step "Idempotency: second run is silent no-op"

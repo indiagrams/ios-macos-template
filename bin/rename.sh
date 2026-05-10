@@ -390,6 +390,17 @@ PATHSPEC_EXCLUSIONS=(
   # fork's PR and fails because the fork has no ASC secrets, no certs-repo
   # PAT, etc. Excluded entirely from the rename sweep so the safety guard
   # survives.
+  # bin/lib/bootstrap.rb is the orchestrator that CALLS bin/rename.sh as
+  # part of its pipeline. It contains "HelloApp" in three positions:
+  #   - RenameStub#name display string ("Rename HelloApp → ...")
+  #   - The :pending check comment ("no leftover HelloApp / ...")
+  #   - InitialPush#do_it commit message template
+  # The first two are cosmetic, but the commit-message corruption matters:
+  # after the broad sweep rewrites HelloApp → SmokeApp here, any subsequent
+  # bootstrap-fork that triggers a fresh InitialPush commit produces nonsense
+  # like "Bootstrap fork: rename SmokeApp -> SmokeApp" in git history.
+  # Excluded so the orchestrator stays self-describing.
+  ':!bin/lib/bootstrap.rb'
   ':!.github/workflows/bootstrap-doctor-matrix.yml'
 )
 

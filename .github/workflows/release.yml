@@ -192,8 +192,12 @@ jobs:
                 echo "Already in xcodegen state — no switch needed"
               elif [ -x ./bin/switch-to-xcodegen.sh ]; then
                 # bin/switch-to-xcodegen.sh's preflight requires xcodegen on PATH.
-                # make bootstrap above already installed it; switch is a no-op
-                # mutator otherwise.
+                # `make bootstrap` only installs what's in the current Brewfile;
+                # if the fork has been switched to tuist, bin/switch-to-tuist.sh
+                # mutated the Brewfile to drop xcodegen — so a tuist-state fork's
+                # `make bootstrap` won't install xcodegen, and the override step
+                # fails with "xcodegen not found". Install eagerly here.
+                brew install xcodegen
                 ./bin/switch-to-xcodegen.sh --force
               else
                 echo "::error::generator=xcodegen requested but bin/switch-to-xcodegen.sh missing"

@@ -60,6 +60,15 @@ end
 #
 # Run from the repo root (where the user invokes `make verify`); fall
 # back gracefully if git fails (detached worktree, no tags yet, etc.).
+#
+# CI mode pushes the v* tag from the runner (release.yml's fastlane lane),
+# not the user's local clone. Without a tag fetch, the local clone never
+# sees it and verify falls back to "newest build" which dumps the whole
+# bundle's history — useless when the user just ran `make ship` and wants
+# to confirm THEIR build. Fetch tags from origin first; network-fail
+# silently because the fallback path still runs if fetch fails.
+system("git", "fetch", "--tags", "--quiet", "origin", out: File::NULL, err: File::NULL)
+
 expected_version = nil
 latest_tag = nil
 begin
@@ -93,7 +102,7 @@ if expected_version
     puts
     recent = Spaceship::ConnectAPI::Build.all(
       app_id: app.id, sort: "-uploadedDate", limit: 5
-    )
+    ).first(5) # Spaceship's `limit:` is per-page, not total — slice to enforce.
     unless recent.empty?
       puts Bootstrap::UI.dim("  Recent builds for #{config['BUNDLE_ID']} (for context — none match tag #{latest_tag}):")
       recent.each do |b|
@@ -142,7 +151,7 @@ puts Bootstrap::UI.warn("which may belong to another shipper (e.g. the canary on
 puts Bootstrap::UI.warn("Run `make ship` (which pushes a v* tag) to enable precise verify targeting.")
 puts
 
-builds = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 5)
+builds = Spaceship::ConnectAPI::Build.all(app_id: app.id, sort: "-uploadedDate", limit: 5).first(5) # Spaceship's `limit:` is per-page, not total — slice to enforce.
 if builds.empty?
   puts Bootstrap::UI.miss("No TestFlight builds found for #{config['BUNDLE_ID']} (id=#{app.id})")
   puts "  Try `make ship` first; ASC ingestion takes 5-15 min after upload."

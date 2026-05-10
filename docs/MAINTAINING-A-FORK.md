@@ -124,6 +124,8 @@ bundle exec fastlane ios submit_for_review
 
 Apple's review takes 24-48 hours typically. If they reject, fix the issue and re-submit; the same build can be re-submitted unchanged (pure metadata fixes), or upload a new build.
 
+**Submit lane side-effect: GitHub Release.** `submit_for_review` (iOS or macOS) also publishes a GitHub Release tagged `v<MARKETING>+<BUILD>` with notes pulled from the matching `## [<MARKETING>]` block in `CHANGELOG.md` (falls back to a one-line stub if the section is missing). Idempotent — submitting iOS and macOS for the same marketing version produces a single Release. Per-build TestFlight tags are unchanged; GitHub Releases mark App Store submissions, matching the Slack / 1Password / Notion-iOS pattern. To opt out for a one-off run (e.g. `gh` CLI broken on the runner): `RELEASE_SKIP_GH_RELEASE=true bundle exec fastlane ios submit_for_review`.
+
 ### "I added a new entitlement (e.g. Push) and signing now fails"
 
 Each time you add a new capability to your Bundle ID:

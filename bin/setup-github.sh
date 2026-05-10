@@ -6,9 +6,9 @@
 #   - Default branch: main
 #   - Branch protection on main:
 #       * Require PR before merging (no direct pushes)
-#       * Require 7 status checks: swiftlint + 3 XcodeGen (app (iOS device),
-#         app (iOS Simulator), app (macOS)) + 3 Tuist parity (app (Tuist iOS
-#         device), app (Tuist iOS Simulator), app (Tuist macOS))
+#       * Require status checks (swiftlint + per-generator app cells —
+#         xcodegen if app/project.yml is committed, tuist if app/Project.swift
+#         is committed; both manifests = both check sets)
 #       * Require status checks to be up-to-date before merge
 #       * Enforce on admins (no bypass — same rules apply to repo owner)
 #       * Require linear history
@@ -100,12 +100,31 @@ fi
 [ -z "$PLATFORMS_VAL" ] && PLATFORMS_VAL="ios,macos"
 [ -z "$RELEASE_MODE_VAL" ] && RELEASE_MODE_VAL="ci"
 
+# Detect committed generator manifests so the required-checks list matches
+# what pr.yml's matrix builder actually emits. Single-generator forks (the
+# typical end state — pick xcodegen OR tuist via bin/switch-to-{xcodegen,
+# tuist}.sh) delete the other manifest, so requiring its check names would
+# leave PRs permanently unmergeable (those checks never appear). The matrix
+# builder in .github/workflows/pr.yml uses the same filesystem rule.
+has_xcodegen=0; has_tuist=0
+[ -f "$REPO_ROOT/app/project.yml" ]   && has_xcodegen=1
+[ -f "$REPO_ROOT/app/Project.swift" ] && has_tuist=1
+# Safety: if neither manifest is present (corrupt state), fall back to
+# requiring both — same default the matrix builder uses, so pr.yml would
+# still emit cells (failing loudly) and the names line up.
+if [ "$has_xcodegen" -eq 0 ] && [ "$has_tuist" -eq 0 ]; then
+  echo "  WARN: neither app/project.yml nor app/Project.swift present; defaulting required checks to both generator sets"
+  has_xcodegen=1; has_tuist=1
+fi
+
 CHECKS=()
 if echo "$PLATFORMS_VAL" | grep -qw 'ios'; then
-  CHECKS+=( "app (iOS device)" "app (iOS Simulator)" "app (Tuist iOS device)" "app (Tuist iOS Simulator)" )
+  [ "$has_xcodegen" -eq 1 ] && CHECKS+=( "app (iOS device)" "app (iOS Simulator)" )
+  [ "$has_tuist"    -eq 1 ] && CHECKS+=( "app (Tuist iOS device)" "app (Tuist iOS Simulator)" )
 fi
 if echo "$PLATFORMS_VAL" | grep -qw 'macos'; then
-  CHECKS+=( "app (macOS)" "app (Tuist macOS)" )
+  [ "$has_xcodegen" -eq 1 ] && CHECKS+=( "app (macOS)" )
+  [ "$has_tuist"    -eq 1 ] && CHECKS+=( "app (Tuist macOS)" )
 fi
 
 # `swiftlint` always runs (no platform gate) — append unconditionally so
@@ -168,8 +187,8 @@ echo "$PROTECTION_JSON" | gh api -X PUT "repos/$REPO/branches/main/protection" \
   # PUT returns 404. Make this error clearer.
   fail "could not apply protection — does '$REPO' have a 'main' branch yet? Push at least one commit first."
 }
-ok "main: PR-required, 6 CI checks (3 XcodeGen + 3 Tuist, strict), enforce on admins, linear history"
+ok "main: PR-required, ${#CHECKS[@]} CI checks ($(IFS=,; echo "${CHECKS[*]}"), strict), enforce on admins, linear history"
 
 step "Done"
-ok "$REPO is configured (PR-required, 6 CI checks, squash-only, auto-merge)."
+ok "$REPO is configured (PR-required, ${#CHECKS[@]} CI checks, squash-only, auto-merge)."
 ok "Direct pushes to main are blocked. Open PRs and let CI run."

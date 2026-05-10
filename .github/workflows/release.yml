@@ -78,6 +78,11 @@ on:
         required: false
         type: string
         default: ''
+      generator:
+        description: 'Project generator override (xcodegen|tuist). Empty = use whichever Makefile is currently set to.'
+        required: false
+        type: string
+        default: ''
       changelog:
         description: 'TestFlight What-to-Test text. Empty = auto-extract from CHANGELOG.md (first non-empty version block).'
         required: false
@@ -167,6 +172,51 @@ jobs:
         # `make bootstrap` does brew bundle (xcodegen, tuist, lefthook) +
         # bundle install. Idempotent.
         run: make bootstrap
+
+      - name: Apply generator override
+        # Optional input that overrides whatever generator the Makefile is
+        # currently using. Mirrors canary-local-mode.yml's pattern: if
+        # `generator: tuist` is requested but the tree is in xcodegen state,
+        # run bin/switch-to-tuist.sh to flip it before fastlane release. Same
+        # for xcodegen. Empty = no override (use current Makefile state).
+        # Used by canary-trigger.yml's matrix to exercise both generators
+        # against the same App Store record.
+        if: inputs.generator != ''
+        env:
+          GENERATOR_OVERRIDE: ${{ inputs.generator }}
+        run: |
+          set -euo pipefail
+          case "$GENERATOR_OVERRIDE" in
+            xcodegen)
+              if [ -f app/project.yml ] && grep -q 'cd app && xcodegen' Makefile; then
+                echo "Already in xcodegen state — no switch needed"
+              elif [ -x ./bin/switch-to-xcodegen.sh ]; then
+                # bin/switch-to-xcodegen.sh's preflight requires xcodegen on PATH.
+                # make bootstrap above already installed it; switch is a no-op
+                # mutator otherwise.
+                ./bin/switch-to-xcodegen.sh --force
+              else
+                echo "::error::generator=xcodegen requested but bin/switch-to-xcodegen.sh missing"
+                exit 1
+              fi
+              ;;
+            tuist)
+              if [ -f app/Project.swift ] && grep -q 'cd app && tuist' Makefile; then
+                echo "Already in tuist state — no switch needed"
+              elif [ -x ./bin/switch-to-tuist.sh ]; then
+                brew install --cask tuist || true
+                ./bin/switch-to-tuist.sh --force
+              else
+                echo "::error::generator=tuist requested but bin/switch-to-tuist.sh missing"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::Unknown generator '$GENERATOR_OVERRIDE'. Must be 'xcodegen' or 'tuist'."
+              exit 1
+              ;;
+          esac
+          echo "Generator override applied: $GENERATOR_OVERRIDE"
 
       - name: Compute release tag (vMARKETING+BUILD from project.yml + ASC)
         id: ver

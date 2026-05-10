@@ -14,6 +14,8 @@ brew "lefthook"        # pre-push hook → ci/local-check.sh --fast
 brew "gh"              # PR / release CLI
 
 # Release pipeline
+brew "ruby@3.3"        # pinned Ruby for fastlane (see .ruby-version + .tool-versions);
+                       # avoids the unversioned brew `ruby` symlink moving with each major release
 brew "fastlane"        # signs iOS + macOS, uploads to TestFlight + App Store metadata
 
 # Optional: only needed if you generate macOS app icons via ci/gen-macos-icons.swift

@@ -50,8 +50,18 @@ for arg in "$@"; do
   esac
 done
 
-# brew Ruby — system Ruby fails on bundler version mismatch
-export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
+# Pin Ruby to .ruby-version so bundler finds the gems installed under
+# vendor/bundle/ruby/<MAJOR.MINOR>.0/ (see ci/take-screenshots.sh for
+# the full rationale — brew's unversioned `ruby` symlink moves with
+# each major release and silently breaks `bundle exec`).
+RUBY_VER="$(cat "$(dirname "$0")/../.ruby-version" 2>/dev/null || echo 3.3)"
+RUBY_MM="$(echo "$RUBY_VER" | awk -F. '{ print $1 "." $2 }')"
+if [ -d "/opt/homebrew/opt/ruby@${RUBY_MM}/bin" ]; then
+  export PATH="/opt/homebrew/opt/ruby@${RUBY_MM}/bin:$PATH"
+elif [ -d "/opt/homebrew/opt/ruby/bin" ]; then
+  echo "WARN: brew ruby@${RUBY_MM} not installed; falling back to /opt/homebrew/opt/ruby." >&2
+  export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
+fi
 
 # .bootstrap.env for ASC API key (legacy .env.local supported as fallback)
 if [ -f .bootstrap.env ]; then

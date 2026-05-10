@@ -4,12 +4,18 @@
 # Output → ./fastlane/screenshots/{language}/*.png (deliver requires flat layout
 # in en-US/; nested device subdirectories are silently dropped).
 #
-# Apple App Store Connect requires screenshots for at minimum the 6.7" iPhone
-# slot (1290×2796) and one iPad Pro slot (2064×2752). Smaller iPhone sizes are
-# NOT required as of 2024 — Apple uses scaled versions of the 6.7" upload.
+# Apple App Store Connect requires screenshots for at minimum one iPhone
+# and one iPad slot. The slot expectations are baked into the App Store
+# record at App creation time and are sticky — apps created before Apple
+# rolled out the M4 13" iPad slot still expect 12.9" 3rd gen+
+# (APP_IPAD_PRO_3GEN_129, 2048×2732). Apps created after may also accept
+# the M4 13" slot (APP_IPAD_PRO_M4, 2064×2752) but the 12.9" slot is
+# universally accepted as a secondary.
+#
+# Default to devices that hit the universally-accepted slot dimensions:
 devices([
-  "iPhone 16 Plus",          # 6.7-inch — primary App Store slot (1290×2796)
-  "iPad Pro 13-inch (M4)"    # 13-inch iPad — secondary slot (2064×2752)
+  "iPhone 16 Plus",                              # 6.7" — APP_IPHONE_67 (1290×2796)
+  "iPad Pro (12.9-inch) (6th generation)"        # 12.9" — APP_IPAD_PRO_3GEN_129 (2048×2732)
 ])
 
 languages(["en-US"])

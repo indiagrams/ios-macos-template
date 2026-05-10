@@ -37,19 +37,31 @@ for arg in "$@"; do
   esac
 done
 
-# brew Ruby — fastlane via system Ruby fails on bundler version mismatch
-export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
+# Pin Ruby to the version declared in `.ruby-version` so bundler finds the
+# gems installed under `vendor/bundle/ruby/<MAJOR.MINOR>.0/`. Without
+# this pin, brew's unversioned `/opt/homebrew/opt/ruby/bin` symlink
+# moves with each new major Ruby release (May 2026: bumped from 3.3 to 4.0),
+# silently breaking `bundle exec` for everyone using brew Ruby.
+# `.ruby-version` is checked in alongside .tool-versions (per #175); the
+# Brewfile installs `ruby@${MAJOR.MINOR}` to match.
+RUBY_VER="$(cat "$REPO_ROOT/.ruby-version" 2>/dev/null || echo 3.3)"
+RUBY_MM="$(echo "$RUBY_VER" | awk -F. '{ print $1 "." $2 }')"
+if [ -d "/opt/homebrew/opt/ruby@${RUBY_MM}/bin" ]; then
+  export PATH="/opt/homebrew/opt/ruby@${RUBY_MM}/bin:$PATH"
+elif [ -d "/opt/homebrew/opt/ruby/bin" ]; then
+  echo "WARN: brew ruby@${RUBY_MM} not installed; falling back to /opt/homebrew/opt/ruby (currently $(/opt/homebrew/opt/ruby/bin/ruby -v 2>/dev/null | awk '{print $2}')). Run \`brew install ruby@${RUBY_MM}\` if bundle exec fails." >&2
+  export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
+fi
 
 step()   { printf '\n==> %s\n' "$*"; }
 ok()     { printf '    ✓ %s\n' "$*"; }
 
 # Generator-aware: detect xcodegen vs tuist from filesystem (mirrors
-# the matrix builder in .github/workflows/pr.yml). bin/rename.sh
-# substitutes HelloApp → <APP_NAME> in the .xcodeproj literal below,
-# but the GENERATOR axis is independent — a fork can switch from
-# xcodegen to tuist (or vice versa) via bin/switch-to-{tuist,xcodegen}.sh
-# at any time without re-running rename.sh. Detecting at run-time keeps
-# this script working across both paths.
+# the matrix builder in .github/workflows/pr.yml). Detecting at run-time
+# keeps this script working across both generators — and across forks
+# that flip generator via bin/switch-to-{tuist,xcodegen}.sh after the
+# initial bin/rename.sh. App-name is read from the resulting .xcodeproj
+# basename, so re-runs after rename Just Work too.
 if [ -f app/project.yml ]; then
   step "xcodegen generate"
   ( cd app && xcodegen generate >/dev/null )
@@ -61,7 +73,17 @@ else
   echo "       Run 'bin/switch-to-xcodegen.sh' or 'bin/switch-to-tuist.sh' to materialize one." >&2
   exit 1
 fi
-ok "app/HelloApp.xcodeproj refreshed"
+# Resolve app name from the resulting .xcodeproj basename — survives
+# bin/rename.sh, switch-to-{tuist,xcodegen}.sh, and any other flow that
+# emits app/<APP_NAME>.xcodeproj. Single .xcodeproj is the contract; if
+# this ever changes, the explicit globbing here will fail loudly.
+XCODEPROJ="$(ls -d app/*.xcodeproj 2>/dev/null | head -1)"
+if [ -z "$XCODEPROJ" ]; then
+  echo "ERROR: no .xcodeproj produced under app/ after generate. Bailing." >&2
+  exit 1
+fi
+APP_NAME="$(basename "$XCODEPROJ" .xcodeproj)"
+ok "${XCODEPROJ} refreshed (APP_NAME=${APP_NAME})"
 
 if ! $MACOS_ONLY; then
   step "Capture iOS screenshots (fastlane/Snapfile)"
@@ -74,11 +96,11 @@ if ! $IOS_ONLY; then
   XCRESULT="/tmp/mac-screenshots.xcresult"
   rm -rf "$XCRESULT"
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
-    -project app/HelloApp.xcodeproj \
-    -scheme HelloApp-macOS \
+    -project "$XCODEPROJ" \
+    -scheme "${APP_NAME}-macOS" \
     -destination 'platform=macOS' \
     -resultBundlePath "$XCRESULT" \
-    -only-testing:HelloAppMacOSUITests/AppStoreScreenshotTests \
+    -only-testing:"${APP_NAME}MacOSUITests/AppStoreScreenshotTests" \
     ONLY_ACTIVE_ARCH=YES 2>&1 | xcbeautify --quiet || {
       echo "error: macOS screenshot test failed — see $XCRESULT" >&2
       exit 1

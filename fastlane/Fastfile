@@ -558,6 +558,7 @@ def do_submit_for_review(platform:, submit:)
     skip_metadata:            false,
     skip_binary_upload:       true,
     skip_screenshots:         false,
+    screenshots_path:         (platform == :osx ? './fastlane/Mac_screenshots' : './fastlane/screenshots'),
     force:                    true,
     submit_for_review:        submit,
     automatic_release:        false,

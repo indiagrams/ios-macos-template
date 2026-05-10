@@ -377,7 +377,7 @@ You have a working app + working release pipeline. From here:
 | Change the app's behavior | Edit files in `app/Shared/` (SwiftUI code, cross-platform). Run `make check` to verify it still builds. |
 | Ship a new version | `make ship` again — versioning is automatic: tag `v<MARKETING>+<BUILD>` where `<MARKETING>` reads from `app/project.yml` (or `app/Project.swift` for Tuist) and `<BUILD>` resolves to `max(builds at marketing) + 1` from App Store Connect. |
 | Replace the placeholder icon | Drop a 1024×1024 PNG into `app/iOS/Assets.xcassets/AppIcon.appiconset/Icon-1024.png`, run `make icons` to regenerate the macOS .icns, ship again. |
-| Submit to the actual App Store | Capture screenshots (`make screenshots`), fill in `fastlane/metadata/en-US/*.txt`, then `fastlane ios submit_for_review`. The submit lane also publishes a GitHub Release for the marketing version (notes pulled from `CHANGELOG.md`); set `RELEASE_SKIP_GH_RELEASE=true` to disable. See [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) for the App Store submission section. |
+| Submit to the actual App Store | `make screenshots` (slow — review the PNGs), then `make submit`. Stages by default (review in App Store Connect web UI then click Submit yourself); flip `SUBMIT_FOR_REVIEW=true` in `.bootstrap.env` to auto-submit. Reads `PLATFORMS` so single-platform forks DTRT. See [docs/MAINTAINING-A-FORK.md](docs/MAINTAINING-A-FORK.md#i-want-to-submit-to-app-store-review) for the full ramp. |
 | Move signing to GitHub Actions | Set `RELEASE_MODE=ci` in `.bootstrap.env`, follow the "Two release modes" section in [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md#two-release-modes). |
 
 ---

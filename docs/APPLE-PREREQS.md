@@ -63,7 +63,7 @@ The `.gitignore` already blocks the common ones, but be aware:
 |------|---------------|------------------|
 | `*.p8` | App Store Connect API private key | `~/.appstoreconnect/` |
 | `*.mobileprovision` | Provisioning profiles (manual signing) | `~/Library/MobileDevice/Provisioning Profiles/` (Xcode manages) |
-| `*.cer`, `*.p12` | Distribution certificates. Three types are needed for full ship: **Apple Distribution** (codesign for the .app), **Apple Development** (provisioning), **3rd Party Mac Developer Installer** (signs the `.pkg` wrapper around macOS apps via `productbuild`). Per-team caps verified empirically May 2026: DIST=3, DEV≥5, MAC_INSTALLER=2. | macOS Keychain |
+| `*.cer`, `*.p12` | Distribution certificates. Three types are needed for full ship: **Apple Distribution** (codesign for the .app), **Apple Development** (provisioning), **3rd Party Mac Developer Installer** (signs the `.pkg` wrapper around macOS apps via `productbuild`). Local mode auto-mints these into the login keychain via `make mint-local-certs` (also runs as part of `make bootstrap-fork`). CI mode (`release.yml`, v1.6+) mints them fresh on the runner per release and revokes on `always()` — there is no certs repo and no `match` step. Per-team caps verified empirically May 2026: DIST=3, DEV≥5, MAC_INSTALLER=2. | macOS Keychain (local mode) / minted on the runner per run (CI mode) |
 | `.bootstrap.env` | Local fork config (paths, identifiers; secrets stay outside repo) | repo root, gitignored |
 
 If you accidentally commit any of these, treat it as a credential leak: revoke the key/cert immediately on Apple's side, then `git rm --cached` + force-rotate.
@@ -82,8 +82,8 @@ team `A26TJZ8QHQ` (community docs are stale or contradictory):
 
 | Cert type | Cap | Notes |
 |---|---|---|
-| Apple Distribution | **3** | Used for codesigning `.app` bundles. fastlane match's standard distribution path. |
-| Apple Development | **≥ 5** | Provisioning + dev signing. We didn't probe the upper bound; the v1.5 canary mints 1 per run with no observed cap hit. |
+| Apple Distribution | **3** | Used for codesigning `.app` bundles. Minted per-run by `release.yml` (CI mode, v1.6+) or once into the login keychain by `make mint-local-certs` (local mode). |
+| Apple Development | **≥ 5** | Provisioning + dev signing. We didn't probe the upper bound; the canary and `release.yml` each mint 1 per run with no observed cap hit. |
 | 3rd Party Mac Developer Installer | **2** | Used by `productbuild` to sign `.pkg` wrappers for macOS apps. Lower than DIST — Mac shippers commonly hit this first. |
 | Developer ID Application G2 | (separate, untested) | Apple's notarization-bound cert for direct distribution outside the App Store. Not exercised by this template. |
 
@@ -93,11 +93,18 @@ be your production cert. `fastlane cert` defaults to no `--force` (safe).
 The `revoke_cert` lane (singular) and `revoke_certs` lane (plural,
 idempotent batch) in `fastlane/Fastfile` help free a slot.
 
-### Optional: dedicate cycling slots for continuous validation
+### Dedicate cycling slots if at-cap (required for release.yml + canary)
 
-If you plan to enable `.github/workflows/canary-local-mode.yml` (the
-Saturday local-mode canary added in v1.5), dedicate 1 cycling slot per
-at-cap type up front:
+If your team is at-cap on Distribution (3/3) or Mac Installer (2/2),
+revoke 1 spare cert per constrained type once via the developer portal
+— this dedicates a cycling slot for the canary AND for `release.yml`
+runs. Without a cycling slot, a `make ship` run hits HTTP 409 at the
+mint step (and so does the Saturday canary).
+
+This applies to every fork running v1.6+. Earlier (v1.5) cycling-slot
+guidance only mentioned the canary because the release path then went
+through `match` against a certs repo; v1.6 release.yml mints fresh per
+run, so the same slot pressure applies to actual releases.
 
 ```bash
 # Via Apple Developer portal (~30 sec)
@@ -108,10 +115,11 @@ at-cap type up front:
 bundle exec fastlane revoke_certs ids:CERT_ID_1,CERT_ID_2
 ```
 
-The canary then mints into the freed slots per run and revokes on
-`always()`. Net team-cert delta per run = 0; your existing shipping
-certs are never touched. See [docs/CONTINUOUS-VALIDATION.md](CONTINUOUS-VALIDATION.md)
-for the full architecture.
+Both the canary and `release.yml` then mint into the freed slots per
+run and revoke on `always()`. Net team-cert delta per run = 0; your
+existing shipping certs are never touched. See
+[docs/CONTINUOUS-VALIDATION.md](CONTINUOUS-VALIDATION.md) for the full
+architecture.
 
 ## Reference
 

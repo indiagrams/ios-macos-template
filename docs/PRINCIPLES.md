@@ -31,16 +31,21 @@ first and let's talk.
    warning.
 6. **The release pipeline is continuously validated by a public downstream.**
    [`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)
-   runs **two** complementary canaries weekly to TestFlight against this
-   template's signing pattern: `release.yml` (CI mode, match-based) on
-   Mondays 09:00 UTC via `canary-trigger.yml`, and `canary-local-mode.yml`
-   (local mode, sigh-based, mint-then-revoke) on Saturdays 11:30 UTC.
+   runs **two** canaries weekly to TestFlight against this template's
+   signing pattern: `release.yml` (CI mode) on Mondays 09:00 UTC via
+   `canary-trigger.yml`, and `canary-local-mode.yml` (local mode) on
+   Saturdays 11:30 UTC. As of v1.6, both exercise the **same**
+   mint-fresh-cert-then-revoke code path — the architectural distinction
+   between "CI mode = match-based" and "local mode = sigh-based" that
+   prompted two separate canaries in v1.5 is gone. They remain as two
+   schedules to keep coverage cadence and as separate signals on the
+   smoketest dashboard; consolidating them is a separate workstream.
    Because Apple's signing infra (certs, profiles, `timestamp.apple.com`,
-   ASC ingestion) and the fastlane / match / pilot stacks drift
-   independently of this template, the smoketest catches rot before
-   forkers do. Patterns + fixes there land back here in PRs that cite
-   the failing smoketest run. See [`docs/CONTINUOUS-VALIDATION.md`](CONTINUOUS-VALIDATION.md)
-   for the catalog of canonical failure modes (currently 15) the smoketest
+   ASC ingestion) and the fastlane / pilot stacks drift independently
+   of this template, the smoketest catches rot before forkers do.
+   Patterns + fixes there land back here in PRs that cite the failing
+   smoketest run. See [`docs/CONTINUOUS-VALIDATION.md`](CONTINUOUS-VALIDATION.md)
+   for the catalog of canonical failure modes (currently 16) the smoketest
    has surfaced.
 
 ## Documentation

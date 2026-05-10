@@ -35,7 +35,7 @@ The tag's TestFlight build is still in ASC — handle that separately via the st
 
 ## Roll back a partial bootstrap-fork
 
-If `make bootstrap-fork` fails on step N (CI mode runs 18, local mode runs 14 — `make doctor` prints the live count), the pipeline is **idempotent** — re-running picks up where it left off:
+If `make bootstrap-fork` fails on step N (both CI mode and local mode run 14 steps in v1.6 — `make doctor` prints the live count), the pipeline is **idempotent** — re-running picks up where it left off:
 
 ```bash
 make doctor          # see which step is the next pending one
@@ -47,6 +47,19 @@ If a specific step keeps failing and you want to skip it (rare; usually means up
 1. Read the step's `check` and `do_it` methods in `bin/lib/bootstrap.rb`
 2. Either fix the upstream state manually (e.g. delete the conflicting bundle ID in Apple Developer portal, then re-run), or
 3. If the step is genuinely optional for your fork, delete it from the `PIPELINE` constant in `bin/lib/bootstrap.rb`. Don't skip it silently — leave a comment explaining why.
+
+## Roll back a failed release (mid-mint cert cleanup)
+
+Since v1.6, `release.yml` mints fresh signing certs at the start of every run and revokes them in an `if: always()` post-step — there's no certs repo to roll back, and no manual cert cleanup after a normal failed release. The post-step runs whether the build succeeded, failed, or was cancelled.
+
+If a runner crashes hard enough to skip the post-step (process killed, hosted runner evicted), the next `release.yml` run's pre-step revokes any orphan IDs tracked by the previous run via `actions/cache@v5`. Worst case: the orphan lingers until the next release.
+
+Manual cleanup is only needed if **both** the post-step and the cache miss (e.g. >7 days idle and cache evicted):
+
+1. https://developer.apple.com/account/resources/certificates/list
+2. Filter by recent date → revoke the orphan Apple Distribution / Apple Development / Mac Installer entries left by the failed run (~30 sec)
+
+> If you bootstrapped a fork before v1.6, leftover `GH_CERTS_REPO`, `GH_PAT_FILE`, and `MATCH_PASSWORD_FILE` entries in `.bootstrap.env`, plus a `MATCH_PASSWORD` / `MATCH_GIT_BASIC_AUTHORIZATION` pair in GitHub repo secrets, are harmless — `release.yml` no longer reads them. You can remove them at your convenience but nothing in v1.6 depends on their state.
 
 ## Reset a fork to a clean slate
 
@@ -60,35 +73,26 @@ If you want to nuke a fork's Apple-side state and start over (e.g. you used the 
 #    https://developer.apple.com/account/resources/identifiers/list
 #    Click bundle ID → bottom of page → Delete
 
-# 3. Optionally: clear the certs repo
-git -C path/to/your-certs-repo log  # see what's in it
-# fastlane match nuke distribution --readonly false   # nukes distro certs
-# fastlane match nuke development --readonly false    # nukes dev certs
-
-# 4. Re-run from a clean state
+# 3. Re-run from a clean state
 make bootstrap-fork
 ```
 
-**Caution:** `match nuke` revokes certificates Apple-side. If your other apps share this team, they'll need to re-mint. Only do this if you're sure no other app depends on these certs.
+There's no certs repo to clear in v1.6 — every `release.yml` run mints its own short-lived certs and revokes them in the `if: always()` post-step, so there's no persistent signing state attached to the fork.
 
 ## Reset the smoketest fork (maintainer-only)
 
-Two canaries run on the smoketest, with different rollback semantics:
+Two canaries run on the smoketest — `canary-trigger.yml` dispatching `release.yml` (Mondays 09:00 UTC) and `canary-local-mode.yml` (Saturdays 11:30 UTC). Since v1.6 both paths mint fresh certs per run and self-revoke via an `if: always()` post-step, so they're equivalent from a rollback standpoint.
 
-- **CI canary** (`canary-trigger.yml` dispatches `release.yml` on Mondays
-  09:00 UTC) — uses persistent shipping certs from the certs repo. If the
-  smoketest's signing state needs a reset, run `bin/refork-smoketest.sh`
-  (destructive E2E that recreates the smoketest fork from scratch).
-- **Local-mode canary** (`canary-local-mode.yml` on Saturdays 11:30 UTC) —
-  self-rolls back per run via the `if: always()` post-step that revokes the
-  3 just-minted certs. Orphan ids from a runner crash mid-mint are tracked
-  via `actions/cache@v5` and cleaned up by the next run's pre-step (worst
-  case: 1 week stale). If the cache is also lost (>7 days idle), revoke
-  manually at <https://developer.apple.com/account/resources/certificates>
-  (~30 sec). The canary's workflow header has the full failure-mode matrix.
+To reset the smoketest:
+
+```bash
+bin/refork-smoketest.sh   # destructive E2E that recreates the smoketest fork
+```
+
+No manual cert cleanup is required — both canaries revoke their minted certs at the end of every run, and orphans from a runner crash are reaped by the next run's pre-step (cache-tracked, worst case 1 week stale). If both the post-step and cache miss, revoke manually at <https://developer.apple.com/account/resources/certificates> (~30 sec). The canary's workflow header has the full failure-mode matrix.
 
 ## See also
 
 - [`docs/CONTINUOUS-VALIDATION.md`](CONTINUOUS-VALIDATION.md) — the catalog of Apple-side gotchas the canary has surfaced
 - [`docs/BOOTSTRAP.md`](BOOTSTRAP.md) — full `.bootstrap.env` reference
-- [`bin/lib/bootstrap.rb`](../bin/lib/bootstrap.rb) — the 19-step pipeline source
+- [`bin/lib/bootstrap.rb`](../bin/lib/bootstrap.rb) — the 15-step pipeline source (14 steps active per mode)

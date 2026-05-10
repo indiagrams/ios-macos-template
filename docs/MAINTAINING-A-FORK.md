@@ -104,27 +104,60 @@ These are **entitlements** registered against your Bundle ID. They have no separ
 
 ### "I want to ship a new version"
 
-`make ship` (CI mode) or `make ship` from your local Mac (local mode). The `release.yml` workflow handles version computation (CalVer: `vYYYY.WW.<run_number>`), cert minting, signing, upload, tag push, "What to Test" annotation. Takes ~5 minutes.
+`make ship` (CI mode) or `make ship` from your local Mac (local mode). Versioning is automatic: `v<MARKETING>+<BUILD>` where `<MARKETING>` is read from `app/project.yml` (or `app/Project.swift` for Tuist) and `<BUILD>` resolves from ASC as `max(builds at this marketing version) + 1`. Cert minting, signing, upload, tag push, "What to Test" annotation all happen end-to-end. Takes ~5 minutes.
 
 ### "I want to submit to App Store review"
 
-After at least one TestFlight build is processed:
+After at least one TestFlight build is processed, run:
 
 ```bash
-# Take screenshots (uses fastlane snapshot)
-bundle exec fastlane take_screenshots
+# Take screenshots (uses fastlane snapshot — slow, 10-30+ minutes;
+# review the PNGs in fastlane/screenshots/ before submitting)
+make screenshots
 
-# Upload screenshots + metadata to ASC
-bundle exec fastlane ios upload_screenshots
-bundle exec fastlane ios upload_metadata
-
-# Submit for review (selects the latest TestFlight build)
-bundle exec fastlane ios submit_for_review
+# Stage (default) or auto-submit. Reads PLATFORMS + SUBMIT_FOR_REVIEW
+# from .bootstrap.env. Per-platform fastlane lane invoked once per
+# active platform.
+make submit
 ```
 
-Apple's review takes 24-48 hours typically. If they reject, fix the issue and re-submit; the same build can be re-submitted unchanged (pure metadata fixes), or upload a new build.
+### Stage vs auto-submit: the maturity ramp
 
-**Submit lane side-effect: GitHub Release.** `submit_for_review` (iOS or macOS) also publishes a GitHub Release tagged `v<MARKETING>+<BUILD>` with notes pulled from the matching `## [<MARKETING>]` block in `CHANGELOG.md` (falls back to a one-line stub if the section is missing). Idempotent — submitting iOS and macOS for the same marketing version produces a single Release. Per-build TestFlight tags are unchanged; GitHub Releases mark App Store submissions, matching the Slack / 1Password / Notion-iOS pattern. To opt out for a one-off run (e.g. `gh` CLI broken on the runner): `RELEASE_SKIP_GH_RELEASE=true bundle exec fastlane ios submit_for_review`.
+`make submit` has two modes, controlled by `SUBMIT_FOR_REVIEW` in `.bootstrap.env`:
+
+| Setting | What `make submit` does | Recommended for |
+|---|---|---|
+| `SUBMIT_FOR_REVIEW=false` (default) | Uploads screenshots + metadata + attaches the TestFlight build + fills export-compliance answers, but **does NOT click "Submit for Review"**. The version sits in App Store Connect's "Prepare for Submission" state. You review the prepared listing in the ASC web UI, then click Submit yourself. **No GitHub Release is created** until you actually submit. | Early releases. Every first-timer should start here. |
+| `SUBMIT_FOR_REVIEW=true` | All of the above **plus clicks Submit**. Version goes to "Waiting for Review"; Apple's queue starts. **GitHub Release published** with notes from `CHANGELOG.md`. | Once you trust your screenshots / metadata / CHANGELOG pipeline (typically after 3-4 successful releases). |
+
+The recommended progression: ship a few releases with `SUBMIT_FOR_REVIEW=false`, eyeball each one in the ASC web UI before submitting manually, then flip to `true` once it feels routine.
+
+Per-invocation overrides (env wins over the config field):
+
+```bash
+SUBMIT_FOR_REVIEW=true  make submit   # one-off auto-submit when config says false
+SUBMIT_FOR_REVIEW=false make submit   # one-off stage when config says true
+PLATFORMS=ios           make submit   # submit iOS only on a both-configured project
+                                       # (common: stage+submit iOS first, watch it,
+                                       #  then PLATFORMS=macos make submit)
+RELEASE_SKIP_GH_RELEASE=true make submit   # skip the GH Release one-off
+                                            # (e.g. `gh` CLI broken on the runner)
+```
+
+Apple's review takes 24-48 hours typically. If they reject, fix the issue and re-submit; the same build can be re-submitted unchanged (pure metadata fixes), or upload a new build via `make ship`.
+
+### Direct fastlane invocation (advanced)
+
+`make submit` is the recommended path. If you need finer control, the underlying fastlane lanes are:
+
+| Lane | Behavior |
+|---|---|
+| `bundle exec fastlane ios submit_for_review` | iOS auto-submit (always — does not consult `SUBMIT_FOR_REVIEW` config) |
+| `bundle exec fastlane ios stage_for_review` | iOS stage only |
+| `bundle exec fastlane mac submit_for_review` | macOS auto-submit |
+| `bundle exec fastlane mac stage_for_review` | macOS stage only |
+
+The direct `submit_for_review` lanes always submit (preserving existing fastlane CLI muscle memory); `make submit` is the layer that introduces the stage-vs-submit toggle.
 
 ### "I added a new entitlement (e.g. Push) and signing now fails"
 

@@ -389,8 +389,8 @@ end
 # ─── App ID + ASC bootstrap ───────────────────────────────────────────────────
 
 desc "Register App ID in Apple Developer Portal (idempotent)"
-desc "Used once locally before fastlane match runs. ASC app record (TestFlight"
-desc "/ App Store side) is created later via the bootstrap_asc lane."
+desc "Run once locally before the first ship. ASC app record (TestFlight side)"
+desc "is verified separately via the bootstrap_asc lane."
 lane :register_app_id do
   asc_api_key  # sets Spaceship::ConnectAPI.token globally
 
@@ -781,50 +781,6 @@ lane :bootstrap_asc do
   end
 end
 
-desc "Run match readonly:false against all 3 cert types (one-time bootstrap)."
-desc ""
-desc "Wraps the 3 raw `fastlane match` invocations from the README's signing"
-desc "setup so before_all runs once and the ASC API key is loaded for every"
-desc "call. Without this lane, raw `fastlane match appstore --app_identifier"
-desc "...` from the CLI hits 'Missing username, and running in non-interactive"
-desc "shell' because it skips before_all. After running this lane once, the"
-desc "release pipeline (which only does match readonly:true) finds everything"
-desc "in the certs repo and never has to mint."
-desc ""
-desc "Run after editing fastlane/Matchfile (git_url) and setting the 7 GH"
-desc "Secrets / .bootstrap.env. The Mac Installer Distribution cert is bootstrapped"
-desc "separately via bin/mint-installer-cert.rb + bin/import-installer-to-match.rb"
-desc "(see Matchfile header for why)."
-lane :bootstrap_certs do
-  unless File.exist?(File.join(__dir__, "Matchfile"))
-    UI.user_error!("fastlane/Matchfile not found. Edit + commit it first (replace CHANGE-ME-ORG/CHANGE-ME-REPO-certs.git).")
-  end
-
-  # Also fail fast if the Matchfile still has the placeholder text. Without
-  # this check, match would later try to clone CHANGE-ME-ORG/CHANGE-ME-REPO
-  # and the failure surfaces 30+ lines into match's git output, not actionable.
-  matchfile_text = File.read(File.join(__dir__, "Matchfile"))
-  if matchfile_text.include?("CHANGE-ME-")
-    UI.user_error!(<<~MSG)
-      fastlane/Matchfile still contains 'CHANGE-ME-' placeholder text.
-      Edit it to point at your private certs repo (git_url, etc.) before
-      running this lane. See README → "Optional: enable CI signing via
-      fastlane match" for the full setup.
-    MSG
-  end
-
-  match(type: "appstore",    app_identifier: APP_IDENTIFIER, platform: "ios")
-  match(type: "appstore",    app_identifier: APP_IDENTIFIER, platform: "macos")
-  match(type: "development", app_identifier: APP_IDENTIFIER, platform: "ios")
-
-  UI.success(<<~MSG)
-    bootstrap_certs done. Now run:
-      bundle exec ruby bin/mint-installer-cert.rb
-      export INSTALLER_CERT_ID=<id-printed-by-mint-script>
-      bundle exec ruby bin/import-installer-to-match.rb
-    See README "Optional: enable CI signing via fastlane match" for the full sequence.
-  MSG
-end
 
 # ─── iOS lanes ────────────────────────────────────────────────────────────────
 platform :ios do

@@ -77,13 +77,26 @@ unless Dir.exist?(screenshots_dir)
   Bootstrap::UI.fail!("#{screenshots_dir}/ missing. Run `make screenshots` first.")
 end
 
-# Per-platform screenshot existence: macOS screenshots are prefixed `Mac` by
-# fastlane's deliver convention; iOS are everything else.
+# Per-platform screenshot existence. iOS + macOS screenshots live in
+# separate top-level dirs to keep deliver from cross-uploading (fastlane's
+# deliver action globs ALL files under its `screenshots_path` and assigns
+# display types from PNG dimensions — when iOS + macOS share one parent,
+# Apple's API rejects with "Display Type Not Allowed" because a 1440×900
+# macOS PNG has no valid iOS display type and vice versa).
+#   - iOS:   fastlane/screenshots/en-US/
+#   - macOS: fastlane/Mac_screenshots/en-US/
+mac_dir = "fastlane/Mac_screenshots/en-US"
 platforms.each do |p|
-  pattern = (p == "macos" ? "Mac*" : "[!M]*")
-  hits = Dir.glob(File.join(screenshots_dir, "#{pattern}.{png,jpg,jpeg,PNG,JPG,JPEG}"))
-  if hits.empty?
-    Bootstrap::UI.fail!("No #{p} screenshots in #{screenshots_dir}/. Run `make screenshots` (or place files matching `#{pattern}.png`) first.")
+  if p == "macos"
+    hits = Dir.glob(File.join(mac_dir, "*.{png,jpg,jpeg,PNG,JPG,JPEG}"))
+    if hits.empty?
+      Bootstrap::UI.fail!("No macOS screenshots in #{mac_dir}/. Run `make screenshots` (or place files in `#{mac_dir}/`) first.")
+    end
+  else
+    hits = Dir.glob(File.join(screenshots_dir, "*.{png,jpg,jpeg,PNG,JPG,JPEG}"))
+    if hits.empty?
+      Bootstrap::UI.fail!("No iOS screenshots in #{screenshots_dir}/. Run `make screenshots` (or place files in `#{screenshots_dir}/`) first.")
+    end
   end
 end
 

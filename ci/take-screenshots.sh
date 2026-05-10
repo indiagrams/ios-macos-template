@@ -43,8 +43,24 @@ export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
 step()   { printf '\n==> %s\n' "$*"; }
 ok()     { printf '    ✓ %s\n' "$*"; }
 
-step "xcodegen generate"
-( cd app && xcodegen generate >/dev/null )
+# Generator-aware: detect xcodegen vs tuist from filesystem (mirrors
+# the matrix builder in .github/workflows/pr.yml). bin/rename.sh
+# substitutes HelloApp → <APP_NAME> in the .xcodeproj literal below,
+# but the GENERATOR axis is independent — a fork can switch from
+# xcodegen to tuist (or vice versa) via bin/switch-to-{tuist,xcodegen}.sh
+# at any time without re-running rename.sh. Detecting at run-time keeps
+# this script working across both paths.
+if [ -f app/project.yml ]; then
+  step "xcodegen generate"
+  ( cd app && xcodegen generate >/dev/null )
+elif [ -f app/Project.swift ]; then
+  step "tuist generate"
+  ( cd app && tuist generate --no-open >/dev/null )
+else
+  echo "ERROR: neither app/project.yml (xcodegen) nor app/Project.swift (tuist) found in app/." >&2
+  echo "       Run 'bin/switch-to-xcodegen.sh' or 'bin/switch-to-tuist.sh' to materialize one." >&2
+  exit 1
+fi
 ok "app/HelloApp.xcodeproj refreshed"
 
 if ! $MACOS_ONLY; then

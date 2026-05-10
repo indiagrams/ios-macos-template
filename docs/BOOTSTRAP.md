@@ -132,7 +132,7 @@ Mode key: ⚪ both, 🅒 ci-only, 🅛 local-only, 🍎 macOS-only.
 | 6 | `Icon1024` | ⚪ | If `ICON_1024_PATH` set, copies it to the iOS asset catalog (tree mutation lands before `InitialPush`) |
 | 7 | `MakeIcons` | 🍎 | `make icons` — regenerates the macOS `.icns` from the 1024 PNG. Runs only when `PLATFORMS` includes `macos`. |
 | 8 | `InitialPush` | ⚪ | First commit (rename + icons) pushed to `origin/main` |
-| 9 | `BranchProtection` | ⚪ | `bin/setup-github.sh` (required checks: swiftlint + xcodegen iOS device/sim + macOS + tuist parity, squash-only, linear history) |
+| 9 | `BranchProtection` | ⚪ | `bin/setup-github.sh` (required checks: swiftlint + swiftformat + xcodegen iOS device/sim + macOS + tuist parity, squash-only, linear history) |
 | 10 | `GHSecrets` | 🅒 | Generates `KEYCHAIN_PASSWORD` if absent, encodes the `.p8`, sets the 5 GH Secrets (`KEYCHAIN_PASSWORD`, `ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`) on the app repo |
 | 11 | `RegisterAppId` | ⚪ | `fastlane register_app_id` (idempotent — Spaceship `BundleId.create` rescues `ALREADY_EXISTS`) |
 | 12 | `VerifyAscApp` | ⚪ | Probes for the App record. **Fails loud with web-UI instructions if missing** — Apple disallows `POST /apps`, so this is the one human-gated step inside the pipeline |

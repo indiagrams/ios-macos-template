@@ -71,7 +71,7 @@ icons:
 	  app/macOS/Assets.xcassets/AppIcon.appiconset \
 	  app/macOS/Resources/AppIcon.icns
 
-screenshots:
+screenshots: _check-bundle
 	ci/take-screenshots.sh
 
 release-dryrun: _check-bundle

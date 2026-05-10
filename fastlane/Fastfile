@@ -241,6 +241,26 @@ end
 # is the binary upload; "What to Test" is cosmetic.
 #
 # Returns nothing meaningful.
+# Strip a release tag (with or without leading `v`) into [marketing, build].
+# Build is nil when the tag has no `+N` suffix.
+#
+#   parse_release_tag("v1.0.0+5")             → ["1.0.0", "5"]
+#   parse_release_tag("v2026.19.1357")        → ["2026.19.1357", nil]
+#   parse_release_tag("v0.2026.19-canary-7")  → ["0.2026.19", nil]
+#
+# Inlined here (vs. requiring bin/lib/version_resolver.rb) because the
+# Fastfile loads in fastlane's own context where load paths are
+# unstable across runners. Five-line helper isn't worth the cross-tree
+# require headache.
+def parse_release_tag(tag)
+  body = tag.to_s.sub(/^v/, "")
+  if body.include?("+")
+    body.split("+", 2)
+  else
+    [body.split("-", 2).first, nil]
+  end
+end
+
 def annotate_testflight_whats_new(app_identifier:, marketing_version:, ship_start_time:, changelog:, expected_count:)
   require "spaceship"
 
@@ -276,12 +296,35 @@ def annotate_testflight_whats_new(app_identifier:, marketing_version:, ship_star
   poll_attempts = 40
   targets = []
   poll_attempts.times do |i|
-    builds = Spaceship::ConnectAPI::Build.all(
-      app_id:  app.id,
-      version: marketing_version,
-      sort:    "-uploadedDate",
-      limit:   50,
-    )
+    # Wrap Build.all in retry-with-backoff. ASC's /v1/builds endpoint
+    # returns transient 500s under load (long-standing tracked at
+    # fastlane/fastlane#21199, 33 comments and counting). Without a
+    # retry, a single ASC flake fails the whole annotate step and
+    # leaves the just-uploaded build with empty "What to Test" — even
+    # though the binaries themselves are already live in TestFlight.
+    builds = nil
+    asc_attempts = 3
+    asc_attempts.times do |a|
+      begin
+        builds = Spaceship::ConnectAPI::Build.all(
+          app_id:  app.id,
+          version: marketing_version,
+          sort:    "-uploadedDate",
+          limit:   50,
+        )
+        break
+      rescue Spaceship::InternalServerError, Spaceship::BadGatewayError, Spaceship::GatewayTimeoutError, Spaceship::TooManyRequestsError, Spaceship::AppleTimeoutError => e
+        if a == asc_attempts - 1
+          UI.important("Annotate: ASC #{e.class.name.split('::').last} after #{asc_attempts} attempts (#{e.message[0, 100]}); skipping What to Test.")
+          return
+        end
+        backoff = 5 * (2 ** a)
+        UI.message("  Build.all attempt #{a + 1}/#{asc_attempts} hit #{e.class.name.split('::').last}; retrying in #{backoff}s")
+        sleep backoff
+      end
+    end
+    next unless builds
+
     targets = builds.select do |b|
       uploaded = (Time.parse(b.uploaded_date).utc rescue nil)
       uploaded && uploaded >= ship_start_time
@@ -1005,7 +1048,16 @@ platform :ios do
       if changelog.strip.empty?
         UI.important("Step 5/6: No changelog text resolved; skipping What to Test annotation.")
       else
-        marketing_version = ENV["RELEASE_MARKETING_VERSION"].to_s.strip.empty? ? version.split("-", 2).first : ENV["RELEASE_MARKETING_VERSION"]
+        # parse_release_tag handles all three tag formats:
+        #   v1.0.0+5                  → marketing=1.0.0
+        #   v0.YYYY.WW-canary-N-gen   → marketing=0.YYYY.WW
+        #   v2026.19.1357             → marketing=2026.19.1357
+        # The OLD `version.split("-", 2).first` did NOT strip the `+5` suffix,
+        # so passing tag `v0.0.1+1` made marketing_version become "0.0.1+1",
+        # which ASC's Build.all(version:) filter URL-encoded as "0.0.1 1"
+        # and barfed with a 500 (#173 regression from #172).
+        tag_marketing, _ = parse_release_tag(tag)
+        marketing_version = ENV["RELEASE_MARKETING_VERSION"].to_s.strip.empty? ? tag_marketing : ENV["RELEASE_MARKETING_VERSION"]
         expected_count    = (do_ios && do_macos) ? 2 : 1
         UI.message("Step 5/6: Annotating What to Test in TestFlight (version=#{marketing_version}, after #{ship_start_time.iso8601}, expecting #{expected_count} build record#{expected_count == 1 ? '' : 's'})…")
         annotate_testflight_whats_new(

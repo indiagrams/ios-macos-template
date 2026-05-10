@@ -86,6 +86,35 @@ APP_NAME="$(basename "$XCODEPROJ" .xcodeproj)"
 ok "${XCODEPROJ} refreshed (APP_NAME=${APP_NAME})"
 
 if ! $MACOS_ONLY; then
+  # fastlane snapshot only checks against simulators that already exist —
+  # it doesn't auto-create from device types. Parse Snapfile's `devices()`
+  # list and create any that aren't yet on the machine. Idempotent: existing
+  # simulators are left alone. Required because Apple's pre-created
+  # simulators trail behind device types; e.g. as of Xcode 26 the 12.9"
+  # iPad Pro family is no longer pre-created (the 13" M4 replaced it as
+  # the default), but the 12.9" device type IS available and produces the
+  # 2048×2732 dimensions that legacy ASC App records (APP_IPAD_PRO_3GEN_129)
+  # require.
+  step "Ensure Snapfile simulators exist"
+  available_runtime="$(xcrun simctl list runtimes 2>/dev/null | awk '/iOS [0-9]/{print $NF}' | tail -1)"
+  if [ -z "$available_runtime" ]; then
+    echo "ERROR: no iOS runtime installed; install one via Xcode → Settings → Components." >&2
+    exit 1
+  fi
+  sed -n '/^devices(/,/^])/p' fastlane/Snapfile \
+    | grep -oE '"[^"]+"' \
+    | sed 's/^"//; s/"$//' \
+    | while IFS= read -r dev; do
+      [ -z "$dev" ] && continue
+      if xcrun simctl list devices 2>&1 | grep -F " $dev (" >/dev/null 2>&1; then
+        ok "  $dev (already exists)"
+      elif xcrun simctl create "$dev" "$dev" "$available_runtime" >/dev/null 2>&1; then
+        ok "  $dev (created on $available_runtime)"
+      else
+        echo "  ⚠ $dev — could not create (simctl rejected device type); fastlane snapshot may fail" >&2
+      fi
+    done
+
   step "Capture iOS screenshots (fastlane/Snapfile)"
   bundle exec fastlane snapshot
   ok "iOS done — see fastlane/screenshots/en-US/*.png"

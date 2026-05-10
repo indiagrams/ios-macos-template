@@ -1,0 +1,56 @@
+# EditorConfig — universal editor settings honored by VSCode, Cursor,
+# JetBrains, Vim, Emacs, Sublime, etc. Keeps indentation and EOL handling
+# consistent across this multi-language template (Swift + Ruby + Bash +
+# YAML + Markdown + Plist).
+#
+# Spec: https://editorconfig.org/
+
+root = true
+
+# Defaults — every file unless overridden below.
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Swift — Apple's Swift Style Guide uses 4-space indent; common open-source
+# Swift codebases (Apple/swift, Apple/swift-format defaults, AirBnB, …) all
+# converge on 4. SwiftFormat's `--indent 4` matches.
+[*.{swift}]
+indent_size = 4
+
+# Ruby — community standard (rubocop default, GitHub style guide).
+[*.{rb,gemspec,Gemfile,Rakefile,Brewfile,Matchfile,Fastfile}]
+indent_size = 2
+
+# Shell — Google shell style guide. Most CI lib uses 2-space.
+[*.{sh,bash}]
+indent_size = 2
+
+# YAML — required (YAML semantic depends on indentation; `2` is the
+# universal choice across GitHub Actions, Kubernetes, Ansible).
+[*.{yml,yaml}]
+indent_size = 2
+
+# Makefile — tabs are MANDATORY for recipe lines (POSIX make spec). Without
+# this rule, an editor that auto-converts tabs → spaces silently breaks
+# every Makefile target.
+[Makefile]
+indent_style = tab
+
+# Markdown — preserve trailing whitespace (two spaces = line break in
+# CommonMark). Trim-trailing rule above would corrupt this.
+[*.md]
+trim_trailing_whitespace = false
+
+# Plist / pbxproj — Xcode formats these in specific ways; do not touch.
+[*.{plist,pbxproj,xcconfig,xcodeproj}]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+# JSON — 2-space matches every formatter (Prettier, jq -2, npm).
+[*.json]
+indent_size = 2

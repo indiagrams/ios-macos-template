@@ -1,0 +1,55 @@
+# SwiftFormat configuration for apple-shipkit forks.
+#
+# Companion to `.swiftlint.yml`: SwiftLint flags style violations,
+# SwiftFormat auto-fixes them. They cover overlapping but distinct
+# rule sets — both are run on PRs.
+#
+# Run locally:
+#   make format         # auto-fix all violations in app/
+#   make format-check   # lint mode (CI-equivalent; fails on diff)
+#
+# Strict mode in CI: pr.yml job `swiftformat-check` runs `--lint` and
+# fails the PR on any diff. Forkers can downgrade to a warning by
+# changing the job's `--lint` to `--lint --no-error-on-lint-failure`,
+# or by removing the job entirely.
+
+# Match Swift 5.9 syntax (Xcode 15+, iOS 17+ minimum). Some SwiftFormat
+# rules are version-aware; without this, the formatter skips features
+# requiring newer-Swift-only context.
+--swiftversion 5.9
+
+# Indentation — Apple Swift Style Guide standard (matches .editorconfig).
+--indent 4
+
+# Sources that ship with the template but are not fork-authored. SwiftFormat
+# shouldn't churn these:
+#
+#   app/Derived/                 — Tuist auto-generated (regenerated each
+#                                  build; formatting is wasted work)
+#   app/UITests/SnapshotHelper   — fastlane-shipped helper. Modifying it
+#                                  defeats the "don't touch" contract that
+#                                  fastlane upgrade docs assume.
+#   app/MacOSUITests/SnapshotHelper.swift — same rationale (when present)
+#   app/Project.swift            — Tuist project DSL. Tuist's own conventions
+#                                  (consecutive spaces in setting tables,
+#                                  non-doc comments on settings) conflict
+#                                  with default SwiftFormat rules. Excluded
+#                                  rather than fighting the framework.
+#   build, DerivedData, .build,
+#   vendor                       — derived / vendored
+--exclude app/Derived,app/UITests/SnapshotHelper.swift,app/MacOSUITests/SnapshotHelper.swift,app/Project.swift,build,DerivedData,.build,vendor
+
+# Rules with non-default settings:
+#
+# Honor existing trailing-comma usage (Swift's parser allows it). Default
+# is `--commas always` which adds trailing commas in single-line literals;
+# `inline` keeps trailing commas only in multiline literals (matches
+# .swiftlint.yml's disabled `trailing_comma` stance).
+--commas inline
+
+# `redundantSelf insert` — opposite of swiftlint's no-redundant-self
+# preference. Use SwiftFormat's `remove` to align.
+--self remove
+
+# Default rule set is otherwise unchanged. Full list:
+#   https://github.com/nicklockwood/SwiftFormat/blob/master/Rules.md

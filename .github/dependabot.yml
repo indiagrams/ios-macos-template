@@ -1,0 +1,67 @@
+# Dependabot config — weekly dependency updates with rationale below.
+#
+# Two ecosystems matter for this template:
+#
+#   - bundler        — Ruby gems used by fastlane + bin/*.rb scripts. The
+#                      Gemfile pins fastlane ~> 2.224 (per docs/CONTINUOUS-
+#                      VALIDATION.md G11) so dependabot will only PR
+#                      compatible bumps within that range.
+#
+#   - github-actions — every workflow under .github/workflows/ pins actions
+#                      to commit SHAs (verified via the SHA pin policy in
+#                      .github/PRINCIPLES.md). Dependabot's PRs for actions
+#                      bump SHAs to the latest tagged release, preserving
+#                      the SHA-pin invariant.
+#
+# Cadence: weekly (Mondays 06:00 UTC) — quiet enough to avoid PR noise,
+# frequent enough that no single bump accumulates >1 week of upstream drift.
+# Bumps batched per ecosystem so the PR reviewer sees one consolidated diff
+# rather than N individual gem-bump PRs.
+#
+# Forkers inherit this config. They can lower the cadence (`schedule.interval:
+# monthly`), narrow the open-prs limit, or add an `ignore` block for specific
+# packages without touching anything else.
+
+version: 2
+updates:
+  - package-ecosystem: bundler
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ruby
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      fastlane:
+        patterns:
+          - "fastlane*"
+          - "spaceship*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+    groups:
+      actions-core:
+        patterns:
+          - "actions/*"
+      ruby-setup:
+        patterns:
+          - "ruby/*"

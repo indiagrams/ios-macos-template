@@ -12,6 +12,24 @@
 # wires it onto every push, and `make doctor` validates `.bootstrap.env` end
 # to end without mutating any state.
 
+# Pin Ruby to .ruby-version so every recipe in this Makefile uses the same
+# Ruby that `bundle install` ran under during `make bootstrap`. Without
+# this, brew's unversioned `/opt/homebrew/opt/ruby` symlink moves with each
+# major Ruby release (May 2026: bumped 3.3 → 4.0), so a forker who ran
+# `make bootstrap` under Ruby 3.3 then later ran `make screenshots` under
+# Ruby 4.0 would hit `Could not find fastlane-2.230.0, ... in locally
+# installed gems` because bundler under 4.0 looks at vendor/bundle/ruby/4.0.0/
+# while gems are at vendor/bundle/ruby/3.3.0/. Reading .ruby-version makes
+# the pin auto-track the project's declared Ruby; the wildcard guard means
+# forks not using brew Ruby (system Ruby, asdf, mise, rtx, rbenv) see no
+# behavior change.
+_RUBY_VER := $(shell cat .ruby-version 2>/dev/null || echo 3.3)
+_RUBY_MM := $(shell echo $(_RUBY_VER) | awk -F. '{ print $$1 "." $$2 }')
+_RUBY_BIN := /opt/homebrew/opt/ruby@$(_RUBY_MM)/bin
+ifneq ($(wildcard $(_RUBY_BIN)/ruby),)
+  export PATH := $(_RUBY_BIN):$(PATH)
+endif
+
 .PHONY: all go bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help init doctor bootstrap-fork ship verify submit mint-local-certs clean-revoked-certs format format-check _check-bundle
 
 help:

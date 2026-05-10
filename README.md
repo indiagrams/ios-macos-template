@@ -5,7 +5,7 @@
 [![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org)
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/sExv9eKdA)
 [![Weekly canary](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)
-[![Local-mode canary](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-local-mode.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-local-mode.yml)
+[![Local-mode canary](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml/badge.svg)](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml)
 
 > **Goal of this README:** if you've never shipped an iOS or Mac app before, by the end of it you will have one running on your phone (or Mac) via TestFlight. About 30–60 minutes of focused time, $99/year for Apple Developer Program, and a Mac to build on (Xcode and the rest of Apple's build tools only run on macOS — you need a Mac even for an iPhone-only app).
 
@@ -481,12 +481,12 @@ Each step is its own fastlane lane in `fastlane/Fastfile`. Read the file — it'
 ## Continuous validation
 
 [![Weekly canary (CI mode)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)
-[![Weekly canary (local mode)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-local-mode.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-local-mode.yml)
+[![Weekly canary (local mode)](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml/badge.svg)](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml)
 
 The two badges above reflect the most recent canary runs:
 
 - **CI-mode canary** ([`canary-trigger.yml`](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)) — exercises the CI-mode mint-fresh shipping path used by forks with `RELEASE_MODE=ci` (release.yml mints fresh certs per run, ships, then revokes them). Both `dispatch (xcodegen)` and `dispatch (tuist)` cells real-ship to TestFlight on the [smoketest fork](https://github.com/indiagrams/ios-macos-smoketest).
-- **Local-mode canary** ([`canary-local-mode.yml`](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-local-mode.yml)) — exercises the local-mode sigh-based shipping path used by forks with `RELEASE_MODE=local` (the default). Mints throwaway certs in the same Apple team, ships to TestFlight, revokes the certs on `always()` so net team-cert delta per run is 0.
+- **Local-mode canary** ([`canary-local-mode.yml` on the smoketest fork](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml)) — exercises the local-mode sigh-based shipping path used by forks with `RELEASE_MODE=local` (the default). Mints throwaway certs in the same Apple team, ships to TestFlight, revokes the certs on `always()` so net team-cert delta per run is 0. The workflow file lives on apple-shipkit as a template (`schedule:` block commented out); only the smoketest has it uncommented, so the badge tracks runs there.
 
 Either badge red → at least one cell failed. Click the badge to see which cell + why. Per-cell history (xcodegen vs tuist) lives in each workflow's run-by-run breakdown.
 

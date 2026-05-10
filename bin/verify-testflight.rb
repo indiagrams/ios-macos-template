@@ -46,17 +46,19 @@ unless app
   exit 2
 end
 
-# ─── Derive expected marketing version from latest local v* tag ───────────────
+# ─── Derive expected marketing version + build from latest local v* tag ──────
 #
 # Tag format conventions (apple-shipkit + forks):
-#   v2026.19.1214             — local mode `make ship` (UTC YYYY.WW.HHMM)
+#   v1.0.0+5                  — apple-shipkit v1.7+ (MARKETING+BUILD)
 #   v0.1.0                    — historical / pre-CalVer
 #   v1.5.0                    — apple-shipkit upstream releases
+#   v2026.19.1214             — local mode pre-v1.7 (timestamp-as-marketing)
 #   v0.YYYY.WW-canary-N-gen   — smoketest local-mode canary (#129/#134)
 #
-# Marketing version = strip leading "v" + drop any "-suffix":
-#   v2026.19.1214             → 2026.19.1214
-#   v0.YYYY.WW-canary-N-gen   → 0.YYYY.WW
+# Parser (Bootstrap::Version.parse_tag):
+#   v1.0.0+5                  → marketing=1.0.0,        build=5
+#   v0.YYYY.WW-canary-N-gen   → marketing=0.YYYY.WW,    build=nil
+#   v2026.19.1214             → marketing=2026.19.1214, build=nil
 #
 # Run from the repo root (where the user invokes `make verify`); fall
 # back gracefully if git fails (detached worktree, no tags yet, etc.).
@@ -69,13 +71,16 @@ end
 # silently because the fallback path still runs if fetch fails.
 system("git", "fetch", "--tags", "--quiet", "origin", out: File::NULL, err: File::NULL)
 
+require_relative "lib/version_resolver"
+
 expected_version = nil
+expected_build = nil
 latest_tag = nil
 begin
   raw = `git tag --sort=-creatordate --list 'v*' 2>/dev/null`.strip
   unless raw.empty?
     latest_tag = raw.lines.first.strip
-    expected_version = latest_tag.sub(/^v/, "").split("-", 2).first
+    expected_version, expected_build = Bootstrap::Version.parse_tag(latest_tag)
   end
 rescue StandardError
   # leave nil; fallback engages below
@@ -114,14 +119,16 @@ if expected_version
     exit 2
   end
 
-  puts Bootstrap::UI.bold("Verifying tag #{latest_tag} (marketing version #{expected_version}):")
+  pinpoint = expected_build ? " (looking for build #{expected_build})" : ""
+  puts Bootstrap::UI.bold("Verifying tag #{latest_tag} (marketing version #{expected_version})#{pinpoint}:")
   matches.each do |b|
     state_marker = case b.processing_state
                    when "VALID"      then Bootstrap::UI.ok(b.version.to_s)
                    when "PROCESSING" then Bootstrap::UI.warn(b.version.to_s)
                    else                  Bootstrap::UI.miss(b.version.to_s)
                    end
-    puts "  #{state_marker} (#{b.app_version}) [#{b.platform}]  state=#{b.processing_state}  uploaded=#{b.uploaded_date}"
+    pinpoint_mark = (expected_build && b.version.to_s == expected_build.to_s) ? " ←" : ""
+    puts "  #{state_marker} (#{b.app_version}) [#{b.platform}]  state=#{b.processing_state}  uploaded=#{b.uploaded_date}#{pinpoint_mark}"
   end
 
   states = matches.map(&:processing_state).uniq

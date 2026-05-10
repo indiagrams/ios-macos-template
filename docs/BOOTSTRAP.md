@@ -13,24 +13,30 @@ Apple and GitHub deliberately don't expose to APIs.
 gh repo create my-app --template indiagrams/apple-shipkit --public --clone
 cd my-app
 
-# 2. Scaffold .bootstrap.env from the example, auto-filling GH_ORG/GH_APP_REPO
+# 2. One-time dev-env setup (brew + ruby gems + xcodegen + git hooks)
+#    Required before `make doctor` / `make bootstrap-fork` / `make ship`
+#    (those targets gate on `bundle check` and exit 1 with a hint if it
+#    fails). 30-90 seconds depending on what's already installed.
+make bootstrap
+
+# 3. Scaffold .bootstrap.env from the example, auto-filling GH_ORG/GH_APP_REPO
 #    from `git remote get-url origin`
 make init
 
-# 3. Edit .bootstrap.env — fill APP_NAME, BUNDLE_ID, Apple credentials,
+# 4. Edit .bootstrap.env — fill APP_NAME, BUNDLE_ID, Apple credentials,
 #    RELEASE_MODE (ci or local). See "Config reference" below.
 $EDITOR .bootstrap.env
 
-# 4. Validate config + probe Apple/GH
+# 5. Validate config + probe Apple/GH
 make doctor
 
-# 5. Run every programmatic step idempotently
+# 6. Run every programmatic step idempotently
 make bootstrap-fork
 
-# 6. Trigger a release (CI workflow if RELEASE_MODE=ci, fastlane locally if =local)
+# 7. Trigger a release (CI workflow if RELEASE_MODE=ci, fastlane locally if =local)
 make ship
 
-# 7. Confirm TestFlight ingestion
+# 8. Confirm TestFlight ingestion
 make verify
 ```
 

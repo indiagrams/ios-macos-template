@@ -1001,7 +1001,19 @@ module Bootstrap
       end
       puts
       puts UI.bold "✅ Bootstrap complete."
+      puts
+      puts "What just happened on #{config.repo_slug}:"
+      puts "  - #{config['APP_NAME']} (#{config['BUNDLE_ID']}) project files committed"
+      puts "  - Pushed directly to main (no GitHub PR opened — bootstrap-fork pushes straight)"
+      if config.ci_mode?
+        puts
+        puts %(GitHub Actions starts a workflow named "PR" (file: .github/workflows/pr.yml))
+        puts %(on every push, including this one. It is a CI sanity check, NOT a Pull Request,)
+        puts %(and does not gate `make ship`. Both run independently.)
+      end
+      puts
       puts "Next: #{UI.bold 'make ship'} to trigger the release pipeline."
+      puts "      #{UI.bold 'make verify'} 5-15 min after ship to confirm TestFlight ingestion."
     end
   end
 

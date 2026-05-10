@@ -12,7 +12,6 @@ import XCTest
 /// fastlane snapshot is iOS-only — that's why this is a separate XCUITest path.
 @MainActor
 final class AppStoreScreenshotTests: XCTestCase {
-
     var app: XCUIApplication!
 
     override func setUpWithError() throws {
@@ -24,7 +23,7 @@ final class AppStoreScreenshotTests: XCTestCase {
         app = nil
     }
 
-    func testScreenshot_01_Home() throws {
+    func testScreenshot_01_Home() {
         app.launchArguments = ["UI_TESTING"]
         app.launch()
         // CRITICAL: activate() after launch() on macOS — without it the window

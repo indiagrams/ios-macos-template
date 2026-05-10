@@ -949,13 +949,22 @@ platform :ios do
       # builds in TestFlight UI. Letting pilot defaults apply means the
       # canary path mirrors a real fork's release.yml behavior more closely
       # → catches drift in default-pilot behavior too.
+      # Pilot uploads block until ASC has fully ingested the build (no
+      # skip_waiting_for_build_processing here). Adds 2-5 min per platform
+      # to ship duration, but eliminates the indexing-race window that
+      # made the annotate_testflight_whats_new step (Step 5/6 below) flaky:
+      # when pilot returned early, annotate's poll had to wait up to 10 min
+      # for ASC to surface the just-uploaded build, and on rapid-fire ships
+      # that ceiling was sometimes blown — leaving a populated binary on
+      # TestFlight with empty "What to Test". Blocking here is cheaper than
+      # debugging an empty whatsNew after-the-fact.
       if do_ios
-        UI.message("Step 3/6: Uploading iOS .ipa to TestFlight…")
-        pilot_with_retry(api_key: api_key, ipa: ipa_path, skip_waiting_for_build_processing: true)
+        UI.message("Step 3/6: Uploading iOS .ipa to TestFlight (waits for ASC ingest)…")
+        pilot_with_retry(api_key: api_key, ipa: ipa_path)
       end
       if do_macos
-        UI.message("Step 4/6: Uploading macOS .pkg to TestFlight…")
-        pilot_with_retry(api_key: api_key, pkg: pkg_path, skip_waiting_for_build_processing: true)
+        UI.message("Step 4/6: Uploading macOS .pkg to TestFlight (waits for ASC ingest)…")
+        pilot_with_retry(api_key: api_key, pkg: pkg_path)
       end
     end
 

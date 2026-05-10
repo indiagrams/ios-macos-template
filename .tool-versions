@@ -1,0 +1,15 @@
+# Tool versions for asdf / mise / rtx.
+#
+# Forkers using one of these version managers pick up the same tools the
+# upstream template uses. Other forkers can ignore this file (Brewfile
+# remains the canonical source for `make bootstrap`).
+#
+# Ruby is also pinned in .ruby-version (rbenv/asdf both honor that;
+# documented separately because it's the de facto standard).
+
+ruby 3.3.11
+xcodegen 2.45.4
+lefthook 2.1.6
+swiftlint 0.63.2
+xcbeautify 3.2.1
+swiftformat 0.61.1

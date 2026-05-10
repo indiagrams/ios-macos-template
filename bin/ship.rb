@@ -128,12 +128,17 @@ def head_already_tagged?(repo)
   match ? [match["name"], head_sha] : nil
 end
 
-def trigger_new_run(repo, dry_run, platforms)
-  puts Bootstrap::UI.bold("Triggering release.yml on #{repo} (dry_run=#{dry_run}, platforms=#{platforms})…")
-  out, ok = Bootstrap::Sh.run("gh", "workflow", "run", "release.yml", "--ref", "main",
-                              "-f", "dry_run=#{dry_run}",
-                              "-f", "platforms=#{platforms}",
-                              "--repo", repo)
+def trigger_new_run(repo, dry_run, platforms, generator)
+  banner = "Triggering release.yml on #{repo} (dry_run=#{dry_run}, platforms=#{platforms}"
+  banner += ", generator=#{generator}" unless generator.to_s.empty?
+  banner += ")…"
+  puts Bootstrap::UI.bold(banner)
+  args = ["gh", "workflow", "run", "release.yml", "--ref", "main",
+          "-f", "dry_run=#{dry_run}",
+          "-f", "platforms=#{platforms}",
+          "--repo", repo]
+  args += ["-f", "generator=#{generator}"] unless generator.to_s.empty?
+  out, ok = Bootstrap::Sh.run(*args)
   Bootstrap::UI.fail!("gh workflow run failed:\n#{out}") unless ok
 
   sleep 5
@@ -168,7 +173,7 @@ end
 
 print_preflight(config, dry_run, repo: repo)
 
-run_id ||= trigger_new_run(repo, dry_run, config.platforms.join(","))
+run_id ||= trigger_new_run(repo, dry_run, config.platforms.join(","), config["GENERATOR"])
 run_url = "https://github.com/#{repo}/actions/runs/#{run_id}"
 puts "  → #{run_url}"
 puts

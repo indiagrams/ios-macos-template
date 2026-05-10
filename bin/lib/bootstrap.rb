@@ -50,7 +50,7 @@ module Bootstrap
       KEYCHAIN_PASSWORD_FILE
     ].freeze
 
-    OPTIONAL = %w[ICON_1024_PATH ASC_APP_SKU ASC_APP_NAME PLATFORMS].freeze
+    OPTIONAL = %w[ICON_1024_PATH ASC_APP_SKU ASC_APP_NAME PLATFORMS SUBMIT_FOR_REVIEW].freeze
 
     attr_reader :values
 

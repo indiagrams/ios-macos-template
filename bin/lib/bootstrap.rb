@@ -28,10 +28,12 @@ module Bootstrap
   REPO_ROOT = Pathname.new(__dir__).join("..", "..").expand_path
   ENV_FILE  = REPO_ROOT.join(".bootstrap.env")
 
-  # The 7 GH Secrets the release pipeline needs. Order: stable for doctor.
+  # The 5 GH Secrets the release pipeline needs. Order: stable for doctor.
+  # v1.6 (#158) dropped MATCH_PASSWORD + MATCH_GIT_BASIC_AUTHORIZATION when
+  # release.yml moved from match-based signing to mint-fresh certs per run.
+  # Existing forks with these GH Secrets set: harmless leftovers; no action
+  # needed. Future bootstrap-fork runs no longer create them.
   REQUIRED_SECRETS = %w[
-    MATCH_PASSWORD
-    MATCH_GIT_BASIC_AUTHORIZATION
     KEYCHAIN_PASSWORD
     ASC_API_KEY_ID
     ASC_API_KEY_ISSUER_ID
@@ -48,8 +50,12 @@ module Bootstrap
       GH_ORG GH_APP_REPO
     ].freeze
 
+    # v1.6 (#158) dropped GH_CERTS_REPO, GH_PAT_FILE, MATCH_PASSWORD_FILE
+    # — release.yml no longer uses match (no certs repo, no PAT for it,
+    # no encryption password). Existing forks with these fields in their
+    # .bootstrap.env: harmless leftovers; doctor doesn't complain.
     REQUIRED_CI_ONLY = %w[
-      GH_CERTS_REPO GH_PAT_FILE MATCH_PASSWORD_FILE KEYCHAIN_PASSWORD_FILE
+      KEYCHAIN_PASSWORD_FILE
     ].freeze
 
     OPTIONAL = %w[ICON_1024_PATH ASC_APP_SKU ASC_APP_NAME PLATFORMS].freeze
@@ -209,25 +215,6 @@ module Bootstrap
       "#{self["GH_ORG"]}/#{self["GH_APP_REPO"]}"
     end
 
-    # Resolve GH_CERTS_REPO into a full owner/name slug.
-    #
-    # Two forms accepted:
-    #   GH_CERTS_REPO=my-app-certs                    → "${GH_ORG}/my-app-certs"
-    #   GH_CERTS_REPO=other-org/their-app-certs       → "other-org/their-app-certs"
-    #
-    # The slash-form lets a fork reuse a certs repo owned by another org or
-    # user — common when one Apple team is shared across several apps with
-    # the same bundle id (e.g. a development fork pointing at the upstream
-    # smoketest's certs repo). Without this, ${GH_ORG} would be prepended
-    # blindly and `gh repo view` would 404 on `prakashrj/other-org/repo`.
-    def certs_slug
-      raw = self["GH_CERTS_REPO"].to_s
-      raw.include?("/") ? raw : "#{self["GH_ORG"]}/#{raw}"
-    end
-
-    def certs_url
-      "https://github.com/#{certs_slug}.git"
-    end
   end
 
   # ─── UI helpers ─────────────────────────────────────────────────────────────
@@ -307,9 +294,8 @@ module Bootstrap
 
   class Step
     # Each subclass may override MODES + PLATFORMS to restrict applicability:
-    #   class EditMatchfile < Step; MODES = %w[ci]; end           # ci only
     #   class LocalKeychainCerts < Step; MODES = %w[local]; end   # local only
-    #   class MintInstaller < Step; PLATFORMS = %w[macos]; end    # macOS only
+    #   class MakeIcons < Step; PLATFORMS = %w[macos]; end        # macOS only
     # Default: run in any mode and any platform combination.
     MODES = %w[ci local].freeze
     PLATFORMS = %w[ios macos].freeze
@@ -382,36 +368,17 @@ module Bootstrap
     def category; "preflight"; end
 
     def check
-      return :done if config.local_mode? # PAT not used in local mode
-      pat_file = config.expand_path("GH_PAT_FILE")
-      return [:blocked, "GH_PAT_FILE doesn't exist: #{pat_file}"] unless pat_file && pat_file.file?
-      pat = pat_file.read.strip
-      return [:blocked, "GH_PAT_FILE is empty"] if pat.empty?
-
-      # Probe certs repo via PAT
-      out, _ok = Sh.run("curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-                        "-H", "Authorization: Bearer #{pat}",
-                        "-H", "Accept: application/vnd.github+json",
-                        "https://api.github.com/repos/#{config.certs_slug}")
-      case out
-      when "200" then :done
-      when "404"
-        # PAT might be valid but certs repo missing — that's a separate step.
-        # Probe whether PAT itself works on user endpoint.
-        out2, _ = Sh.run("curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
-                         "-H", "Authorization: Bearer #{pat}",
-                         "https://api.github.com/user")
-        return :done if out2 == "200"
-        [:blocked, "PAT itself appears invalid (HTTP #{out2} on /user)"]
-      when "401", "403"
-        [:blocked, "PAT lacks access to #{config.certs_slug} (HTTP #{out}). Check token scopes at github.com/settings/tokens"]
-      else
-        [:blocked, "Unexpected HTTP #{out} probing #{config.certs_slug}"]
-      end
+      return :done if config.local_mode? # gh CLI not used at ship time in local mode
+      # CI mode uses `gh` CLI for setting up branch protection, GH Secrets,
+      # and dispatching release.yml. The CLI's auth is separate from anything
+      # in .bootstrap.env — set up once via `gh auth login`. Probe it.
+      out, ok = Sh.run("gh", "auth", "status")
+      return :done if ok
+      [:blocked, "gh CLI is not authenticated. Run `gh auth login` then re-try.\n  (output: #{out.lines.first(2).join.strip})"]
     end
 
     def do_it
-      UI.fail!("GitHub credentials invalid. Fix #{config['GH_PAT_FILE']} or PAT scope, then re-run.")
+      UI.fail!("GitHub credentials invalid. Run `gh auth login` then re-run.")
     end
   end
 
@@ -438,28 +405,6 @@ module Bootstrap
     end
   end
 
-  class EditMatchfile < Step
-    MODES = %w[ci].freeze
-    def name; "Wire fastlane/Matchfile to certs repo"; end
-
-    def matchfile; REPO_ROOT.join("fastlane", "Matchfile"); end
-
-    def check
-      return :pending unless matchfile.file?
-      content = matchfile.read
-      return :pending if content.include?("CHANGE-ME-ORG/CHANGE-ME-REPO-certs.git")
-      content.include?(config.certs_slug) ? :done : :pending
-    end
-
-    def do_it
-      content = matchfile.read
-      content = content.gsub(
-        %r{git_url\("https://github\.com/[^/]+/[^/]+\.git"\)},
-        %{git_url("#{config.certs_url}")}
-      )
-      matchfile.write(content)
-    end
-  end
 
   class BrewBootstrap < Step
     def name; "Toolchain (brew + bundler + xcodegen/tuist + lefthook)"; end
@@ -490,7 +435,7 @@ module Bootstrap
       _out, dirty = Sh.run("git", "diff", "--quiet")
       Sh.run!("git", "add", "-A") unless dirty
       Sh.run!("git", "-c", "user.email=#{config['APP_EMAIL']}", "-c", "user.name=#{config['APP_NAME']} bootstrap",
-              "commit", "-m", "Bootstrap fork: rename + wire Matchfile") unless dirty
+              "commit", "-m", "Bootstrap fork: rename HelloApp -> #{config['APP_NAME']}") unless dirty
       Sh.run!("git", "push", "-u", "origin", "main")
     end
   end
@@ -523,7 +468,7 @@ module Bootstrap
 
   class GHSecrets < Step
     MODES = %w[ci].freeze
-    def name; "Set 7 GH Secrets on app repo"; end
+    def name; "Set 5 GH Secrets on app repo"; end
 
     def check
       out, ok = Sh.run("gh", "secret", "list", "--repo", config.repo_slug)
@@ -533,19 +478,13 @@ module Bootstrap
     end
 
     def do_it
-      # Generate or load match + keychain passwords.
-      match_pw    = ensure_random_password("MATCH_PASSWORD_FILE", 32)
+      # Generate or load the keychain password.
       keychain_pw = ensure_random_password("KEYCHAIN_PASSWORD_FILE", 32)
-      pat         = config.expand_path("GH_PAT_FILE").read.strip
-      gh_user     = github_user
-      basic       = Base64.strict_encode64("#{gh_user}:#{pat}")
 
       p8 = config.expand_path("ASC_API_KEY_P8_PATH").read
       p8_base64 = Base64.strict_encode64(p8)
 
       values = {
-        "MATCH_PASSWORD"                => match_pw,
-        "MATCH_GIT_BASIC_AUTHORIZATION" => basic,
         "KEYCHAIN_PASSWORD"             => keychain_pw,
         "ASC_API_KEY_ID"                => config["ASC_API_KEY_ID"],
         "ASC_API_KEY_ISSUER_ID"         => config["ASC_API_KEY_ISSUER_ID"],
@@ -561,10 +500,6 @@ module Bootstrap
 
     private
 
-    def github_user
-      out = Sh.run!("gh", "api", "/user", "-q", ".login").strip
-      out
-    end
 
     def ensure_random_password(env_key, length)
       path = config.expand_path(env_key)
@@ -580,31 +515,6 @@ module Bootstrap
     end
   end
 
-  class CreateCertsRepo < Step
-    MODES = %w[ci].freeze
-    def name; "Private certs repo"; end
-
-    def check
-      Sh.ok?("gh", "repo", "view", config.certs_slug) ? :done : :pending
-    end
-
-    def do_it
-      slug = config.certs_slug
-      slug_org = slug.split("/", 2).first
-      if slug_org != config["GH_ORG"]
-        UI.fail!(<<~MSG)
-          GH_CERTS_REPO=#{config["GH_CERTS_REPO"]} resolves to #{slug}, which lives
-          in a different owner (#{slug_org}) than GH_ORG=#{config["GH_ORG"]}.
-          bootstrap-fork won't create repos in someone else's org/account.
-          Either:
-            - create #{slug} manually (gh repo create #{slug} --private), then re-run, or
-            - drop the org prefix from GH_CERTS_REPO so the repo is created under #{config["GH_ORG"]}
-        MSG
-      end
-      Sh.run!("gh", "repo", "create", slug, "--private",
-              "--description", "Encrypted certs + profiles for #{config.repo_slug} (managed via fastlane match)")
-    end
-  end
 
   class RegisterAppId < Step
     def name; "Register Bundle ID in Apple Developer Portal"; end
@@ -670,82 +580,7 @@ module Bootstrap
     end
   end
 
-  class BootstrapCerts < Step
-    MODES = %w[ci].freeze
-    def name
-      bits = []
-      bits << "iOS dist + dev" if config.ios?
-      bits << "macOS dist"     if config.macos?
-      "Mint #{bits.join(' + ')} certs (via match)"
-    end
 
-    def check
-      tree = certs_tree
-      return :pending if tree.empty?
-      has_dist  = tree.any? { |p| p.start_with?("certs/distribution/") && p.end_with?(".cer") }
-      has_dev   = tree.any? { |p| p.start_with?("certs/development/") && p.end_with?(".cer") }
-      # Apple Distribution + Apple Development certs are required regardless of
-      # platforms — both iOS and macOS distribution signing rely on them.
-      return :pending unless has_dist && has_dev
-      # Provisioning profiles are platform-specific. Only require those for the
-      # platforms the fork actually ships.
-      if config.ios?
-        has_ios  = tree.any? { |p| p.match?(%r{^profiles/appstore/.*\.mobileprovision$}) }
-        has_devp = tree.any? { |p| p.match?(%r{^profiles/development/.*\.mobileprovision$}) }
-        return :pending unless has_ios && has_devp
-      end
-      if config.macos?
-        has_macos = tree.any? { |p| p.match?(%r{^profiles/appstore/.*\.provisionprofile$}) }
-        return :pending unless has_macos
-      end
-      :done
-    end
-
-    def do_it
-      env = Bootstrap.asc_env(config).merge(Bootstrap.match_env(config))
-      out, ok = Sh.run("bundle", "exec", "fastlane", "bootstrap_certs", env: env)
-      return if ok
-      hint = Bootstrap.match_failure_hint(out)
-      UI.fail!(<<~MSG)
-        bootstrap_certs lane failed.
-        #{hint ? "Likely cause: #{hint}" : "See full output above."}
-      MSG
-    end
-
-    private
-
-    def certs_tree
-      out, ok = Sh.run("gh", "api", "repos/#{config.certs_slug}/git/trees/master?recursive=true",
-                       "--jq", ".tree[].path")
-      ok ? out.lines.map(&:strip) : []
-    end
-  end
-
-  class MintInstaller < Step
-    MODES = %w[ci].freeze
-    PLATFORMS = %w[macos].freeze
-    def name; "Mint Mac Installer Distribution cert"; end
-
-    def check
-      out, ok = Sh.run("gh", "api", "repos/#{config.certs_slug}/git/trees/master?recursive=true",
-                       "--jq", ".tree[].path")
-      return :pending unless ok
-      out.lines.any? { |p| p.start_with?("certs/mac_installer_distribution/") && p.end_with?(".cer\n") } ? :done : :pending
-    end
-
-    def do_it
-      env = Bootstrap.asc_env(config).merge(Bootstrap.match_env(config))
-      out, ok = Sh.run("bundle", "exec", "ruby", "bin/mint-installer-cert.rb", env: env)
-      unless ok
-        hint = Bootstrap.match_failure_hint(out)
-        UI.fail!("mint-installer-cert.rb failed.\n#{hint ? "Likely cause: #{hint}" : ''}")
-      end
-      cert_id = out.lines.grep(/^Cert id:/).first&.split(":", 2)&.last&.strip
-      UI.fail!("could not parse INSTALLER_CERT_ID from mint-installer-cert.rb output") if cert_id.to_s.empty?
-      env2 = env.merge("INSTALLER_CERT_ID" => cert_id)
-      Sh.run!("bundle", "exec", "ruby", "bin/import-installer-to-match.rb", env: env2)
-    end
-  end
 
   class Icon1024 < Step
     def name; "Replace 1024 icon"; end
@@ -1042,18 +877,14 @@ module Bootstrap
       CheckGHCreds,
       RemoteMatches,
       RenameStub,
-      EditMatchfile,        # ci-only
       BrewBootstrap,
       Icon1024,              # tree mutations land before InitialPush
       MakeIcons,
       InitialPush,
       BranchProtection,
-      CreateCertsRepo,       # ci-only
       GHSecrets,             # ci-only
       RegisterAppId,
       VerifyAscApp,
-      BootstrapCerts,        # ci-only
-      MintInstaller,         # ci-only
       LocalKeychainCerts,    # local-only
       ScanMetadata,          # informational
       ScanScreenshots
@@ -1074,7 +905,6 @@ module Bootstrap
       puts "  mode:    RELEASE_MODE=#{UI.bold @config.release_mode}"
       puts "  apple:   team #{@config['FASTLANE_TEAM_ID']}, ASC key #{@config['ASC_API_KEY_ID']}"
       gh_line = "  gh:      app=#{@config.repo_slug}"
-      gh_line += " certs=#{@config.certs_slug}" if @config.ci_mode?
       puts gh_line
 
       UI.section "Pipeline status"
@@ -1197,30 +1027,6 @@ module Bootstrap
     )
   end
 
-  def self.match_failure_hint(output)
-    case output
-    when /Could not create another (Distribution|Development) certificate, reached the maximum/i
-      "Apple cert quota exhausted (3/team for Distribution). Find an unused cert via\n" \
-      "  bundle exec fastlane list_certs\n" \
-      "and revoke it via\n" \
-      "  bundle exec fastlane revoke_cert id:<CERT_ID>\n" \
-      "then re-run `make bootstrap-fork`."
-    when /Could not find the newly generated certificate installed/i
-      "fastlane match's keychain verification quirk on populated login keychains.\n" \
-      "See docs/CONTINUOUS-VALIDATION.md G11 + the workaround uses CERT_KEYCHAIN_PATH (set automatically by Bootstrap.match_env)."
-    when /Authentication credentials are missing or invalid/i
-      "ASC API key was rejected. Verify ASC_API_KEY_ID + ASC_API_KEY_ISSUER_ID match\n" \
-      "the .p8 in ASC_API_KEY_P8_PATH. ASC keys can be revoked at\n" \
-      "  https://appstoreconnect.apple.com/access/api"
-    when /Error cloning certificates git repo/i
-      "fastlane match couldn't access #{config_or_unknown(output, 'GH_CERTS_REPO')}.\n" \
-      "Check that MATCH_GIT_BASIC_AUTHORIZATION's PAT has access (G12 in CONTINUOUS-VALIDATION.md)."
-    end
-  end
-
-  def self.config_or_unknown(_output, _key)
-    "the certs repo"
-  end
 
   def asc_env(config)
     {
@@ -1228,26 +1034,15 @@ module Bootstrap
       "ASC_API_KEY_ISSUER_ID"   => config["ASC_API_KEY_ISSUER_ID"],
       "ASC_API_KEY_P8_BASE64"   => Base64.strict_encode64(config.expand_path("ASC_API_KEY_P8_PATH").read),
       "FASTLANE_TEAM_ID"        => config["FASTLANE_TEAM_ID"],
-      # The release lane in fastlane/Fastfile reads RELEASE_MODE to decide
-      # whether to run match (ci-mode certs from the private certs repo) vs
-      # skip match and use the user's login keychain (local-mode signing).
-      # Without this propagation, local-mode forks hit the unedited
-      # CHANGE-ME-ORG/CHANGE-ME-REPO-certs.git Matchfile placeholder and
-      # match aborts cloning a 404 URL.
+      # RELEASE_MODE is preserved as a `bin/ship.rb` knob (route lane locally
+      # vs trigger CI workflow), but the release lane itself no longer
+      # branches on it — both modes go through the same sigh-based code
+      # path since v1.6 (#158). We still propagate it here so any future
+      # lane logic that wants to know the invocation context can read it.
       "RELEASE_MODE"            => config.release_mode,
       "FASTLANE_HIDE_CHANGELOG" => "1",
       "FASTLANE_SKIP_UPDATE_CHECK" => "1"
     }
   end
 
-  def match_env(config)
-    pat   = config.expand_path("GH_PAT_FILE").read.strip
-    user  = `gh api /user -q .login`.strip
-    {
-      "MATCH_PASSWORD"                => config.expand_path("MATCH_PASSWORD_FILE").read.strip,
-      "MATCH_GIT_BASIC_AUTHORIZATION" => Base64.strict_encode64("#{user}:#{pat}"),
-      "KEYCHAIN_PASSWORD"             => config.expand_path("KEYCHAIN_PASSWORD_FILE").read.strip,
-      "CERT_KEYCHAIN_PATH"            => Pathname.new(Dir.home).join("Library", "Keychains", "match-tmp.keychain-db").to_s
-    }
-  end
 end

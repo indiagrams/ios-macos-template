@@ -65,7 +65,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Tag (e.g. v0.1.0) — leave blank for CalVer (vYYYY.WW.<run_number>)'
+        description: 'Tag (e.g. v1.0.0+5) — leave blank to auto-compute from project.yml MARKETING_VERSION + ASC build number'
         required: false
         default: ''
       dry_run:
@@ -168,14 +168,34 @@ jobs:
         # bundle install. Idempotent.
         run: make bootstrap
 
-      - name: Compute release version (CalVer if not provided)
+      - name: Compute release tag (vMARKETING+BUILD from project.yml + ASC)
         id: ver
+        # Marketing version is read from app/project.yml or app/Project.swift
+        # (whichever exists); build number is resolved from ASC as
+        # `max(existing builds at this marketing version) + 1`. The combined
+        # tag (e.g. v1.0.0+5) lands the upload as build N under the
+        # existing "Version X" bucket in TestFlight, instead of inventing
+        # a new bucket per ship.
+        #
+        # Manual override: workflow_dispatch's `version` input wins. Useful
+        # when re-shipping a previously-tagged version or when ASC is
+        # unreachable.
+        env:
+          BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
         run: |
           set -euo pipefail
           if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
           else
-            VERSION="v$(date -u +%Y).$(date -u +%V).${{ github.run_number }}"
+            # Bundle id from .bootstrap.env (real shippers commit this) or
+            # from fastlane/Fastfile's APP_IDENTIFIER (the canonical source
+            # bin/rename.sh sets during fork creation). Either works for
+            # bin/compute-release-tag.rb's pure-env mode.
+            if [ -z "${BUNDLE_ID:-}" ]; then
+              BUNDLE_ID=$(grep '^APP_IDENTIFIER' fastlane/Fastfile | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+              export BUNDLE_ID
+            fi
+            VERSION=$(bundle exec ruby bin/compute-release-tag.rb)
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Release tag: ${VERSION}"
@@ -291,10 +311,6 @@ jobs:
 
       - name: fastlane release (build + sign + upload + tag)
         env:
-          # Unique CFBundleVersion per upload — required even when
-          # CFBundleShortVersionString repeats. github.run_number monotonically
-          # increases per workflow run.
-          RELEASE_BUILD_NUMBER: ${{ github.run_number }}
           # PLATFORMS gates which targets the lane builds + uploads.
           # Empty input → fastlane defaults to .bootstrap.env or 'ios,macos'.
           PLATFORMS: ${{ inputs.platforms }}
@@ -305,6 +321,9 @@ jobs:
           RELEASE_CHANGELOG: ${{ inputs.changelog }}
         run: |
           set -euo pipefail
+          # Tag carries the build number (v1.0.0+5 format), so we no
+          # longer thread RELEASE_BUILD_NUMBER separately — local-release-
+          # check.sh extracts it from the tag's `+N` suffix.
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             bundle exec fastlane release \
               tag:${{ steps.ver.outputs.version }} \

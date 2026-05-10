@@ -5,24 +5,25 @@
 # Why this exists: fastlane snapshot is iOS-only. The macOS screenshot pipeline
 # is XCUITest + XCTAttachment, which writes attachments into the .xcresult.
 # This script extracts the PNGs and copies them into
-# fastlane/screenshots/en-US/Mac/, where `fastlane upload_screenshots`
+# fastlane/Mac_screenshots/en-US/, where `fastlane upload_screenshots`
 # (deliver) infers the macOS device type from the PNG dimensions
 # (2880×1800 → APP_DESKTOP, 1440×900 → APP_DESKTOP, etc.).
 #
-# Why en-US/Mac/ subfolder (not en-US/ flat): when iOS + macOS share
-# the same `fastlane/screenshots/en-US/` folder, fastlane's deliver
-# tries to upload EVERY file in en-US/ to BOTH platforms regardless of
-# the `platform:` arg, and Apple's API rejects with "Display Type Not
-# Allowed" (e.g. iOS lane sees a 1440×900 macOS screenshot and tries to
-# assign a non-existent iOS display type for that dimension). Putting
-# macOS screenshots in en-US/Mac/ subfolder is fastlane's documented
-# way to disambiguate: the iOS lane skips the Mac/ subfolder, the
-# macOS lane reads only from it.
+# Why fastlane/Mac_screenshots/ (separate top-level dir, not en-US/Mac/
+# subfolder): fastlane's deliver action globs ALL files under its
+# `screenshots_path` and assigns display types from PNG dimensions —
+# when iOS + macOS share one parent (fastlane/screenshots/en-US/), the
+# iOS lane tries to upload macOS PNGs and Apple's API rejects with
+# "Display Type Not Allowed" (the parallel macOS lane has the same
+# problem in reverse). Separate top-level dirs let the Fastfile pass
+# `screenshots_path:` per platform — iOS reads from fastlane/screenshots/,
+# macOS reads from fastlane/Mac_screenshots/, neither sees the other's
+# files.
 #
 # Usage:
 #   ci/extract-mac-screenshots.sh <path-to.xcresult>
 #
-# Output: fastlane/screenshots/en-US/Mac/macos-*.png
+# Output: fastlane/Mac_screenshots/en-US/macos-*.png
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -39,9 +40,10 @@ if [ ! -d "$XCRESULT" ]; then
   exit 2
 fi
 
-# Write into en-US/Mac/ subfolder. Required to keep iOS + macOS
-# screenshots separated (see header comment for full rationale).
-OUT_DIR="$REPO_ROOT/fastlane/screenshots/en-US/Mac"
+# Write into fastlane/Mac_screenshots/en-US/ (separate top-level dir
+# from iOS to keep deliver from cross-uploading; see header for full
+# rationale).
+OUT_DIR="$REPO_ROOT/fastlane/Mac_screenshots/en-US"
 mkdir -p "$OUT_DIR"
 
 # Clear any prior macos-*.png to avoid stale duplicates if attachment names

@@ -191,6 +191,32 @@ mutate_restore_project_yml() {
     return 0
   fi
   git show "$PROJECT_YML_SHA:app/project.yml" > app/project.yml
+
+  # On a renamed fork, the most recent project.yml in git history is the
+  # un-renamed upstream template — because bin/rename.sh + bin/switch-to-
+  # tuist.sh ran as one commit that DELETED project.yml (filtered out by
+  # --diff-filter=AM). The restored content carries HelloApp identity +
+  # TEAM_ID_PLACEHOLDER + com.example.helloapp, which then breaks every
+  # xcodebuild invocation (No signing certificate "...TEAM_ID_PLACEHOLDER",
+  # CODE_SIGN_ENTITLEMENTS references non-existent HelloApp.entitlements,
+  # etc.). Re-apply the fork's identity from .bootstrap.env, mirroring
+  # what bin/rename.sh would have done.
+  if [ -f .bootstrap.env ]; then
+    local restored_name fork_name fork_bundle fork_team
+    restored_name=$(awk '/^name:[[:space:]]+/{print $2; exit}' app/project.yml)
+    fork_name=$(grep '^APP_NAME=' .bootstrap.env 2>/dev/null | head -1 | cut -d= -f2 | awk '{print $1}')
+    fork_bundle=$(grep '^BUNDLE_ID=' .bootstrap.env 2>/dev/null | head -1 | cut -d= -f2 | awk '{print $1}')
+    fork_team=$(grep '^FASTLANE_TEAM_ID=' .bootstrap.env 2>/dev/null | head -1 | cut -d= -f2 | awk '{print $1}')
+    if [ -n "$fork_name" ] && [ -n "$restored_name" ] && [ "$fork_name" != "$restored_name" ]; then
+      step "Re-applying fork identity to restored project.yml ($restored_name → $fork_name)"
+      # APP_NAME: name field, target names, entitlements file refs, scheme refs.
+      sed -i '' "s|${restored_name}|${fork_name}|g" app/project.yml
+      [ -n "$fork_team" ]   && sed -i '' "s|TEAM_ID_PLACEHOLDER|${fork_team}|g" app/project.yml
+      [ -n "$fork_bundle" ] && sed -i '' "s|com\.example\.helloapp|${fork_bundle}|g" app/project.yml
+      ok "Re-applied fork identity (APP_NAME=$fork_name, TEAM=$fork_team, BUNDLE=$fork_bundle)"
+    fi
+  fi
+
   git add app/project.yml
   ok "app/project.yml restored from $PROJECT_YML_SHA"
 }

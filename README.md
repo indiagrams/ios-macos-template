@@ -261,8 +261,6 @@ KEYCHAIN_PASSWORD_FILE=                     # ~/.config/secrets/keychain-passwor
 
 > **Why two modes?** `RELEASE_MODE=local` signs from your laptop using certs in your Keychain — easy first-run, no server config needed. `RELEASE_MODE=ci` runs the full pipeline on GitHub Actions when you run `make ship` (which dispatches `release.yml` via `gh workflow run`) — more setup, but it means anyone with repo write access can ship from any machine. Each CI release run mints its own short-lived signing certs into a controlled keychain and revokes them when the run ends, so there's no shared certs repo or PAT to manage. Start with `local`. You can switch later.
 
-> **Bootstrapped before v1.6?** Older forks may still have `GH_CERTS_REPO`, `GH_PAT_FILE`, or `MATCH_PASSWORD_FILE` set in `.bootstrap.env`, plus `MATCH_PASSWORD` and `MATCH_GIT_BASIC_AUTHORIZATION` in their GH Secrets. They're harmless leftovers — the current pipeline ignores them. You can delete them at your leisure (or keep them; nothing reads them).
-
 > **Why pick a platform subset?** If you're shipping an iPhone-only app and don't care about Mac, set `PLATFORMS=ios` — `make doctor` will stop probing for the Mac Installer cert, `make ship` skips the macOS .pkg build/upload, and CI on PRs runs fewer jobs (saving ~2-4 min/PR of macOS runner time). Same in reverse for `PLATFORMS=macos`. Switchable later: change the value, re-run `make bootstrap-fork`. **In CI mode, also re-run `bin/setup-github.sh`** — the required-checks list is set on first bootstrap and won't update automatically when you flip platforms.
 
 ---

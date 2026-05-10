@@ -32,9 +32,48 @@ config.validate!
 dry_run = ARGV.include?("--dry-run") ? "true" : "false"
 force   = ARGV.include?("--force")
 
+# Pre-flight summary so the human can sanity-check what's about to ship
+# (right ref, right app, right mode) before any side effects. Surfaces
+# config drift early — e.g. APP_NAME=SmokeApp on repo named my-cool-app
+# stands out at a glance.
+def fetch_main_head(repo)
+  out, ok = Bootstrap::Sh.run("gh", "api", "repos/#{repo}/commits/main",
+                              "--jq", '"\(.sha) \(.commit.message | split("\n")[0])"')
+  return ["?", "(unknown)"] unless ok && !out.strip.empty?
+  parts = out.strip.split(" ", 2)
+  [parts[0], parts[1] || "(no message)"]
+end
+
+def print_preflight(config, dry_run, repo: nil, tag: nil)
+  puts
+  puts Bootstrap::UI.bold("About to ship #{config['APP_NAME']} (#{config['BUNDLE_ID']}):")
+  if config.ci_mode?
+    sha, subject = fetch_main_head(repo)
+    puts "  ref:       #{repo} main @ #{sha[0, 7]} — #{subject}"
+    puts "  mode:      ci → release.yml dispatches on GitHub (mints fresh certs, ships, revokes)"
+  else
+    head_sha, _ = Bootstrap::Sh.run("git", "rev-parse", "--short", "HEAD")
+    head_msg, _ = Bootstrap::Sh.run("git", "log", "-1", "--pretty=%s")
+    puts "  ref:       local HEAD @ #{head_sha.strip} — #{head_msg.strip}"
+    puts "  mode:      local → fastlane release runs on this machine"
+    puts "  signing:   login keychain (Apple Distribution + Apple Development + 3rd Party Mac Developer Installer)"
+    puts "  tag:       #{tag}"
+  end
+  puts "  platforms: #{config.platforms.join(', ')}"
+  puts "  dry-run:   #{dry_run}" if dry_run == "true"
+  if config.ci_mode?
+    puts
+    puts Bootstrap::UI.dim('Note: GitHub Actions also runs a workflow named "PR" (.github/workflows/pr.yml)')
+    puts Bootstrap::UI.dim("on every push. It is a CI sanity check, NOT a Pull Request, and does not")
+    puts Bootstrap::UI.dim("gate this release. Both run independently.")
+  end
+  puts
+end
+
 # ─── Local mode: run fastlane release on this machine ─────────────────────────
 if config.local_mode?
   tag = "v#{Time.now.utc.strftime('%Y.%V.%H%M')}"
+  print_preflight(config, dry_run, tag: tag)
   puts Bootstrap::UI.bold("Running fastlane release locally — tag #{tag}")
   env = Bootstrap.asc_env(config).merge("PLATFORMS" => config.platforms.join(","))
   args = ["bundle", "exec", "fastlane", "release", "tag:#{tag}"]
@@ -114,6 +153,8 @@ unless force
     exit 0
   end
 end
+
+print_preflight(config, dry_run, repo: repo)
 
 run_id ||= trigger_new_run(repo, dry_run, config.platforms.join(","))
 run_url = "https://github.com/#{repo}/actions/runs/#{run_id}"

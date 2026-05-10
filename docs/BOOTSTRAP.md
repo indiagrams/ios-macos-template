@@ -56,25 +56,9 @@ in v1.6+.
 
 You can switch modes later by editing `RELEASE_MODE` and re-running
 `make bootstrap-fork`. Going `local → ci`: bootstrap sets the 5 GH Secrets
-and configures branch protection. Going `ci → local`: bootstrap doesn't tear
-down the GH Secrets (they're harmless if `release.yml` is never triggered);
-CI just stops being invoked.
-
-### Pre-v1.6 forks: harmless leftovers
-
-If you bootstrapped before v1.6 (#158), your fork may still have:
-
-- `GH_CERTS_REPO`, `GH_PAT_FILE`, `MATCH_PASSWORD_FILE` lines in `.bootstrap.env`
-- `MATCH_PASSWORD` and `MATCH_GIT_BASIC_AUTHORIZATION` GH Secrets on the app repo
-- A private `<app>-certs` repo on GitHub
-- A fine-grained PAT pointed at the certs repo
-
-None of these are referenced by anything in the v1.6 pipeline. `make doctor`
-ignores them, `make bootstrap-fork` doesn't touch them, and `release.yml`
-no longer reads them. Safe to delete (recommended for cleanliness) or leave
-in place (no functional impact). Deleting the certs repo and revoking the
-PAT is the most defense-in-depth move, but neither is required.
-
+and configures branch protection. Going `ci → local`: bootstrap leaves the
+GH Secrets in place (they're inert if `release.yml` is never triggered)
+and CI just stops being invoked.
 ## Platforms
 
 `.bootstrap.env` has a `PLATFORMS` field that gates which targets get built, signed, and uploaded. Three valid values:

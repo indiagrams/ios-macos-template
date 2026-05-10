@@ -11,12 +11,12 @@ first and let's talk.
 
 ## Quality gates
 
-1. **Every PR runs CI.** Seven required checks: swiftlint plus six matrix
-   cells (3 XcodeGen — `app (iOS device)`, `app (iOS Simulator)`,
-   `app (macOS)` — plus 3 Tuist parity — `app (Tuist iOS device)`,
-   `app (Tuist iOS Simulator)`, `app (Tuist macOS)`) — must be green
-   before merge. Branch protection enforces this for everyone, including
-   maintainers.
+1. **Every PR runs CI.** Eight required checks: swiftlint + swiftformat
+   plus six matrix cells (3 XcodeGen — `app (iOS device)`,
+   `app (iOS Simulator)`, `app (macOS)` — plus 3 Tuist parity —
+   `app (Tuist iOS device)`, `app (Tuist iOS Simulator)`,
+   `app (Tuist macOS)`) — must be green before merge. Branch protection
+   enforces this for everyone, including maintainers.
 2. **No direct pushes to `main`.** Even one-line fixes go through a PR. The
    pre-push hook (`lefthook` → `ci/local-check.sh --fast`) catches breakage
    before it reaches GitHub.

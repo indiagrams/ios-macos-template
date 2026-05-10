@@ -5,17 +5,24 @@
 # Why this exists: fastlane snapshot is iOS-only. The macOS screenshot pipeline
 # is XCUITest + XCTAttachment, which writes attachments into the .xcresult.
 # This script extracts the PNGs and copies them into
-# fastlane/screenshots/en-US/, where `fastlane upload_screenshots` (deliver)
-# infers the macOS device type from the PNG dimensions (2880×1800 → APP_DESKTOP).
+# fastlane/screenshots/en-US/Mac/, where `fastlane upload_screenshots`
+# (deliver) infers the macOS device type from the PNG dimensions
+# (2880×1800 → APP_DESKTOP, 1440×900 → APP_DESKTOP, etc.).
 #
-# Why en-US/ directly and not en-US/Mac/: deliver's loader globs
-# `<lang>/*.png` and only expands `iMessage` / `appleTV` subdirectories.
-# Files in arbitrary subfolders like `Mac/` are silently ignored.
+# Why en-US/Mac/ subfolder (not en-US/ flat): when iOS + macOS share
+# the same `fastlane/screenshots/en-US/` folder, fastlane's deliver
+# tries to upload EVERY file in en-US/ to BOTH platforms regardless of
+# the `platform:` arg, and Apple's API rejects with "Display Type Not
+# Allowed" (e.g. iOS lane sees a 1440×900 macOS screenshot and tries to
+# assign a non-existent iOS display type for that dimension). Putting
+# macOS screenshots in en-US/Mac/ subfolder is fastlane's documented
+# way to disambiguate: the iOS lane skips the Mac/ subfolder, the
+# macOS lane reads only from it.
 #
 # Usage:
 #   ci/extract-mac-screenshots.sh <path-to.xcresult>
 #
-# Output: fastlane/screenshots/en-US/macos-*.png
+# Output: fastlane/screenshots/en-US/Mac/macos-*.png
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -32,9 +39,9 @@ if [ ! -d "$XCRESULT" ]; then
   exit 2
 fi
 
-# Write into en-US/ directly. Subfolders other than iMessage/appleTV are
-# silently ignored by deliver's screenshot loader.
-OUT_DIR="$REPO_ROOT/fastlane/screenshots/en-US"
+# Write into en-US/Mac/ subfolder. Required to keep iOS + macOS
+# screenshots separated (see header comment for full rationale).
+OUT_DIR="$REPO_ROOT/fastlane/screenshots/en-US/Mac"
 mkdir -p "$OUT_DIR"
 
 # Clear any prior macos-*.png to avoid stale duplicates if attachment names

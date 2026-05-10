@@ -41,7 +41,7 @@ make verify
 | | `ci` (default) | `local` |
 |---|---|---|
 | **Setup includes** | 5 GH Secrets, branch protection, ASC App verify | Login keychain identities check, branch protection, ASC App verify |
-| **`make ship` does** | Triggers `.github/workflows/release.yml` on the app repo | Runs `bundle exec fastlane release tag:vYYYY.WW.HHMM` on this machine |
+| **`make ship` does** | Triggers `.github/workflows/release.yml` on the app repo | Runs `bundle exec fastlane release tag:v<MARKETING>+<BUILD>` on this machine (marketing version read from project file; build number resolved from ASC) |
 | **Signing material lives** | Minted fresh on the GitHub Actions runner per release run, then revoked at the end of the run (net cert delta = 0). Nothing is persisted between runs. | In your login keychain (Apple Distribution + Apple Development + 3rd Party Mac Developer Installer for macOS) |
 | **Who can release** | Anyone with push to the app repo + a working `gh auth login` (the ASC API key is already in GH Secrets) | Only this laptop |
 | **Best for** | Teams, weekly TestFlight cron, repeatable builds | Solo devs, fast iteration, no shared CI |

@@ -110,6 +110,28 @@ jobs:
       - name: lint
         run: swiftlint --strict --reporter github-actions-logging
 
+  # SwiftFormat lint mode — fails on any diff. Companion to swiftlint:
+  # swiftlint flags style violations, swiftformat auto-fixes most of them.
+  # Excluded paths (Tuist Derived, fastlane SnapshotHelper, app/Project.swift
+  # Tuist DSL) are configured in .swiftformat at the repo root.
+  #
+  # Forkers: `make format` auto-fixes locally; this job runs the same
+  # formatter in --lint mode (no writes; exits non-zero on diff).
+  swiftformat:
+    name: swiftformat
+    runs-on: macos-15
+    timeout-minutes: 5
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: install swiftformat
+        run: brew install swiftformat
+      - name: format-check
+        run: swiftformat --lint app/
+
   # Single matrix job covering both generators × all platforms. Replaces 6
   # near-identical jobs (~80% duplicated YAML) with one parameterized one.
   # Check-name stability (branch-protection-required) is preserved by

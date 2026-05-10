@@ -12,7 +12,7 @@
 # wires it onto every push, and `make doctor` validates `.bootstrap.env` end
 # to end without mutating any state.
 
-.PHONY: all go bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help init doctor bootstrap-fork ship verify mint-local-certs clean-revoked-certs _check-bundle
+.PHONY: all go bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help init doctor bootstrap-fork ship verify mint-local-certs clean-revoked-certs format format-check _check-bundle
 
 help:
 	@echo "Targets:"
@@ -42,6 +42,12 @@ bootstrap:
 	lefthook install
 	cd app && xcodegen generate
 	bundle install
+
+format:
+	swiftformat app/
+
+format-check:
+	swiftformat --lint app/
 
 check:
 	ci/local-check.sh --fast

@@ -32,6 +32,8 @@
 # Single-command "bump everything for new version":
 #   ci/bump-asc-version.sh v0.1.0    # screenshots + version bump + metadata + screenshots
 
+require "shellwords"
+
 default_platform(:ios)
 
 # In CI mode: provision a temporary keychain for match (via setup_ci) and
@@ -424,6 +426,114 @@ def do_upload_metadata(platform:)
   end
 end
 
+# Read MARKETING_VERSION from app/project.yml (xcodegen) or app/Project.swift
+# (tuist) — whichever is present. Mirrors Bootstrap::Version.read_marketing_version
+# but inlined to avoid the cross-tree require headache (Fastfile load
+# paths are unstable across runners).
+def project_marketing_version(repo_root)
+  yml = File.join(repo_root, "app/project.yml")
+  if File.exist?(yml)
+    if (m = File.read(yml).match(/^\s*MARKETING_VERSION\s*:\s*["']?([^"'\s#]+)/))
+      return m[1]
+    end
+  end
+  swift = File.join(repo_root, "app/Project.swift")
+  if File.exist?(swift)
+    if (m = File.read(swift).match(/"MARKETING_VERSION"\s*:\s*"([^"]+)"/))
+      return m[1]
+    end
+  end
+  nil
+end
+
+# Create a published GitHub Release for the just-submitted marketing version,
+# pulling release notes from CHANGELOG.md's matching `## [<MARKETING>]` block.
+#
+# Pattern: per industry standard for app teams (Slack, 1Password, Notion-iOS),
+# GitHub Releases mark *App Store submissions* — not every TestFlight build.
+# Per-build traceability is preserved by the per-ship `vMARKETING+BUILD` git
+# tags (still pushed by the `release` lane); this helper opportunistically
+# upgrades the most-recent of those tags into a published Release whenever
+# `submit_for_review` runs.
+#
+# Idempotent across iOS + macOS submissions of the same marketing version:
+# the second invocation sees the existing Release and no-ops. The Release
+# tag points at the latest existing `vMARKETING+*` tag (the actual build
+# being submitted), not HEAD — so clicking the Release shows the exact
+# commit Apple is reviewing.
+#
+# Skips silently when:
+#   - `gh` CLI is not installed / not authenticated
+#   - No `vMARKETING+*` tag exists locally (build was shipped from a different
+#     machine and tags weren't fetched)
+#   - The Release already exists for this marketing version
+#   - `RELEASE_SKIP_GH_RELEASE=true` env override is set
+#
+# Skip-on-failure rather than fail-the-lane: the App Store submission has
+# already succeeded by the time this runs; a Release-creation failure
+# shouldn't undo it. Annotation parity with the `release` lane's whatsNew
+# step (also skip-on-failure for the same reason).
+def create_github_release_if_missing(repo_root:)
+  if ENV["RELEASE_SKIP_GH_RELEASE"].to_s.strip.downcase == "true"
+    UI.message("GH Release: RELEASE_SKIP_GH_RELEASE=true; skipping.")
+    return
+  end
+
+  unless system("command -v gh >/dev/null 2>&1")
+    UI.important("GH Release: `gh` CLI not found on PATH; skipping (install gh + run `gh auth login` to enable).")
+    return
+  end
+
+  marketing = project_marketing_version(repo_root)
+  unless marketing
+    UI.important("GH Release: could not read MARKETING_VERSION from project file; skipping.")
+    return
+  end
+
+  # Ensure local has the latest tags from origin (CI runs may have pushed
+  # the build tag from the runner without it landing in the user's clone).
+  system("git", "-C", repo_root, "fetch", "--tags", "--quiet", "origin",
+         out: File::NULL, err: File::NULL)
+
+  # Find the most-recent `vMARKETING+*` tag (the actual build being submitted).
+  tag = `cd #{repo_root.shellescape} && git tag --sort=-creatordate --list 'v#{marketing}+*' 2>/dev/null`.lines.first&.strip
+  if tag.nil? || tag.empty?
+    # Fall back to bare `vMARKETING` if no `+BUILD` variants exist (e.g. a
+    # marketing version that pre-dates the v1.7 tag scheme).
+    tag = `cd #{repo_root.shellescape} && git tag --sort=-creatordate --list 'v#{marketing}' 2>/dev/null`.lines.first&.strip
+  end
+  if tag.nil? || tag.empty?
+    UI.important("GH Release: no `v#{marketing}*` tag found locally (run `make ship` first or fetch tags); skipping.")
+    return
+  end
+
+  # Idempotency: bail if a Release already exists for this tag.
+  existing = `gh release view #{tag.shellescape} --json tagName 2>/dev/null`.strip
+  unless existing.empty?
+    UI.success("GH Release: #{tag} already exists; nothing to do.")
+    return
+  end
+
+  notes = extract_changelog_section(File.join(repo_root, "CHANGELOG.md")).to_s.strip
+  notes = "Build #{tag} submitted to App Store Review." if notes.empty?
+
+  require "tempfile"
+  Tempfile.open(["release_notes", ".md"]) do |f|
+    f.write(notes)
+    f.close
+    cmd = ["gh", "release", "create", tag,
+           "--title", marketing,
+           "--notes-file", f.path,
+           "--latest"]
+    out = `cd #{repo_root.shellescape} && #{cmd.shelljoin} 2>&1`
+    if $?.success?
+      UI.success("GH Release published: #{tag} → #{out.strip}")
+    else
+      UI.important("GH Release: `gh release create #{tag}` failed (#{out.strip[0, 200]}); skipping (App Store submission already succeeded).")
+    end
+  end
+end
+
 def do_submit_for_review(platform:)
   deliver(
     api_key:                  asc_api_key,
@@ -444,6 +554,9 @@ def do_submit_for_review(platform:)
     precheck_include_in_app_purchases: false
   )
   UI.success("Submitted to App Review (#{platform}).")
+
+  repo_root = File.expand_path("..", __dir__)
+  create_github_release_if_missing(repo_root: repo_root)
 end
 
 # ─── App ID + ASC bootstrap ───────────────────────────────────────────────────

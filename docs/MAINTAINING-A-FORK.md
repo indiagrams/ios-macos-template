@@ -224,7 +224,6 @@ apple-shipkit ships breaking changes occasionally (e.g. v1.6 dropped match-based
 1. **Read the CHANGELOG** for the version range you're crossing. Breaking changes are flagged.
 2. **Check `.bootstrap.env.example`** for new fields. Compare to your `.bootstrap.env`; add anything new.
 3. **Re-run `make doctor`**. If new required fields appear, doctor will tell you. Fix and re-run `make bootstrap-fork`.
-4. **Existing leftovers from old apple-shipkit versions are harmless** — apple-shipkit's doctor only complains about *missing* required fields, not present-extra ones. So old fields like `GH_CERTS_REPO`, `MATCH_PASSWORD_FILE`, etc. (removed in v1.6) can stay in your `.bootstrap.env` indefinitely without breaking anything.
 
 ## When things go sideways
 

@@ -58,9 +58,6 @@ Manual cleanup is only needed if **both** the post-step and the cache miss (e.g.
 
 1. https://developer.apple.com/account/resources/certificates/list
 2. Filter by recent date → revoke the orphan Apple Distribution / Apple Development / Mac Installer entries left by the failed run (~30 sec)
-
-> If you bootstrapped a fork before v1.6, leftover `GH_CERTS_REPO`, `GH_PAT_FILE`, and `MATCH_PASSWORD_FILE` entries in `.bootstrap.env`, plus a `MATCH_PASSWORD` / `MATCH_GIT_BASIC_AUTHORIZATION` pair in GitHub repo secrets, are harmless — `release.yml` no longer reads them. You can remove them at your convenience but nothing in v1.6 depends on their state.
-
 ## Reset a fork to a clean slate
 
 If you want to nuke a fork's Apple-side state and start over (e.g. you used the wrong bundle ID and want to free it up):

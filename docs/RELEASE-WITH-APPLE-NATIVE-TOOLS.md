@@ -21,15 +21,19 @@ The trade-off is genuine:
 |---|---|---|
 | Dependencies | Ruby + fastlane gem + plugins | None beyond Xcode |
 | Cold-run startup | ~3–5 s | <1 s |
-| Integrated metadata + screenshots + signing | ✓ (`deliver`, `snapshot`, `match`) | Manual (separate ASC API calls) |
+| Integrated metadata + screenshots + signing | ✓ (`deliver`, `snapshot`, `sigh` / `match`) | Manual (separate ASC API calls) |
 | macOS notarization (outside App Store) | via plugin or shell-out | `xcrun notarytool` (Apple-supported) |
 | Community + plugins | Mature, large | Apple-only |
 | Best for | Full release pipeline in one tool | "Build + upload" only; minimal-deps shops |
 
 Pick fastlane if you want one tool that does build + upload + screenshots
-+ metadata + signing-management (`match`). Pick Apple-native if you'd
-rather not depend on a Ruby gem and you're comfortable wiring the pieces
-together yourself.
++ metadata + signing-management. (As of v1.6 apple-shipkit's own fastlane
+lane uses `sigh` for profile fetching and mints fresh Apple Distribution
+certs per CI run via the App Store Connect API instead of routing through
+`match` + a certs repo — see [`docs/BOOTSTRAP.md`](BOOTSTRAP.md). `match`
+remains an option in the fastlane ecosystem if you'd rather keep a
+long-lived certs repo.) Pick Apple-native if you'd rather not depend on
+a Ruby gem and you're comfortable wiring the pieces together yourself.
 
 ## What this doc covers
 
@@ -44,10 +48,16 @@ together yourself.
 
 - **`fastlane match` replacement.** Manual cert + profile management is
   documented in [`docs/APPLE-PREREQS.md`](APPLE-PREREQS.md). Apple does
-  not ship a `match`-equivalent; if you leave fastlane, you take on cert
-  rotation manually (or use a third-party tool like
-  [`apple-actions/upload-testflight-build`](https://github.com/apple-actions)
-  or roll your own).
+  not ship a `match`-equivalent. Note that as of v1.6 the template's own
+  fastlane release lane no longer uses `match` either: CI mints a fresh
+  Apple Distribution cert per run via the App Store Connect API (and
+  revokes it on `always()`), and local mode signs with whatever
+  Distribution cert is already in your login Keychain. So if you're
+  leaving fastlane *for* the Apple-native path below, the cert story
+  inherits from the same baseline the template's fastlane path uses:
+  bring your own certs in the keychain, or script ASC API cert minting
+  yourself. (Or use a third-party helper like
+  [`apple-actions/upload-testflight-build`](https://github.com/apple-actions).)
 - **`fastlane snapshot` / `MacSnapfile` replacement.** Screenshot
   automation is genuinely fastlane-strong territory — there is no
   drop-in Apple-native equivalent. The template's
@@ -216,6 +226,16 @@ path is structurally broken in 2.233.1 (logs success but never POSTs
 the localization for fresh builds — see
 [`docs/CONTINUOUS-VALIDATION.md`](CONTINUOUS-VALIDATION.md) G15);
 the Apple-native equivalent below sidesteps that:
+
+> **Note:** As of v1.6, the template's own fastlane release lane already
+> performs this same POST/PATCH dance automatically via the
+> `annotate_testflight_whats_new` helper in
+> [`fastlane/Fastfile`](../fastlane/Fastfile) (added in #149). The recipe
+> below is for forkers shipping *outside* the v1.6 fastlane path — i.e.
+> you've replaced `fastlane release` entirely with `xcrun altool` + the
+> curl calls in this doc, and therefore need to do the BBL annotation by
+> hand. If you're still on the template's `fastlane release` lane, you
+> get this for free.
 
 ```bash
 APP_ID="1234567890"
@@ -514,7 +534,12 @@ What you give up by leaving fastlane:
 - **No `match`.** Cert + provisioning profile sync across machines is
   manual. You can install certs in the login Keychain by hand,
   re-download profiles from `developer.apple.com` when they expire, or
-  rely on `-allowProvisioningUpdates` to auto-create on first run.
+  rely on `-allowProvisioningUpdates` to auto-create on first run. (As
+  of v1.6 the template's own fastlane lane doesn't use `match` either —
+  CI mints a fresh Apple Distribution cert per run via the ASC API and
+  revokes it on `always()`; local mode signs from your login Keychain —
+  so the cert situation here is the same one the fastlane path lives
+  with.)
 - **No `precheck`.** Fastlane's pre-flight ASC linting (broken URLs,
   metadata length limits, prohibited keywords) is gone. You'll find
   these issues at App Review time instead. Run `Validate App` in

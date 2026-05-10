@@ -3,8 +3,9 @@
 #
 # Inverse of bin/switch-to-tuist.sh. Restores app/project.yml from git
 # history (the most recent commit that contained it) and reverses the
-# Brewfile / Makefile / ci/* / .github/workflows/pr.yml mutations
-# switch-to-tuist.sh applied.
+# Brewfile / Makefile / ci/* mutations switch-to-tuist.sh applied. The
+# pr.yml matrix builder auto-detects manifest presence on each run, so
+# this script doesn't touch the workflow.
 #
 # Two callers (mirroring switch-to-tuist.sh):
 #   1. A maintainer who switched to Tuist and now wants to switch back.
@@ -245,17 +246,6 @@ mutate_local_release_check() {
   ok "ci/local-release-check.sh: tuist generate --no-open → xcodegen generate"
 }
 
-mutate_pr_workflow() {
-  step "Editing .github/workflows/pr.yml (3 jobs: tuist → xcodegen)"
-  if [ ! -f ".github/workflows/pr.yml" ]; then
-    fail ".github/workflows/pr.yml missing — unexpected repo state"
-  fi
-  sed -i '' 's|name: install xcbeautify + tuist|name: install xcbeautify + xcodegen|g' .github/workflows/pr.yml
-  sed -i '' 's|run: brew install xcbeautify && brew install --cask tuist|run: brew install xcbeautify xcodegen|g' .github/workflows/pr.yml
-  sed -i '' 's|run: tuist generate --no-open|run: xcodegen generate|g' .github/workflows/pr.yml
-  ok ".github/workflows/pr.yml: tuist generate --no-open → xcodegen generate (3 jobs)"
-}
-
 # ── --dry-run preview ─────────────────────────────────────────────────────
 print_dry_run_plan() {
   step "DRY RUN — no files will be modified"
@@ -268,7 +258,6 @@ print_dry_run_plan() {
   echo "  Makefile                       (cd app && tuist generate --no-open → cd app && xcodegen generate)"
   echo "  ci/local-check.sh              (require_cmd / step / tuist invocation)"
   echo "  ci/local-release-check.sh      (step + tuist invocation)"
-  echo "  .github/workflows/pr.yml       (3 jobs: install + generate steps)"
   echo
   echo "Mutation count preview:"
   printf '  %-40s %d hit(s)\n' "Brewfile brew \"--cask\", \"tuist\"" \
@@ -279,8 +268,6 @@ print_dry_run_plan() {
     "$(grep -c 'tuist' ci/local-check.sh 2>/dev/null || true)"
   printf '  %-40s %d hit(s)\n' "ci/local-release-check.sh tuist" \
     "$(grep -c 'tuist' ci/local-release-check.sh 2>/dev/null || true)"
-  printf '  %-40s %d hit(s)\n' ".github/workflows/pr.yml tuist" \
-    "$(grep -c 'tuist' .github/workflows/pr.yml 2>/dev/null || true)"
   echo
   ok "dry run complete — re-run without --dry-run to apply"
 }
@@ -345,7 +332,6 @@ main() {
   mutate_makefile
   mutate_local_check
   mutate_local_release_check
-  mutate_pr_workflow
 
   trap - ERR EXIT INT TERM
 

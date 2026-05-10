@@ -48,11 +48,30 @@ jobs:
           [[ ",$platforms," == *,ios,* ]]   && do_ios=true
           [[ ",$platforms," == *,macos,* ]] && do_macos=true
 
+          # Detect which generator manifests are committed. Single-generator
+          # forks (the typical end state — pick xcodegen OR tuist via
+          # bin/switch-to-{xcodegen,tuist}.sh) delete the other manifest, so
+          # there's nothing for the absent generator's cells to operate on.
+          # apple-shipkit + smoketest keep both committed → matrix runs both.
+          generators=()
+          [ -f app/project.yml ]    && generators+=("xcodegen")
+          [ -f app/Project.swift ]  && generators+=("tuist")
+          # Safety: if neither manifest is present (corrupt / mid-rename
+          # state), fall back to the template default so cells fail loudly
+          # at `xcodegen|tuist generate` instead of silently producing an
+          # empty matrix that skips all build coverage.
+          if [ ${#generators[@]} -eq 0 ]; then
+            echo "WARN: neither app/project.yml nor app/Project.swift found; defaulting to both generators (cells will fail at generate step)"
+            generators=(xcodegen tuist)
+          fi
+          echo "Resolved GENERATORS=${generators[*]}"
+
           # Order matters: the resulting check names land in the order rows
           # are appended, and existing branch-protection rules + reviewer
-          # muscle memory expect xcodegen-trio-then-tuist-trio.
+          # muscle memory expect xcodegen-trio-then-tuist-trio (when both
+          # are present).
           rows=()
-          for gen in xcodegen tuist; do
+          for gen in "${generators[@]}"; do
             prefix=""
             [ "$gen" = "tuist" ] && prefix="Tuist "
             if [ "$do_ios" = "true" ]; then

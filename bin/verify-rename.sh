@@ -117,6 +117,7 @@ check_surface() {
               ':!ci/test-rename.sh' \
               ':!ci/test-rename-gates.sh' \
               ':!ci/test-verify-rename.sh' \
+              ':!bin/lib/bootstrap.rb' \
               ':!.github/workflows/bootstrap-doctor-matrix.yml')
   status=$?
   set -e

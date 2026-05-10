@@ -35,11 +35,16 @@ is the only section you really need.
 > `make check-macos` all green. The script's
 > `ci/test-switch-to-tuist.sh` harness re-runs that validation in CI.
 >
-> Generator parity is also gated **at release time**, not just PR time.
-> Since v1.5, `.github/workflows/canary-local-mode.yml` ships a
-> `[xcodegen, tuist]` matrix that exercises both generators end-to-end
-> through `fastlane release` weekly on the smoketest fork — so a
-> Tuist-only fork's release pipeline is itself canary-validated upstream.
+> Generator parity is gated at multiple points, not just PR time:
+> `pr.yml`'s 6-job matrix on every PR (build-only); since v1.5,
+> `.github/workflows/canary-local-mode.yml`'s `[xcodegen, tuist]`
+> matrix runs `fastlane release` weekly on the smoketest fork; and
+> since v1.6, `release.yml` itself uses the same mint-fresh-cert-then-revoke
+> path as `canary-local-mode.yml`, so every actual ship from a
+> Tuist-only fork exercises the post-migration Tuist release pipeline
+> through the same code path the canary validates. A Tuist-only fork's
+> release pipeline is canary-validated upstream **and** validated on
+> each of its own ships.
 >
 ## Why this exists
 

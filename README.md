@@ -21,7 +21,7 @@ That's the starter app you'll customize into yours.
 
 ## Why this exists
 
-I'm a first-time iOS developer. Before writing a feature of my actual app, I spent days researching what Apple requires to publish: signing certificates, fastlane match for CI signing, ASC API keys, metadata specs, branch protection, and a dozen Apple-side gotchas that only surface in TestFlight.
+I'm a first-time iOS developer. Before writing a feature of my actual app, I spent days researching what Apple requires to publish: signing certificates, GitHub Actions signing that mints fresh certs per release, ASC API keys, metadata specs, branch protection, and a dozen Apple-side gotchas that only surface in TestFlight.
 
 I automated or documented every requirement I encountered. That's what this template is — the boring prep work, done.
 
@@ -241,7 +241,6 @@ ASC_API_KEY_P8_PATH=~/.config/secrets/AuthKey_ABC1234567.p8  # fill in — from 
 # if your fork lives somewhere other than github.com/<you>/<repo>.
 GH_ORG=your-username                        # auto-filled by make init
 GH_APP_REPO=my-cool-app                     # auto-filled by make init
-GH_CERTS_REPO=my-cool-app-certs             # auto-filled by make init (CI mode only)
 
 # Optional design + ASC fields. Fill these in before running `make ship` for
 # real (placeholder icon is fine for TestFlight; SKU/ASC name only matter once
@@ -251,16 +250,18 @@ ASC_APP_SKU=mycoolapp-001                   # any unique-to-you string
 ASC_APP_NAME='My Cool App'                  # what shows on the App Store
 
 # CI-mode only — leave blank for RELEASE_MODE=local. `make bootstrap-fork`
-# generates and writes random 32-char passwords if these paths don't exist
-# yet, when you do switch to CI mode later.
-GH_PAT_FILE=                                # ~/.config/secrets/<repo>-pat (CI mode only)
-MATCH_PASSWORD_FILE=                        # ~/.config/secrets/match-password (CI mode only)
+# generates a random 32-char password and writes it to this file if it
+# doesn't exist yet, for when you switch to CI mode later. It locks the
+# controlled keychain that release.yml mints fresh signing certs into
+# per release run (then revokes them on workflow exit).
 KEYCHAIN_PASSWORD_FILE=                     # ~/.config/secrets/keychain-password (CI mode only)
 ```
 
 > **Pick BUNDLE_ID carefully.** It's the unique fingerprint of your app, and you can't change it later without losing your TestFlight history. If you own a domain, use it (`com.yourdomain.appname`). If you don't, `com.yourgithubusername.appname` is fine.
 
-> **Why two modes?** `RELEASE_MODE=local` signs from your laptop using certs in your Keychain — easy first-run, no server config needed. `RELEASE_MODE=ci` runs the full pipeline on GitHub Actions when you run `make ship` (which dispatches `release.yml` via `gh workflow run`) — more setup, but it means anyone with repo write access can ship from any machine. Start with `local`. You can switch later.
+> **Why two modes?** `RELEASE_MODE=local` signs from your laptop using certs in your Keychain — easy first-run, no server config needed. `RELEASE_MODE=ci` runs the full pipeline on GitHub Actions when you run `make ship` (which dispatches `release.yml` via `gh workflow run`) — more setup, but it means anyone with repo write access can ship from any machine. Each CI release run mints its own short-lived signing certs into a controlled keychain and revokes them when the run ends, so there's no shared certs repo or PAT to manage. Start with `local`. You can switch later.
+
+> **Bootstrapped before v1.6?** Older forks may still have `GH_CERTS_REPO`, `GH_PAT_FILE`, or `MATCH_PASSWORD_FILE` set in `.bootstrap.env`, plus `MATCH_PASSWORD` and `MATCH_GIT_BASIC_AUTHORIZATION` in their GH Secrets. They're harmless leftovers — the current pipeline ignores them. You can delete them at your leisure (or keep them; nothing reads them).
 
 > **Why pick a platform subset?** If you're shipping an iPhone-only app and don't care about Mac, set `PLATFORMS=ios` — `make doctor` will stop probing for the Mac Installer cert, `make ship` skips the macOS .pkg build/upload, and CI on PRs runs fewer jobs (saving ~2-4 min/PR of macOS runner time). Same in reverse for `PLATFORMS=macos`. Switchable later: change the value, re-run `make bootstrap-fork`. **In CI mode, also re-run `bin/setup-github.sh`** — the required-checks list is set on first bootstrap and won't update automatically when you flip platforms.
 
@@ -303,7 +304,7 @@ If you see `✗` (red) marks instead, doctor will tell you exactly what's missin
 > - Wrong Team ID → copy from Step 3 again
 > - "ASC App record not found" → see the callout above; this is the manual ASC step.
 
-When every step is `✓` or `⚠`, you're ready. (The pipeline runs 14 steps in `local` mode, 18 in `ci` mode — the count above will change accordingly.)
+When every step is `✓` or `⚠`, you're ready. (The pipeline runs 14 steps in both `local` and `ci` mode — the local-only and CI-only steps swap in and out, but the totals match.)
 
 ---
 
@@ -389,8 +390,8 @@ Most first-time failures fall into a few buckets. Here's what to do:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `make doctor` exits 2 with "missing 7 GH Secrets" | You set `RELEASE_MODE=ci` before configuring GH secrets | Either set `RELEASE_MODE=local` for now, or follow [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) to configure CI secrets |
-| `fastlane match` says "Could not install WWDR certificate" | Apple's intermediate cert isn't trusted on your runner | The template's release.yml pre-installs WWDR — see [docs/CONTINUOUS-VALIDATION.md G4](docs/CONTINUOUS-VALIDATION.md) |
+| `make doctor` exits 2 with "missing 5 GH Secrets" | You set `RELEASE_MODE=ci` before configuring GH secrets | Either set `RELEASE_MODE=local` for now, or follow [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) to configure CI secrets |
+| Signing fails with "Could not install WWDR certificate" during a CI release | Apple's intermediate cert isn't trusted on the runner before fresh certs are minted | The template's release.yml pre-installs WWDR before sigh provisions — see [docs/CONTINUOUS-VALIDATION.md G4](docs/CONTINUOUS-VALIDATION.md) |
 | `altool` rejects with "ITMS-90296: app sandbox" on Mac | Xcode's Mac App Store profile strips `com.apple.security.app-sandbox` | The template's `local-release-check.sh` re-adds it automatically. If you see this, the script didn't run — file an issue with the full output |
 | "Provisioning profile doesn't include the device" | You're trying to sideload, not TestFlight-distribute | TestFlight builds don't need device IDs in the profile. If you see this from `make ship`, your `RELEASE_MODE` may be misconfigured |
 | `make doctor` says "ASC App record not found" | One-time human step — Apple's API forbids `POST /apps` | Go to [appstoreconnect.apple.com/apps](https://appstoreconnect.apple.com/apps), click + → New App, fill in your bundle ID + display name, then re-run `make doctor` |
@@ -418,7 +419,7 @@ These are the most common "you don't need this template" comebacks, and they're 
 
 apple-shipkit's value lives in the gap:
 
-- **More than Xcode Distribute**: reproducible builds (Gemfile.lock + pinned Swift/Xcode), audit-tracked (git tags + workflow logs + CHANGELOG per ship), CI-driven (PRs build real apps; ship is `gh workflow run`, not a button), shareable signing material via fastlane match (encrypted certs in a private repo, not just your Keychain).
+- **More than Xcode Distribute**: reproducible builds (Gemfile.lock + pinned Swift/Xcode), audit-tracked (git tags + workflow logs + CHANGELOG per ship), CI-driven (PRs build real apps; ship is `gh workflow run`, not a button), ephemeral CI signing (each release run mints its own short-lived certs into a controlled keychain on the runner and revokes them on exit, instead of trusting whatever's in any one developer's Keychain).
 - **Different shape from Xcode Cloud**: portable GitHub Actions YAML you can take to GitLab / CircleCI / Buildkite, full bash + ruby + fastlane flexibility, no per-minute Apple billing, debug failures locally with `make ship` or `make release-dryrun`.
 
 You probably **don't need** apple-shipkit if you're solo, ship one app, will always ship from one Mac, and never want to leave Xcode. You probably **do** if any of those is or will be untrue — especially if you've ever lost half a day to "why does signing work on my machine but not in CI".
@@ -429,11 +430,11 @@ Different tradeoff from other iOS starters:
 
 | You want… | Use | Why |
 |---|---|---|
-| Pipeline (signing + CI + TestFlight + ASC submission) prewired | **apple-shipkit** | What this template focuses on. Fastlane + match + GitHub Actions + canary continuous validation. |
+| Pipeline (signing + CI + TestFlight + ASC submission) prewired | **apple-shipkit** | What this template focuses on. Fastlane (sigh) + GitHub Actions (mint-fresh CI signing) + canary continuous validation. |
 | UI architecture + screens + sample data | [`ios-project-template`](https://github.com/messeb/ios-project-template), [`ios-mvp-template`](https://github.com/onl1ner/ios-mvp-template), or `SwiftPlate` | These ship app scaffolding (MVVM/MVP/Coordinator). You'd bring fastlane/CI yourself. |
 | Generate a fresh project from a manifest | `tuist scaffold` | Generates project files. No signing, no CI, no release wiring. |
 | Subscription bundle (RevenueCat + paywall + IAP) | [RevenueCat Quickstart](https://www.revenuecat.com/docs/getting-started/quickstart) | apple-shipkit is intentionally framework-agnostic; bring your own monetization. |
-| Bare `gh repo create` from a Swift project you already have | _no template needed_ | apple-shipkit is for people who don't have the project yet, or who do but want fastlane/CI/match prewired. |
+| Bare `gh repo create` from a Swift project you already have | _no template needed_ | apple-shipkit is for people who don't have the project yet, or who do but want fastlane + CI signing prewired. |
 
 Mix-and-match is fine. Many people start with apple-shipkit for the release pipeline, then drop in a UI template's screens or a RevenueCat paywall on top.
 
@@ -450,7 +451,7 @@ Once you're past the first ship, these docs cover the rest:
 - **[docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md](docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md)** — same archive/export flow without fastlane (uses `xcrun altool` + `notarytool` + ASC API directly).
 - **[docs/PRINCIPLES.md](docs/PRINCIPLES.md)** — design decisions behind the template's structure.
 - **[docs/ROLLBACK.md](docs/ROLLBACK.md)** — undoing a TestFlight build, a git tag, or a partial bootstrap-fork.
-- **[docs/NO-CI.md](docs/NO-CI.md)** — running the template in local-only mode (no GitHub Actions, no GH Secrets, no match).
+- **[docs/NO-CI.md](docs/NO-CI.md)** — running the template in local-only mode (no GitHub Actions, no GH Secrets).
 
 ---
 
@@ -468,7 +469,8 @@ RELEASE_MODE=ci?     → gh workflow run release.yml (triggers GitHub Actions)
                           ↓
                        fastlane release tag:vYYYY.WW.<run-number>
                           ↓
-                       1. match (provisions iOS + Mac certs from your certs repo)
+                       1. mint fresh iOS + Mac signing certs via sigh into a
+                          controlled keychain (revoked on workflow exit)
                        2. xcodebuild archive + export → .ipa (iOS) + .pkg (Mac)
                        3. altool upload → App Store Connect
                        4. git tag + push
@@ -485,17 +487,17 @@ Each step is its own fastlane lane in `fastlane/Fastfile`. Read the file — it'
 
 The two badges above reflect the most recent canary runs:
 
-- **CI-mode canary** ([`canary-trigger.yml`](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)) — exercises the match-based shipping path used by forks with `RELEASE_MODE=ci`. Both `dispatch (xcodegen)` and `dispatch (tuist)` cells real-ship to TestFlight on the [smoketest fork](https://github.com/indiagrams/ios-macos-smoketest).
-- **Local-mode canary** ([`canary-local-mode.yml`](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-local-mode.yml)) — exercises the no-match sigh-based shipping path used by forks with `RELEASE_MODE=local` (the default). Mints throwaway certs in the same Apple team, ships to TestFlight, revokes the certs on `always()` so net team-cert delta per run is 0.
+- **CI-mode canary** ([`canary-trigger.yml`](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)) — exercises the CI-mode mint-fresh shipping path used by forks with `RELEASE_MODE=ci` (release.yml mints fresh certs per run, ships, then revokes them). Both `dispatch (xcodegen)` and `dispatch (tuist)` cells real-ship to TestFlight on the [smoketest fork](https://github.com/indiagrams/ios-macos-smoketest).
+- **Local-mode canary** ([`canary-local-mode.yml`](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-local-mode.yml)) — exercises the local-mode sigh-based shipping path used by forks with `RELEASE_MODE=local` (the default). Mints throwaway certs in the same Apple team, ships to TestFlight, revokes the certs on `always()` so net team-cert delta per run is 0.
 
 Either badge red → at least one cell failed. Click the badge to see which cell + why. Per-cell history (xcodegen vs tuist) lives in each workflow's run-by-run breakdown.
 
 The validation infrastructure (all on the smoketest fork):
 - **Mondays 07:00 UTC**: read-only doctor matrix (4 cells: xcodegen|tuist × ci|local) — covers bootstrap toolchain.
 - **Mondays 09:00 UTC**: full release ship to TestFlight via `release.yml`, both generators in sequence — covers the CI-mode signing pipeline + Apple infrastructure.
-- **Saturdays 11:30 UTC**: full release ship to TestFlight via `canary-local-mode.yml`, both generators sequentially — covers the local-mode signing pipeline (no match, sigh-based profiles, β cert SHA-1 pinning, controlled keychain).
+- **Saturdays 11:30 UTC**: full release ship to TestFlight via `canary-local-mode.yml`, both generators sequentially — covers the local-mode signing pipeline (sigh-based profiles, fresh-cert minting, β cert SHA-1 pinning, controlled keychain).
 
-Bugs in fastlane / match / Apple's signing infra surface there before they bite forkers — patches land in this template before they hit your repo.
+Bugs in fastlane / sigh / Apple's signing infra surface there before they bite forkers — patches land in this template before they hit your repo.
 
 If you fork this template and your build breaks unexpectedly, [check the smoketest's Actions tab](https://github.com/indiagrams/ios-macos-smoketest/actions) — it's probably broken there too (Monday morning for CI-mode regressions, Saturday morning for local-mode), and a fix is in flight.
 
@@ -537,7 +539,6 @@ If you fork this template and your build breaks unexpectedly, [check the smokete
 │   ├── Fastfile                 # release | bootstrap_certs | upload_metadata | submit_for_review
 │   ├── Appfile                  # bundle ID + team
 │   ├── Snapfile / MacSnapfile   # screenshot capture config
-│   ├── Matchfile                # certs-repo URL (replace placeholder before running match)
 │   └── metadata/                # App Store listing copy + review info
 ├── app/
 │   ├── project.yml              # XcodeGen manifest (default generator)

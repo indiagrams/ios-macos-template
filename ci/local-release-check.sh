@@ -102,12 +102,37 @@ with_timestamp_retry() {
 . "$(dirname "${BASH_SOURCE[0]}")/lib/resolve-dist-cert-sha.sh"
 
 VERSION="${TAG#v}"
-MARKETING_VERSION="${RELEASE_MARKETING_VERSION:-${VERSION%%-*}}"
-# ASC requires CFBundleVersion to be unique per CFBundleShortVersionString
-# across uploads. RELEASE_BUILD_NUMBER lets CI threading (e.g. github.run_number)
-# guarantee uniqueness across weekly cron runs. Default 0 preserves the prior
-# local-only behavior for one-shot manual builds.
-BUILD_NUMBER="${RELEASE_BUILD_NUMBER:-0}"
+# Tag carries marketing version and (new format) build number:
+#   v1.0.0+5                  → MARKETING=1.0.0, BUILD=5  (apple-shipkit v1.7+ default)
+#   v0.YYYY.WW-canary-N-gen   → MARKETING=0.YYYY.WW, BUILD=$RELEASE_BUILD_NUMBER (canary)
+#   v2026.19.1357             → MARKETING=2026.19.1357,   BUILD=$RELEASE_BUILD_NUMBER (legacy)
+#
+# Env overrides win over the tag-derived values:
+#   RELEASE_MARKETING_VERSION  — canary uses this to pin a per-week
+#                                marketing version on a shared bundle
+#                                without editing project.yml.
+#   RELEASE_BUILD_NUMBER       — CI uses this when the workflow wants
+#                                deterministic numbering tied to
+#                                github.run_number (canary case).
+#
+# Both default to 0/empty when nothing supplies them; ASC will reject
+# the upload if CFBundleVersion=0 collides with an existing build.
+case "$VERSION" in
+  *"+"*)
+    TAG_MARKETING="${VERSION%%+*}"
+    TAG_BUILD="${VERSION##*+}"
+    ;;
+  *"-"*)
+    TAG_MARKETING="${VERSION%%-*}"
+    TAG_BUILD=""
+    ;;
+  *)
+    TAG_MARKETING="$VERSION"
+    TAG_BUILD=""
+    ;;
+esac
+MARKETING_VERSION="${RELEASE_MARKETING_VERSION:-$TAG_MARKETING}"
+BUILD_NUMBER="${RELEASE_BUILD_NUMBER:-${TAG_BUILD:-0}}"
 
 # Bundle id is required when building manual-signing ExportOptions plists
 # (provisioningProfiles dict maps bundle_id → profile name). Pulled from

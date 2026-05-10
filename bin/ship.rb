@@ -9,10 +9,15 @@
 #             - if origin/main HEAD already has a release tag, exit 0
 #             - --force overrides both checks
 #
-#   local — runs `bundle exec fastlane release tag:vYYYY.WW.HHMM` on this
-#           machine. Signing comes from the login keychain (Apple Distribution
+#   local — runs `bundle exec fastlane release tag:vMARKETING+BUILD` on this
+#           machine. Marketing version is read from app/project.yml or
+#           app/Project.swift (whichever exists); build number is resolved
+#           from ASC as `max(existing builds at this marketing version) + 1`,
+#           so each ship lands as a new build under the current "Version
+#           X" bucket in TestFlight (instead of inventing a new bucket per
+#           ship). Signing comes from the login keychain (Apple Distribution
 #           + Apple Development + 3rd Party Mac Developer Installer must be
-#           present — `make doctor` verifies). No Idempotency check: the
+#           present — `make doctor` verifies). No idempotency check: the
 #           fastlane release lane is itself idempotent (refuses to re-tag
 #           an existing tag).
 #
@@ -72,7 +77,14 @@ end
 
 # ─── Local mode: run fastlane release on this machine ─────────────────────────
 if config.local_mode?
-  tag = "v#{Time.now.utc.strftime('%Y.%V.%H%M')}"
+  require_relative "lib/version_resolver"
+  require "spaceship"
+  Bootstrap.ensure_asc_token!(config)
+  begin
+    tag = Bootstrap::Version.compute_release_tag(config["BUNDLE_ID"])
+  rescue StandardError => e
+    Bootstrap::UI.fail!("Could not compute release tag: #{e.message}")
+  end
   print_preflight(config, dry_run, tag: tag)
   puts Bootstrap::UI.bold("Running fastlane release locally — tag #{tag}")
   env = Bootstrap.asc_env(config).merge("PLATFORMS" => config.platforms.join(","))

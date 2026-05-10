@@ -375,9 +375,9 @@ You have a working app + working release pipeline. From here:
 | Goal | What to do |
 |---|---|
 | Change the app's behavior | Edit files in `app/Shared/` (SwiftUI code, cross-platform). Run `make check` to verify it still builds. |
-| Ship a new version | `make ship` again — it handles versioning automatically (CalVer: `v2026.20.<run-number>`). |
+| Ship a new version | `make ship` again — versioning is automatic: tag `v<MARKETING>+<BUILD>` where `<MARKETING>` reads from `app/project.yml` (or `app/Project.swift` for Tuist) and `<BUILD>` resolves to `max(builds at marketing) + 1` from App Store Connect. |
 | Replace the placeholder icon | Drop a 1024×1024 PNG into `app/iOS/Assets.xcassets/AppIcon.appiconset/Icon-1024.png`, run `make icons` to regenerate the macOS .icns, ship again. |
-| Submit to the actual App Store | Capture screenshots (`make screenshots`), fill in `fastlane/metadata/en-US/*.txt`, then `fastlane ios submit_for_review`. See [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) for the App Store submission section. |
+| Submit to the actual App Store | Capture screenshots (`make screenshots`), fill in `fastlane/metadata/en-US/*.txt`, then `fastlane ios submit_for_review`. The submit lane also publishes a GitHub Release for the marketing version (notes pulled from `CHANGELOG.md`); set `RELEASE_SKIP_GH_RELEASE=true` to disable. See [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) for the App Store submission section. |
 | Move signing to GitHub Actions | Set `RELEASE_MODE=ci` in `.bootstrap.env`, follow the "Two release modes" section in [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md#two-release-modes). |
 
 ---
@@ -512,8 +512,8 @@ If you fork this template and your build breaks unexpectedly, [check the smokete
 │   ├── canary-trigger.yml       # weekly CI-mode ship-validation (template-only; no-op on forks)
 │   ├── canary-local-mode.yml    # weekly local-mode ship-validation (cron commented; forks opt in)
 │   └── verify-rename.yml        # gate: rename script integrity
-├── Brewfile                     # xcodegen + tuist + fastlane + lefthook
-├── Makefile                     # init | doctor | bootstrap-fork | ship | verify | all
+├── Brewfile                     # xcodegen + tuist + fastlane + lefthook + swiftlint + swiftformat
+├── Makefile                     # init | doctor | bootstrap-fork | ship | verify | format | format-check | all
 ├── lefthook.yml                 # pre-push: ci/local-check.sh --fast
 ├── .bootstrap.env.example       # template config; copy to .bootstrap.env
 ├── bin/
@@ -524,7 +524,7 @@ If you fork this template and your build breaks unexpectedly, [check the smokete
 │   ├── lib/bootstrap.rb         # the orchestration framework
 │   ├── rename.sh                # rename HelloApp → YourApp
 │   ├── switch-to-tuist.sh       # one-way XcodeGen → Tuist switch
-│   ├── setup-github.sh          # branch protection + squash-only + 7 required checks
+│   ├── setup-github.sh          # branch protection + squash-only + 8 required checks
 │   ├── preflight.sh             # check developer-tool prerequisites
 │   └── ...                      # several smaller helpers
 ├── ci/

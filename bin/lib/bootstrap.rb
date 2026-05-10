@@ -29,10 +29,6 @@ module Bootstrap
   ENV_FILE  = REPO_ROOT.join(".bootstrap.env")
 
   # The 5 GH Secrets the release pipeline needs. Order: stable for doctor.
-  # v1.6 (#158) dropped MATCH_PASSWORD + MATCH_GIT_BASIC_AUTHORIZATION when
-  # release.yml moved from match-based signing to mint-fresh certs per run.
-  # Existing forks with these GH Secrets set: harmless leftovers; no action
-  # needed. Future bootstrap-fork runs no longer create them.
   REQUIRED_SECRETS = %w[
     KEYCHAIN_PASSWORD
     ASC_API_KEY_ID
@@ -50,10 +46,6 @@ module Bootstrap
       GH_ORG GH_APP_REPO
     ].freeze
 
-    # v1.6 (#158) dropped GH_CERTS_REPO, GH_PAT_FILE, MATCH_PASSWORD_FILE
-    # — release.yml no longer uses match (no certs repo, no PAT for it,
-    # no encryption password). Existing forks with these fields in their
-    # .bootstrap.env: harmless leftovers; doctor doesn't complain.
     REQUIRED_CI_ONLY = %w[
       KEYCHAIN_PASSWORD_FILE
     ].freeze

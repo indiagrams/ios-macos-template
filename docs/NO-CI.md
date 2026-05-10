@@ -54,10 +54,7 @@ GH_APP_REPO=your-app
 # CI-only field — leave blank for local-only mode:
 KEYCHAIN_PASSWORD_FILE=
 ```
-
-If you bootstrapped before v1.6, your `.bootstrap.env` may still contain `GH_CERTS_REPO=`, `GH_PAT_FILE=`, and `MATCH_PASSWORD_FILE=` lines. They're harmless leftovers — `make doctor` and `bootstrap-fork` no longer read them. You can delete the lines whenever, but you don't have to.
-
-`make doctor` detects `RELEASE_MODE=local` and skips the CI-only step (`GHSecrets`). Pre-v1.6 there were 5 CI-only steps; v1.6 (#158) removed `EditMatchfile`, `CreateCertsRepo`, `BootstrapCerts`, and `MintInstaller` along with the match-based signing path that needed them.
+`make doctor` detects `RELEASE_MODE=local` and skips the CI-only step (`GHSecrets`).
 
 ### 2. Cert provisioning
 

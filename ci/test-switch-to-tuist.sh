@@ -114,11 +114,16 @@ grep -q 'require_cmd tuist' "$WORK_DIR/ci/local-check.sh" || \
   fail "post-switch: ci/local-check.sh missing 'require_cmd tuist'"
 ! grep -q 'require_cmd xcodegen' "$WORK_DIR/ci/local-check.sh" || \
   fail "post-switch: ci/local-check.sh still has 'require_cmd xcodegen'"
-grep -q 'tuist generate --no-open' "$WORK_DIR/.github/workflows/pr.yml" || \
-  fail "post-switch: .github/workflows/pr.yml missing 'tuist generate --no-open'"
-! grep -q 'run: xcodegen generate' "$WORK_DIR/.github/workflows/pr.yml" || \
-  fail "post-switch: .github/workflows/pr.yml still has 'run: xcodegen generate'"
-ok "all 5 mutation surfaces verified post-switch"
+# pr.yml is intentionally NOT mutated by switch-to-tuist.sh anymore — the
+# matrix builder in pr.yml detects which generator manifests are present
+# (app/project.yml ↔ xcodegen, app/Project.swift ↔ tuist) and only emits
+# matching cells. After switch-to-tuist removes app/project.yml, pr.yml's
+# matrix collapses to Tuist-only at runtime with no edits to the workflow.
+[ ! -f "$WORK_DIR/app/project.yml" ] || \
+  fail "post-switch: app/project.yml still present (matrix would still emit xcodegen cells)"
+[ -f "$WORK_DIR/app/Project.swift" ] || \
+  fail "post-switch: app/Project.swift missing (matrix would have no tuist cells either)"
+ok "all 4 mutation surfaces verified post-switch + pr.yml matrix invariant"
 
 # ── Idempotency: second run is silent no-op ───────────────────────────────
 step "Idempotency: second run is silent no-op"

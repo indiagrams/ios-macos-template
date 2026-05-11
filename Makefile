@@ -98,10 +98,28 @@ help:
 	@echo "  phase-checklist  Print the GSD canonical per-phase checklist (usage: make phase-checklist N=3.1)"
 	@echo "  milestone-checklist  Print the GSD milestone wrap-up checklist (usage: make milestone-checklist M=1)"
 
+# `brew bundle` may have just installed ruby@3.3 for the first time on a fresh
+# machine. The $(_BUNDLE) variable was resolved at Makefile-PARSE time (via
+# $(wildcard ...) above), which pre-dates the install — so on a host where the
+# parent shell PATH already had system Ruby 2.6 but no brew Ruby yet,
+# $(_BUNDLE) froze as plain `bundle`. Running that here resolves through PATH
+# to /usr/bin/bundle = system Bundler 1.17.2 on Ruby 2.6.10, which refuses to
+# install modern gems with "public_suffix-7.0.5 requires ruby version >= 3.2".
+# Surfaced 2026-05-11 on a fresh macOS host that hadn't seen ruby@3.3 before.
+#
+# Re-execing $(MAKE) for the bundle install re-parses the Makefile from
+# scratch with /opt/homebrew/opt/ruby@3.3/bin/ruby now visible to
+# $(wildcard ...), so _BUNDLE picks up the absolute brew-Ruby path and the
+# install resolves to Bundler 4.x + Ruby 3.3. Harmless ~50ms no-op on
+# machines where ruby@3.3 was already installed at the outer make's parse
+# time. The internal `_bootstrap-bundle` target is the re-exec landing zone.
 bootstrap:
 	brew bundle
 	lefthook install
 	cd app && xcodegen generate
+	@$(MAKE) _bootstrap-bundle
+
+_bootstrap-bundle:
 	$(_BUNDLE) install
 
 format:

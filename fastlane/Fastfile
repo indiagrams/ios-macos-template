@@ -403,7 +403,16 @@ end
 # `platform:` should be :ios or :osx (deliver's spelling).
 def do_upload_metadata(platform:)
   metadata_dir    = File.join(__dir__, "metadata")
-  en_us_dir       = File.join(metadata_dir, "en-US")
+  # Primary App Store locale. `ASC_PRIMARY_LOCALE` env var (set in shared
+  # `~/code/.bootstrap.env`) overrides en-US for orgs whose primary market
+  # isn't English. The .txt files are expected at
+  # `fastlane/metadata/<locale>/*.txt` — same path shape, different subdir
+  # name. Doctor's `ScanMetadata` still scans en-US/ specifically (most
+  # forks are en-US-first; non-English forks should set this env + rename
+  # the metadata subdir accordingly).
+  primary_locale  = ENV["ASC_PRIMARY_LOCALE"].to_s.strip
+  primary_locale  = "en-US" if primary_locale.empty?
+  en_us_dir       = File.join(metadata_dir, primary_locale)
   review_info_dir = File.join(metadata_dir, "review_information")
 
   # App Review information. Each field's resolution order:
@@ -438,7 +447,7 @@ def do_upload_metadata(platform:)
   end
 
   en_us  = ->(name) { File.read(File.join(en_us_dir, "#{name}.txt")).strip }
-  locale = "en-US"
+  locale = primary_locale
 
   # Org-stable App Store metadata resolution. Resolution order:
   #   1. ASC_<NAME> env var (typical home: shared `~/code/.bootstrap.env`
@@ -456,7 +465,16 @@ def do_upload_metadata(platform:)
     v.empty? ? default_block.call : v
   }
 
-  deliver(
+  # primary_category + secondary_category are added only when set. App
+  # Store Connect's existing App Record category (chosen when the App was
+  # created in ASC) wins if env is unset, so this is safe-additive — a
+  # fresh fork picks a category at App-Record-creation time and never
+  # touches these envs unless they want to change it later. Sub-category
+  # extraction is deferred until a forker actually needs it; the deliver
+  # API supports primary_first_sub_category / primary_second_sub_category
+  # / etc. but they're game-app-specific (Apple's category taxonomy
+  # treats Games as a special parent with required sub-categories).
+  deliver_args = {
     api_key:                  asc_api_key,
     app_identifier:           APP_IDENTIFIER,
     platform:                 platform.to_s,
@@ -478,7 +496,10 @@ def do_upload_metadata(platform:)
     submit_for_review:        false,
     automatic_release:        false,
     precheck_include_in_app_purchases: false
-  )
+  }
+  deliver_args[:primary_category]   = ENV["ASC_PRIMARY_CATEGORY"].to_s.strip   unless ENV["ASC_PRIMARY_CATEGORY"].to_s.strip.empty?
+  deliver_args[:secondary_category] = ENV["ASC_SECONDARY_CATEGORY"].to_s.strip unless ENV["ASC_SECONDARY_CATEGORY"].to_s.strip.empty?
+  deliver(**deliver_args)
   required_keys = %i[first_name last_name email_address phone_number]
   missing = required_keys.reject { |k| review_info[k] }
   if missing.empty?

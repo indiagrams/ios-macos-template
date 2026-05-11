@@ -6,7 +6,7 @@
 # idempotent (silent no-op on re-run with same args), pre-flight-gated.
 #
 # Usage:
-#   bin/rename.sh APP_NAME BUNDLE_ID DISPLAY_NAME --email=EMAIL [--slug=OWNER/REPO] [--year=YYYY] [--generator=tuist|xcodegen] [--platforms=ios|macos|ios,macos] [--dry-run] [--force]
+#   bin/rename.sh APP_NAME BUNDLE_ID DISPLAY_NAME --email=EMAIL [--slug=OWNER/REPO] [--year=YYYY] [--generator=tuist|xcodegen] [--platforms=ios|macos|ios,macos] [--team-id=TEAMID] [--dry-run] [--force]
 #   bin/rename.sh -h                                # print this usage
 #   bin/rename.sh --help                            # alias for -h
 #
@@ -39,6 +39,15 @@
 #                       Both manifests ship on `main` (#38); the flag picks which
 #                       one drives the renamed fork. Pre-flight gate fails if
 #                       --generator=tuist and `tuist` is not on PATH.
+#   --team-id=TEAMID    Apple Developer team ID (10-char alphanumeric, e.g.
+#                       A26TJZ8QHQ). Substitutes TEAM_ID_PLACEHOLDER in
+#                       app/project.yml + app/Project.swift so signed builds
+#                       (`make ship`, `make screenshots`, plain xcodebuild)
+#                       work without manual edits. Optional; if omitted, the
+#                       placeholder remains and rename-complete summary
+#                       warns. bin/bootstrap-fork.rb auto-fills from
+#                       .bootstrap.env's FASTLANE_TEAM_ID, so the
+#                       `make bootstrap-fork` path never leaves it unset.
 #   --dry-run           Preview substitutions without applying.
 #   --force             Override the on-main-branch gate AND the partial-
 #                       rename detection gate. Other gates (args validation,
@@ -121,6 +130,7 @@ SLUG=""
 YEAR_ARG=""
 GENERATOR="xcodegen"   # default; --generator=tuist|xcodegen overrides (#38)
 PLATFORMS="ios,macos"  # default; --platforms=ios|macos|ios,macos overrides (matches .bootstrap.env PLATFORMS)
+TEAM_ID=""             # optional; --team-id=A26TJZ8QHQ substitutes TEAM_ID_PLACEHOLDER in app/project.yml + app/Project.swift
 DRY_RUN=0
 FORCE=0
 
@@ -167,6 +177,12 @@ parse_args() {
         [ $# -ge 2 ] || fail "--platforms requires a value (e.g. --platforms=ios)"
         case "$2" in -*) fail "--platforms value cannot start with '-' (got '$2')";; esac
         PLATFORMS="$2"; shift 2 ;;
+      --team-id=*)
+        TEAM_ID="${1#--team-id=}"; shift ;;
+      --team-id)
+        [ $# -ge 2 ] || fail "--team-id requires a value (e.g. --team-id=A26TJZ8QHQ)"
+        case "$2" in -*) fail "--team-id value cannot start with '-' (got '$2')";; esac
+        TEAM_ID="$2"; shift 2 ;;
       -*)
         fail "unknown flag '$1' — run with -h for usage" ;;
       *)
@@ -266,6 +282,17 @@ validate_args() {
     *) fail "invalid --platforms '$PLATFORMS' — must be 'ios', 'macos', 'ios,macos', or 'macos,ios' (default: ios,macos)" ;;
   esac
   ok "--platforms '$PLATFORMS' valid (label: '$PLATFORMS_LABEL')"
+
+  # Gate 5f: --team-id format check (optional flag; only validates if set).
+  # Apple Developer team IDs are 10-char alphanumeric (uppercase letters
+  # + digits). The .bootstrap.env.example FASTLANE_TEAM_ID hint is the
+  # same regex; if a forker sets something invalid, fail-loud here rather
+  # than silently writing garbage into app/project.yml + app/Project.swift.
+  if [ -n "$TEAM_ID" ]; then
+    [[ "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || \
+      fail "invalid --team-id '$TEAM_ID' — must match ^[A-Z0-9]{10}$ (10-char uppercase alphanumeric, e.g. A26TJZ8QHQ)"
+    ok "--team-id '$TEAM_ID' valid"
+  fi
 }
 
 # ── Reset-hard rollback (REQ-7; HIGH-1 closure — replaces broken stash) ───
@@ -567,6 +594,35 @@ apply_substitutions() {
   [ "${REMAINING:-0}" = "0" ] || \
     fail "HIGH-6 violation: $REMAINING placeholder match(es) remain after Step G"
   ok "placeholder fully replaced (0 remaining)"
+
+  # Step H: TEAM_ID_PLACEHOLDER -> $TEAM_ID (signing team substitution)
+  # Source literal `TEAM_ID_PLACEHOLDER` ships in app/project.yml (xcodegen)
+  # and app/Project.swift (tuist). Without substitution, every signed build
+  # path fails — `make ship` (always), `make screenshots` outside the
+  # CODE_SIGNING_ALLOWED=NO bypass added in #185, and any plain
+  # `xcodebuild build` invocation. Only runs when --team-id was supplied;
+  # without it the placeholder remains and the rename-complete summary
+  # warns. bin/bootstrap-fork.rb always passes --team-id from
+  # .bootstrap.env's FASTLANE_TEAM_ID so the `make bootstrap-fork` path
+  # never leaves a placeholder behind.
+  #
+  # SURGICAL — only the 2 project files, not a broad git-grep sweep. Other
+  # files that contain `TEAM_ID_PLACEHOLDER` use it as a LITERAL in their
+  # OWN substitution logic (bin/switch-to-xcodegen.sh's sed pattern,
+  # ci/local-release-check.sh's ExportOptions-plist patch, build-script
+  # comments). A broad sweep would corrupt those scripts' source-of-truth
+  # — e.g. switch-to-xcodegen.sh's `sed s|TEAM_ID_PLACEHOLDER|$fork_team|`
+  # would become `sed s|A26TJZ8QHQ|$fork_team|`, baking apple-shipkit's
+  # team id permanently into every renamed fork.
+  if [ -n "$TEAM_ID" ]; then
+    step "Substituting TEAM_ID_PLACEHOLDER -> $TEAM_ID"
+    for f in app/project.yml app/Project.swift; do
+      if [ -f "$f" ] && grep -q 'TEAM_ID_PLACEHOLDER' "$f"; then
+        sed -i '' "s|TEAM_ID_PLACEHOLDER|$TEAM_ID|g" "$f"
+        ok "TEAM_ID substituted in $f"
+      fi
+    done
+  fi
 }
 
 # ── Idempotency + partial-rename detection (REQ-6, REQ-10; HIGH-3) ───────
@@ -898,6 +954,10 @@ main() {
 
   step "Rename complete"
   ok "$APP_NAME ($BUNDLE_ID) — \"$DISPLAY_NAME\""
+  if [ -z "$TEAM_ID" ]; then
+    printf '\033[33m⚠ \033[0m  TEAM_ID_PLACEHOLDER still in app/project.yml + app/Project.swift — set FASTLANE_TEAM_ID in .bootstrap.env\n'
+    printf '\033[33m⚠ \033[0m  or re-run `bin/rename.sh ... --team-id=A26TJZ8QHQ` to substitute. Signed builds will fail until then.\n'
+  fi
   ok "next: run 'make check' to verify the build is green"
 }
 

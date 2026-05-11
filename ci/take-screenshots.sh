@@ -124,12 +124,24 @@ if ! $IOS_ONLY; then
   step "Capture macOS screenshots (xcodebuild test)"
   XCRESULT="/tmp/mac-screenshots.xcresult"
   rm -rf "$XCRESULT"
+  # On forks where the project.yml still has DEVELOPMENT_TEAM=TEAM_ID_PLACEHOLDER
+  # (no real Apple team set yet — typical fresh-fork state), Xcode's automatic
+  # signing fails: "No signing certificate Mac Development found ... team ID
+  # TEAM_ID_PLACEHOLDER". The same xcodebuild used in CI matrix jobs
+  # (.github/workflows/pr.yml + ci/local-check.sh) passes
+  # CODE_SIGN_IDENTITY="" + CODE_SIGNING_REQUIRED=NO + CODE_SIGNING_ALLOWED=NO
+  # to bypass signing entirely — UI tests don't need real signatures to run.
+  # Mirror that here so screenshots work on fresh forks regardless of whether
+  # the user has minted real Mac Development certs.
   DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
     -project "$XCODEPROJ" \
     -scheme "${APP_NAME}-macOS" \
     -destination 'platform=macOS' \
     -resultBundlePath "$XCRESULT" \
     -only-testing:"${APP_NAME}MacOSUITests/AppStoreScreenshotTests" \
+    CODE_SIGN_IDENTITY="" \
+    CODE_SIGNING_REQUIRED=NO \
+    CODE_SIGNING_ALLOWED=NO \
     ONLY_ACTIVE_ARCH=YES 2>&1 | xcbeautify --quiet || {
       echo "error: macOS screenshot test failed — see $XCRESULT" >&2
       exit 1

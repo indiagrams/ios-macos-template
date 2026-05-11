@@ -620,6 +620,7 @@ module Bootstrap
 
     def metadata_dir; REPO_ROOT.join("fastlane", "metadata", "en-US"); end
     def review_dir;   REPO_ROOT.join("fastlane", "metadata", "review_information"); end
+    def root_dir;     REPO_ROOT.join("fastlane", "metadata"); end
 
     # Maps review_information/<file>.txt → corresponding APP_REVIEW_* env
     # var. When the env var is set non-empty (typically from the shared
@@ -635,20 +636,53 @@ module Bootstrap
       "notes.txt"         => "APP_REVIEW_NOTES"
     }.freeze
 
+    # Same env-skip pattern for org-stable App Store metadata fields
+    # (en-US/*.txt URLs + copyright.txt). Fastfile's `asc_field` lambda
+    # reads ENV first; when set, the tracked file placeholder is
+    # acceptable. Maps from {en-US/<file>, copyright.txt} → ASC_* env var.
+    EN_US_FIELD_ENV = {
+      "marketing_url.txt" => "ASC_MARKETING_URL",
+      "privacy_url.txt"   => "ASC_PRIVACY_URL",
+      "support_url.txt"   => "ASC_SUPPORT_URL"
+    }.freeze
+
+    COPYRIGHT_FIELD_ENV = "ASC_COPYRIGHT"
+
+    # `example.com` placeholder detection for the URL files. The template
+    # ships `https://example.com[/path]` in every URL .txt; Apple's deliver
+    # accepts these but they're clearly placeholder leaks, so we flag them
+    # alongside the explicit TODO/REPLACE_ME markers.
+    PLACEHOLDER_PATTERN = /\bTODO\b|REPLACE_ME|com\.example\.helloapp|HelloApp|\bexample\.com\b/i
+
     def check
       todos = []
       [metadata_dir, review_dir].each do |dir|
         next unless dir.directory?
         Dir.glob(dir.join("*.txt")).each do |f|
           basename = File.basename(f)
-          env_name = REVIEW_FIELD_ENV[basename] if dir == review_dir
+          env_name = case dir
+                     when review_dir   then REVIEW_FIELD_ENV[basename]
+                     when metadata_dir then EN_US_FIELD_ENV[basename]
+                     end
           next if env_name && !ENV[env_name].to_s.strip.empty?
           content = File.read(f)
-          if content.match?(/\bTODO\b|REPLACE_ME|com\.example\.helloapp|HelloApp/i)
+          if content.match?(PLACEHOLDER_PATTERN)
             todos << Pathname.new(f).relative_path_from(REPO_ROOT).to_s
           elsif content.strip.empty?
             todos << "#{Pathname.new(f).relative_path_from(REPO_ROOT)} (empty)"
           end
+        end
+      end
+      # copyright.txt lives at metadata/, not under en-US/ or
+      # review_information/. Scan it separately so the env-skip path
+      # for ASC_COPYRIGHT works the same as the en-US URL fields.
+      copyright = root_dir.join("copyright.txt")
+      if copyright.file? && ENV[COPYRIGHT_FIELD_ENV].to_s.strip.empty?
+        content = File.read(copyright)
+        if content.match?(PLACEHOLDER_PATTERN)
+          todos << Pathname.new(copyright).relative_path_from(REPO_ROOT).to_s
+        elsif content.strip.empty?
+          todos << "#{Pathname.new(copyright).relative_path_from(REPO_ROOT)} (empty)"
         end
       end
       return :done if todos.empty?

@@ -23,13 +23,34 @@
 # the pin auto-track the project's declared Ruby; the wildcard guard means
 # forks not using brew Ruby (system Ruby, asdf, mise, rtx, rbenv) see no
 # behavior change.
+#
+# Why $(_BUNDLE) and not bare `bundle`: GNU make has a "single-line recipe
+# optimization" that calls execvp() directly (bypassing /bin/sh) for simple
+# recipe lines with no shell metachars. The `export PATH := ...` directive
+# only affects PATH for shell-mediated invocations; direct execvp uses the
+# make process's parent env PATH unchanged. On a forker's machine where the
+# parent shell PATH has /usr/bin (system Ruby 2.6 + Bundler 1.17.2) before
+# /opt/homebrew/opt/ruby@3.3/bin, bare `bundle install` resolves to
+# /usr/bin/bundle = system Bundler 1.17.2, which writes a flat
+# vendor/bundle/ layout (Bundler 1.x style) with extensions compiled for
+# Ruby 2.6 ABI. Then every subsequent `bundle check` from Bundler 4.x +
+# Ruby 3.3 reports "missing gems" because it's looking in
+# vendor/bundle/ruby/3.3.0/ which doesn't exist. Absolute-path $(_BUNDLE)
+# bypasses the PATH lookup entirely and routes the call through the
+# brew-Ruby bundle shim's shebang (#!/path/to/ruby@3.3/bin/ruby), which
+# guarantees Bundler 4.x + Ruby 3.3 do the install with the modern
+# vendor/bundle/ruby/3.3.0/ layout. Forks not using brew Ruby fall back
+# to bare `bundle` (the else branch) — their version manager's shim
+# handles the resolution correctly.
 _RUBY_VER := $(shell cat .ruby-version 2>/dev/null || echo 3.3)
 _RUBY_MM := $(shell echo $(_RUBY_VER) | awk -F. '{ print $$1 "." $$2 }')
 _RUBY_BIN := /opt/homebrew/opt/ruby@$(_RUBY_MM)/bin
 ifneq ($(wildcard $(_RUBY_BIN)/ruby),)
   export PATH := $(_RUBY_BIN):$(PATH)
+  _BUNDLE := $(_RUBY_BIN)/bundle
+else
+  _BUNDLE := bundle
 endif
-
 .PHONY: all go bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help init doctor bootstrap-fork ship verify submit mint-local-certs clean-revoked-certs format format-check _check-bundle
 
 help:
@@ -60,7 +81,7 @@ bootstrap:
 	brew bundle
 	lefthook install
 	cd app && xcodegen generate
-	bundle install
+	$(_BUNDLE) install
 
 format:
 	swiftformat app/
@@ -93,7 +114,7 @@ screenshots: _check-bundle
 	ci/take-screenshots.sh
 
 release-dryrun: _check-bundle
-	bundle exec fastlane release tag:v0.0.0 skip_upload:true skip_tag:true
+	$(_BUNDLE) exec fastlane release tag:v0.0.0 skip_upload:true skip_tag:true
 
 setup-github:
 	bin/setup-github.sh
@@ -102,25 +123,25 @@ init:
 	@bin/init-bootstrap-env.sh
 
 doctor: _check-bundle
-	@bundle exec ruby bin/doctor.rb
+	@$(_BUNDLE) exec ruby bin/doctor.rb
 
 bootstrap-fork: _check-bundle
-	@bundle exec ruby bin/bootstrap-fork.rb
+	@$(_BUNDLE) exec ruby bin/bootstrap-fork.rb
 
 ship: _check-bundle
-	@bundle exec ruby bin/ship.rb
+	@$(_BUNDLE) exec ruby bin/ship.rb
 
 verify: _check-bundle
-	@bundle exec ruby bin/verify-testflight.rb
+	@$(_BUNDLE) exec ruby bin/verify-testflight.rb
 
 submit: _check-bundle
-	@bundle exec ruby bin/submit.rb
+	@$(_BUNDLE) exec ruby bin/submit.rb
 
 mint-local-certs: _check-bundle
-	@bundle exec ruby bin/mint-local-certs.rb
+	@$(_BUNDLE) exec ruby bin/mint-local-certs.rb
 
 clean-revoked-certs: _check-bundle
-	@bundle exec ruby bin/clean-revoked-certs.rb $(if $(YES),--yes,) $(if $(DRY_RUN),--dry-run,)
+	@$(_BUNDLE) exec ruby bin/clean-revoked-certs.rb $(if $(YES),--yes,) $(if $(DRY_RUN),--dry-run,)
 
 # Guard for bundle-using targets above. Fails fast with an actionable hint
 # when ruby gems aren't installed yet (typical on a fresh fork before
@@ -128,7 +149,7 @@ clean-revoked-certs: _check-bundle
 # with a Bundler::GemNotFound stack trace before the user has any chance to
 # learn what went wrong.
 _check-bundle:
-	@bundle check >/dev/null 2>&1 || { \
+	@$(_BUNDLE) check >/dev/null 2>&1 || { \
 	  printf "\nRuby gems aren't installed yet. Run one of:\n\n"; \
 	  printf "    bundle install            # install just the ruby gems\n"; \
 	  printf "    make bootstrap            # full dev-env setup (brew + lefthook + xcodegen + bundle)\n\n"; \

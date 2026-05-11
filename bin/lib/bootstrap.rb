@@ -694,6 +694,74 @@ module Bootstrap
     end
   end
 
+  # G11 — App Privacy Form publish-state check.
+  #
+  # Apple requires every app submitted to the App Store to declare its data
+  # collection practices via the "App Privacy" form in App Store Connect
+  # (https://developer.apple.com/help/app-store-connect/manage-app-information/manage-app-privacy).
+  # The form covers: what data the app collects, why (analytics, advertising,
+  # app functionality, etc.), whether each data type is linked to user
+  # identity, and whether any of it is used for tracking. IDFA usage is one
+  # of dozens of dimensions — declaring IDFA alone doesn't satisfy the form.
+  #
+  # The schema (`AppDataUsage` records grouped by `AppDataUsageCategory` x
+  # `AppDataUsagePurposes` x `AppDataUsageDataProtection`) is complex,
+  # changes with Apple's annual privacy-policy iterations, and must match
+  # the actual SDKs your app links against — mismatches trigger App Review
+  # rejection ("the app's privacy information indicates X but your binary
+  # uses Y"). Plumbing it through dotenv would invite drift; we instead
+  # surface the form's publish-state as a doctor warning so first-time
+  # shippers know they need to fill it manually in the ASC web UI.
+  #
+  # Suppression: `ASC_APP_PRIVACY_ACK=true` env var (typically in
+  # `~/code/.bootstrap.env` after you've published the form once) silences
+  # the warning even when the API reports unpublished — useful for offline
+  # validation runs or scenarios where Apple's API briefly flakes.
+  class AppPrivacyForm < Step
+    def name; "App Privacy form published in ASC"; end
+    def category; "human-gated"; end
+
+    def check
+      return :done if ENV["ASC_APP_PRIVACY_ACK"].to_s.strip.downcase == "true"
+      require "spaceship"
+      Bootstrap.ensure_asc_token!(config)
+      app = Spaceship::ConnectAPI::App.find(config["BUNDLE_ID"])
+      return [:warn, "ASC App record not found (covered by VerifyAscApp); App Privacy check skipped."] unless app
+      state = Spaceship::ConnectAPI::AppDataUsagesPublishState.get(app_id: app.id)
+      if state.nil?
+        return [:warn, app_privacy_msg("Could not resolve App Privacy publish-state (Apple API returned no record).")]
+      end
+      return :done if state.published
+      [:warn, app_privacy_msg("App Privacy form is unpublished (last published: #{state.last_published || 'never'}).")]
+    rescue NameError => e
+      # AppDataUsagesPublishState only present in fastlane >= 2.224; older
+      # forks pinned to earlier gem versions get a soft warning + skip
+      # rather than a hard crash.
+      [:warn, "spaceship AppDataUsagesPublishState not available in this fastlane version (#{e.message[0, 100]}); upgrade Gemfile pin if you want App Privacy form auto-check."]
+    rescue StandardError => e
+      [:warn, "App Privacy probe failed: #{e.message[0, 200]}"]
+    end
+
+    def do_it
+      # No-op; check returns :warn or :done, never :pending.
+    end
+
+    private
+
+    def app_privacy_msg(reason)
+      <<~MSG.strip
+        #{reason}
+          Fill the App Privacy form in App Store Connect before submitting for review:
+            https://appstoreconnect.apple.com/apps  →  your app  →  App Privacy  →  Edit
+          Most template forks declare "Data Not Collected" (no analytics SDK, no ads,
+          no IDFA, no third-party trackers); Apple validates against your binary's
+          actual SDK usage, so mismatches trigger rejection.
+          Suppress this check after publishing: export ASC_APP_PRIVACY_ACK=true
+          (typically in ~/code/.bootstrap.env so every fork inherits the ack).
+      MSG
+    end
+  end
+
   class ScanScreenshots < Step
     def name; "App Store screenshots"; end
 
@@ -931,7 +999,8 @@ module Bootstrap
       VerifyAscApp,
       LocalKeychainCerts,    # local-only
       ScanMetadata,          # informational
-      ScanScreenshots
+      ScanScreenshots,
+      AppPrivacyForm         # informational; queries ASC for App Privacy publish state
     ].freeze
 
     def initialize(config)

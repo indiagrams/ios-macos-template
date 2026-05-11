@@ -173,6 +173,31 @@ jobs:
         # bundle install. Idempotent.
         run: make bootstrap
 
+      - name: Pin brew Ruby on PATH for subsequent steps
+        # `make bootstrap` (above) ran `bundle install` via brew Ruby
+        # (`/opt/homebrew/opt/ruby@3.3/bin/bundle`) per the Makefile's
+        # absolute-path `_BUNDLE` directive (apple-shipkit#190). The
+        # action/setup-ruby step (above) installs ANOTHER Ruby at
+        # `/Users/runner/hostedtoolcache/Ruby/3.3.11/arm64/bin` and adds
+        # it to PATH first. Subsequent shell steps that call bare
+        # `bundle exec ...` resolve to the toolcache bundle, which then
+        # tries to load C extensions from `vendor/bundle/ruby/3.3.0/`
+        # that brew Ruby just built — and Apple's two libruby builds
+        # (toolcache vs Cellar) are NOT ABI-compatible despite both
+        # being 3.3.11. Result: `LoadError: linked to incompatible
+        # /opt/homebrew/Cellar/ruby@3.3/3.3.11/lib/libruby.3.3.dylib`
+        # at any `bundle exec` past this point. Surfaced on the first
+        # fresh-fork run of `make ship` against prakashrj/my-cool-app
+        # (Run 25685500543, 2026-05-11).
+        #
+        # Fix: prepend brew Ruby's bin to GITHUB_PATH so every
+        # subsequent `bundle exec` finds brew's bundle, which matches
+        # the C extensions built by `make bootstrap`. setup-ruby's
+        # toolcache install + bundler-cache restore is still useful for
+        # CI speed (cache hit short-circuits the first `bundle install`),
+        # so we keep it — we just don't want its Ruby at runtime.
+        run: echo "/opt/homebrew/opt/ruby@3.3/bin" >> "$GITHUB_PATH"
+
       - name: Apply generator override
         # Optional input that overrides whatever generator the Makefile is
         # currently using. Mirrors canary-local-mode.yml's pattern: if

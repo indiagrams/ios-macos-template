@@ -260,6 +260,17 @@ jobs:
       - name: Bootstrap toolchain (generator + deps via Homebrew)
         run: make bootstrap
 
+      - name: Pin brew Ruby on PATH for subsequent steps
+        # See release.yml's identical step. apple-shipkit#190's absolute-path
+        # `_BUNDLE = /opt/homebrew/opt/ruby@3.3/bin/bundle` Makefile change
+        # builds C extensions against brew Ruby, but setup-ruby (above) adds
+        # the toolcache Ruby to PATH first, so subsequent `bundle exec` calls
+        # crash with `LoadError: linked to incompatible
+        # /opt/homebrew/Cellar/ruby@3.3/3.3.11/lib/libruby.3.3.dylib`.
+        # Prepending brew Ruby's bin to GITHUB_PATH makes every later step
+        # use the same Ruby that built the extensions.
+        run: echo "/opt/homebrew/opt/ruby@3.3/bin" >> "$GITHUB_PATH"
+
       - name: Pre-install Apple WWDR intermediate certs
         # See release.yml's identical step (G4). fastlane match's auto-install
         # path can hang for 5+ min on GH Actions runners. We pre-install via

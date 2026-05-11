@@ -387,10 +387,30 @@ def do_upload_metadata(platform:)
     email_address: File.read(File.join(review_info_dir, "email_address.txt")).strip,
     notes:         File.read(File.join(review_info_dir, "notes.txt")).strip,
   }
+  # Phone for App Review. Resolution order:
+  #   1. APP_REVIEW_PHONE env var (recommended — keeps the value out of the
+  #      template repo's tracked files). Suggested home for the export:
+  #      `~/.bootstrap.env` (sourced from shell init) or a per-machine
+  #      secrets file sourced before `make submit`.
+  #   2. fastlane/metadata/review_information/phone_number.txt (legacy
+  #      fallback for forks that still want a tracked phone).
+  # The template ships with `+10000000000` in the file — a deliberately-
+  # invalid placeholder that Apple's `contactPhone` validator rejects, so
+  # any forker that runs `make submit` without setting APP_REVIEW_PHONE
+  # gets a fail-loud `An attribute value is invalid` error from ASC instead
+  # of silently shipping the placeholder to App Review. Values starting
+  # with `TODO` or matching the placeholder are treated as unconfigured
+  # and omitted from the review_info hash (deliver then errors at submit
+  # time with a clearer "contactPhone is required" message).
+  env_phone  = ENV["APP_REVIEW_PHONE"].to_s.strip
   phone_path = File.join(review_info_dir, "phone_number.txt")
-  if File.exist?(phone_path)
-    phone = File.read(phone_path).strip
-    review_info[:phone_number] = phone unless phone.start_with?("TODO")
+  phone = if !env_phone.empty?
+            env_phone
+          elsif File.exist?(phone_path)
+            File.read(phone_path).strip
+          end
+  if phone && !phone.empty? && !phone.start_with?("TODO") && phone != "+10000000000"
+    review_info[:phone_number] = phone
   end
 
   en_us  = ->(name) { File.read(File.join(en_us_dir, "#{name}.txt")).strip }
@@ -420,7 +440,7 @@ def do_upload_metadata(platform:)
     precheck_include_in_app_purchases: false
   )
   if review_info[:phone_number].nil?
-    UI.success("Metadata uploaded. (Phone number for review still pending — fill fastlane/metadata/review_information/phone_number.txt before submit_for_review.)")
+    UI.success("Metadata uploaded. (Phone number for review still pending — export APP_REVIEW_PHONE=+1XXXXXXXXXX or fill fastlane/metadata/review_information/phone_number.txt before submit_for_review.)")
   else
     UI.success("Metadata uploaded.")
   end

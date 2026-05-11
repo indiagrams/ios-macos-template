@@ -390,7 +390,8 @@ module Bootstrap
         config["APP_NAME"], config["BUNDLE_ID"], config["DISPLAY_NAME"],
         "--email=#{config['APP_EMAIL']}",
         "--generator=#{config['GENERATOR']}",
-        "--platforms=#{config.platforms.join(',')}"
+        "--platforms=#{config.platforms.join(',')}",
+        "--team-id=#{config['FASTLANE_TEAM_ID']}"
       ]
       Sh.run!(*args)
       Sh.run!("bin/verify-rename.sh")

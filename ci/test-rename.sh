@@ -115,7 +115,7 @@ check_zero() {
     F)
       hits=$(git grep -cw -F -e "$pat" -- . \
               ':!.planning' ':!LICENSE' ':!app/HelloApp.xcodeproj' \
-              ':!bin/rename.sh' ':!ci/test-rename.sh' \
+              ':!bin/rename.sh' ':!ci/test-rename.sh' ':!bin/lib/bootstrap.rb' ':!.github/workflows/bootstrap-doctor-matrix.yml' \
               ':!ci/test-rename-gates.sh' ':!bin/verify-rename.sh' \
               ':!ci/test-verify-rename.sh' 2>/dev/null \
               | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)
@@ -123,7 +123,7 @@ check_zero() {
     NW)
       hits=$(git grep -c -e "$pat" -- . \
               ':!.planning' ':!LICENSE' ':!app/HelloApp.xcodeproj' \
-              ':!bin/rename.sh' ':!ci/test-rename.sh' \
+              ':!bin/rename.sh' ':!ci/test-rename.sh' ':!bin/lib/bootstrap.rb' ':!.github/workflows/bootstrap-doctor-matrix.yml' \
               ':!ci/test-rename-gates.sh' ':!bin/verify-rename.sh' \
               ':!ci/test-verify-rename.sh' 2>/dev/null \
               | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)
@@ -131,7 +131,7 @@ check_zero() {
     *)
       hits=$(git grep -cw -e "$pat" -- . \
               ':!.planning' ':!LICENSE' ':!app/HelloApp.xcodeproj' \
-              ':!bin/rename.sh' ':!ci/test-rename.sh' \
+              ':!bin/rename.sh' ':!ci/test-rename.sh' ':!bin/lib/bootstrap.rb' ':!.github/workflows/bootstrap-doctor-matrix.yml' \
               ':!ci/test-rename-gates.sh' ':!bin/verify-rename.sh' \
               ':!ci/test-verify-rename.sh' 2>/dev/null \
               | awk -F: 'BEGIN{s=0} $2>0{s+=$2} END{print s}' || true)

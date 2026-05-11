@@ -19,7 +19,9 @@ let baseSettings: SettingsDictionary = [
     "ENABLE_USER_SCRIPT_SANDBOXING": "YES",
     "MARKETING_VERSION": "0.0.1",
     "CURRENT_PROJECT_VERSION": "1",
-    "DEVELOPMENT_TEAM": "TEAM_ID_PLACEHOLDER",   // override via .bootstrap.env FASTLANE_TEAM_ID
+    // DEVELOPMENT_TEAM is auto-substituted by bin/rename.sh --team-id
+    // (auto-passed by bin/bootstrap-fork.rb from .bootstrap.env FASTLANE_TEAM_ID).
+    "DEVELOPMENT_TEAM": "TEAM_ID_PLACEHOLDER",
     "CODE_SIGN_STYLE": "Automatic",
     "SWIFT_TREAT_WARNINGS_AS_ERRORS": "NO",
     "GCC_TREAT_WARNINGS_AS_ERRORS": "NO",

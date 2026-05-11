@@ -275,6 +275,7 @@ KEYCHAIN_PASSWORD_FILE=                     # ~/.config/secrets/keychain-passwor
 > | App Store locale + category | `ASC_PRIMARY_LOCALE` (default `en-US`), `ASC_PRIMARY_CATEGORY`, `ASC_SECONDARY_CATEGORY` | Locale drives `fastlane/metadata/<locale>/*.txt` |
 > | TestFlight build-level | `ASC_USES_NON_EXEMPT_ENCRYPTION` (`true`/`false`) | HTTPS-only apps qualify for exempt (`false`); custom crypto = `true` + BIS registration |
 > | TestFlight app-level | `BETA_APP_DESCRIPTION`, `BETA_APP_FEEDBACK_EMAIL`, `BETA_APP_MARKETING_URL`, `BETA_APP_PRIVACY_URL` | Privacy URL required for external testers |
+> | App Privacy form ack | `ASC_APP_PRIVACY_ACK` (`true`) | Suppresses doctor's "App Privacy form unpublished" warning; fill the form once in the ASC web UI, then set this |
 >
 > Full schema in [`.bootstrap.env.example`](.bootstrap.env.example); each section has inline docs on storage, format, and when to set vs. leave blank.
 

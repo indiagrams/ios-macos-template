@@ -496,6 +496,47 @@ def build_review_info(review_info_dir)
   fields
 end
 
+# Build the env-first ASC localized metadata hash for deliver.
+#
+# Resolution order for each field:
+#   1. ASC_<NAME> env var (privacy_url, support_url, marketing_url, copyright,
+#      primary_category, secondary_category). Org-shared via
+#      `~/code/.bootstrap.env` auto-sourced by the Makefile.
+#   2. fastlane/metadata/<primary_locale>/<name>.txt (file fallback).
+#
+# Called by BOTH `do_upload_metadata` (make ship) and `do_submit_for_review`
+# (make submit). Without this in the submit path, deliver's
+# `load_from_filesystem` re-reads <primary_locale>/{privacy,support,marketing}_url.txt
+# off disk and silently overwrites the correctly-uploaded URLs from the
+# preceding `make ship`. precheck then flags `https://example.com/*` as
+# HTTP 404 (advisory `warn` level — doesn't block staging, but the bogus
+# URL still lands in ASC and would ship to App Review).
+#
+# Returns a hash safe to splat-merge into a `deliver(...)` call. Only includes
+# fields with explicit env overrides OR known-good file fallbacks; disk-only
+# fields (name/subtitle/description/keywords/release_notes) are left to
+# deliver's own filesystem loader.
+def build_asc_metadata_args(metadata_dir)
+  primary_locale = ENV["ASC_PRIMARY_LOCALE"].to_s.strip
+  primary_locale = "en-US" if primary_locale.empty?
+  en_us_dir = File.join(metadata_dir, primary_locale)
+  en_us  = ->(name) { File.read(File.join(en_us_dir, "#{name}.txt")).strip }
+  locale = primary_locale
+  asc_field = ->(env_name, default_block) {
+    v = ENV[env_name].to_s.strip
+    v.empty? ? default_block.call : v
+  }
+  args = {
+    privacy_url:   { locale => asc_field.call("ASC_PRIVACY_URL",   -> { en_us.call("privacy_url") }) },
+    support_url:   { locale => asc_field.call("ASC_SUPPORT_URL",   -> { en_us.call("support_url") }) },
+    marketing_url: { locale => asc_field.call("ASC_MARKETING_URL", -> { en_us.call("marketing_url") }) },
+    copyright:     asc_field.call("ASC_COPYRIGHT", -> { File.read(File.join(metadata_dir, "copyright.txt")).strip }),
+  }
+  args[:primary_category]   = ENV["ASC_PRIMARY_CATEGORY"].to_s.strip   unless ENV["ASC_PRIMARY_CATEGORY"].to_s.strip.empty?
+  args[:secondary_category] = ENV["ASC_SECONDARY_CATEGORY"].to_s.strip unless ENV["ASC_SECONDARY_CATEGORY"].to_s.strip.empty?
+  args
+end
+
 # Reads every metadata file directly and passes explicit hashes to deliver.
 # Bypasses deliver's load_from_filesystem, which silently drops fields when
 # metadata_path is passed alone (we've reproduced this for support_url,
@@ -539,32 +580,13 @@ def do_upload_metadata(platform:)
   en_us  = ->(name) { File.read(File.join(en_us_dir, "#{name}.txt")).strip }
   locale = primary_locale
 
-  # Org-stable App Store metadata resolution. Resolution order:
-  #   1. ASC_<NAME> env var (typical home: shared `~/code/.bootstrap.env`
-  #      auto-sourced by the Makefile across every fork — privacy URL, support
-  #      URL, marketing URL, and copyright are usually shared across every
-  #      app a single org ships from this template).
-  #   2. tracked file (en-US/<name>.txt or copyright.txt).
-  # Unlike review_info, we don't OMIT on placeholder — these fields are
-  # required by deliver. The doctor's `ScanMetadata` step flags
-  # `example.com` URLs and `TODO`-prefixed copyright; this resolver
-  # lets a single export override every fork's tracked-file placeholders
-  # without modifying the in-repo template.
-  asc_field = ->(env_name, default_block) {
-    v = ENV[env_name].to_s.strip
-    v.empty? ? default_block.call : v
-  }
+  # Org-stable App Store metadata (privacy/support/marketing URLs, copyright,
+  # categories) — resolved env-first via the shared `build_asc_metadata_args`
+  # helper. Same hash is also passed by `do_submit_for_review` so envs apply
+  # to both `make ship` (metadata upload) and `make submit` (staging) paths.
+  asc_metadata_args = build_asc_metadata_args(metadata_dir)
 
-  # primary_category + secondary_category are added only when set. App
-  # Store Connect's existing App Record category (chosen when the App was
-  # created in ASC) wins if env is unset, so this is safe-additive — a
-  # fresh fork picks a category at App-Record-creation time and never
-  # touches these envs unless they want to change it later. Sub-category
-  # extraction is deferred until a forker actually needs it; the deliver
-  # API supports primary_first_sub_category / primary_second_sub_category
-  # / etc. but they're game-app-specific (Apple's category taxonomy
-  # treats Games as a special parent with required sub-categories).
-  deliver_args = {
+  deliver_args = asc_metadata_args.merge(
     api_key:                  asc_api_key,
     app_identifier:           APP_IDENTIFIER,
     platform:                 platform.to_s,
@@ -572,13 +594,9 @@ def do_upload_metadata(platform:)
     app_review_information:   review_info,
     name:                     { locale => en_us.call("name") },
     subtitle:                 { locale => en_us.call("subtitle") },
-    privacy_url:              { locale => asc_field.call("ASC_PRIVACY_URL",   -> { en_us.call("privacy_url") }) },
     description:              { locale => en_us.call("description") },
     keywords:                 { locale => en_us.call("keywords") },
-    support_url:              { locale => asc_field.call("ASC_SUPPORT_URL",   -> { en_us.call("support_url") }) },
-    marketing_url:            { locale => asc_field.call("ASC_MARKETING_URL", -> { en_us.call("marketing_url") }) },
     release_notes:            { locale => en_us.call("release_notes") },
-    copyright:                asc_field.call("ASC_COPYRIGHT", -> { File.read(File.join(metadata_dir, "copyright.txt")).strip }),
     skip_metadata:            false,
     skip_binary_upload:       true,
     skip_screenshots:         true,
@@ -586,9 +604,7 @@ def do_upload_metadata(platform:)
     submit_for_review:        false,
     automatic_release:        false,
     precheck_include_in_app_purchases: false
-  }
-  deliver_args[:primary_category]   = ENV["ASC_PRIMARY_CATEGORY"].to_s.strip   unless ENV["ASC_PRIMARY_CATEGORY"].to_s.strip.empty?
-  deliver_args[:secondary_category] = ENV["ASC_SECONDARY_CATEGORY"].to_s.strip unless ENV["ASC_SECONDARY_CATEGORY"].to_s.strip.empty?
+  )
   deliver(**deliver_args)
   required_keys = %i[first_name last_name email_address phone_number]
   missing = required_keys.reject { |k| review_info[k] }
@@ -727,18 +743,28 @@ end
 # reversible; creating a "submitted" Release for a version that may never
 # get submitted would be misleading.
 def do_submit_for_review(platform:, submit:)
-  # Build review_info via the same env-first resolver `do_upload_metadata` uses.
-  # Without this, deliver would load review_information/*.txt directly off disk
-  # and ship the `+10000000000` phone sentinel raw — Apple rejects with
-  # `An attribute value is invalid - /data/attributes/contactPhone` at the
-  # AppStoreReviewDetail PATCH. The helper omits any field whose resolved
-  # value is empty / TODO-prefixed / matches the phone sentinel, so deliver's
-  # subsequent PATCH only sends valid data.
+  # Build env-first hashes:
+  #   - review_info (App Review contact/demo creds + notes) — without this,
+  #     deliver would load review_information/*.txt directly off disk and
+  #     ship the `+10000000000` phone sentinel raw. Apple rejects with
+  #     `An attribute value is invalid - /data/attributes/contactPhone` at
+  #     the AppStoreReviewDetail PATCH.
+  #   - asc_metadata (privacy/support/marketing URLs, copyright, categories) —
+  #     without this, deliver's load_from_filesystem re-reads
+  #     metadata/<locale>/{privacy,support,marketing}_url.txt off disk and
+  #     silently overwrites the correctly-uploaded URLs from the preceding
+  #     `make ship`. precheck then flags `https://example.com/*` as HTTP 404
+  #     (advisory; doesn't block staging — but the bogus URL still lands in
+  #     ASC and would ship to App Review).
+  # Both helpers omit / sentinel-fill any field whose resolved value is empty,
+  # TODO-prefixed, or otherwise invalid; deliver's subsequent PATCH only
+  # sends valid data.
   metadata_dir    = File.join(__dir__, "metadata")
   review_info_dir = File.join(metadata_dir, "review_information")
-  review_info     = build_review_info(review_info_dir)
+  review_info       = build_review_info(review_info_dir)
+  asc_metadata_args = build_asc_metadata_args(metadata_dir)
 
-  deliver(
+  deliver(**asc_metadata_args.merge(
     api_key:                  asc_api_key,
     app_identifier:           APP_IDENTIFIER,
     platform:                 platform.to_s,
@@ -757,7 +783,7 @@ def do_submit_for_review(platform:, submit:)
       content_rights_contains_third_party_content: false,
     },
     precheck_include_in_app_purchases: false
-  )
+  ))
 
   if submit
     UI.success("Submitted to App Review (#{platform}).")

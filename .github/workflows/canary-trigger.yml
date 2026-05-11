@@ -22,7 +22,7 @@ name: canary-trigger
 
 on:
   schedule:
-    - cron: '0 9 * * 1'   # Mondays 09:00 UTC (2h after bootstrap-doctor-matrix)
+    - cron: '0 9 * * 2'   # Tuesdays 09:00 UTC (was Mondays; moved to clear Apple TF upload throttle window from prior week's manual ships)
   workflow_dispatch:
     inputs:
       dry_run:

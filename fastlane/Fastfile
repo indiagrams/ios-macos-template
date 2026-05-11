@@ -440,6 +440,22 @@ def do_upload_metadata(platform:)
   en_us  = ->(name) { File.read(File.join(en_us_dir, "#{name}.txt")).strip }
   locale = "en-US"
 
+  # Org-stable App Store metadata resolution. Resolution order:
+  #   1. ASC_<NAME> env var (typical home: shared `~/code/.bootstrap.env`
+  #      auto-sourced by the Makefile across every fork — privacy URL, support
+  #      URL, marketing URL, and copyright are usually shared across every
+  #      app a single org ships from this template).
+  #   2. tracked file (en-US/<name>.txt or copyright.txt).
+  # Unlike review_info, we don't OMIT on placeholder — these fields are
+  # required by deliver. The doctor's `ScanMetadata` step flags
+  # `example.com` URLs and `TODO`-prefixed copyright; this resolver
+  # lets a single export override every fork's tracked-file placeholders
+  # without modifying the in-repo template.
+  asc_field = ->(env_name, default_block) {
+    v = ENV[env_name].to_s.strip
+    v.empty? ? default_block.call : v
+  }
+
   deliver(
     api_key:                  asc_api_key,
     app_identifier:           APP_IDENTIFIER,
@@ -448,13 +464,13 @@ def do_upload_metadata(platform:)
     app_review_information:   review_info,
     name:                     { locale => en_us.call("name") },
     subtitle:                 { locale => en_us.call("subtitle") },
-    privacy_url:              { locale => en_us.call("privacy_url") },
+    privacy_url:              { locale => asc_field.call("ASC_PRIVACY_URL",   -> { en_us.call("privacy_url") }) },
     description:              { locale => en_us.call("description") },
     keywords:                 { locale => en_us.call("keywords") },
-    support_url:              { locale => en_us.call("support_url") },
-    marketing_url:            { locale => en_us.call("marketing_url") },
+    support_url:              { locale => asc_field.call("ASC_SUPPORT_URL",   -> { en_us.call("support_url") }) },
+    marketing_url:            { locale => asc_field.call("ASC_MARKETING_URL", -> { en_us.call("marketing_url") }) },
     release_notes:            { locale => en_us.call("release_notes") },
-    copyright:                File.read(File.join(metadata_dir, "copyright.txt")).strip,
+    copyright:                asc_field.call("ASC_COPYRIGHT", -> { File.read(File.join(metadata_dir, "copyright.txt")).strip }),
     skip_metadata:            false,
     skip_binary_upload:       true,
     skip_screenshots:         true,

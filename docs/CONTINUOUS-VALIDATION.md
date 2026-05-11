@@ -9,7 +9,7 @@ public reference fork:
 
 Two canaries run there on complementary cadences:
 
-- **Mondays 09:00 UTC** — `canary-trigger.yml` dispatches `release.yml` on
+- **Tuesdays 09:00 UTC** — `canary-trigger.yml` dispatches `release.yml` on
   the smoketest. Exercises the **CI-mode** shipping path (match-based
   signing, certs sourced from a private repo via fastlane match). Pre-existing
   shipping certs; no mint/revoke loop.

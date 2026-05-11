@@ -78,7 +78,7 @@ There's no certs repo to clear in v1.6 — every `release.yml` run mints its own
 
 ## Reset the smoketest fork (maintainer-only)
 
-Two canaries run on the smoketest — `canary-trigger.yml` dispatching `release.yml` (Mondays 09:00 UTC) and `canary-local-mode.yml` (Saturdays 11:30 UTC). Since v1.6 both paths mint fresh certs per run and self-revoke via an `if: always()` post-step, so they're equivalent from a rollback standpoint.
+Two canaries run on the smoketest — `canary-trigger.yml` dispatching `release.yml` (Tuesdays 09:00 UTC) and `canary-local-mode.yml` (Saturdays 11:30 UTC). Since v1.6 both paths mint fresh certs per run and self-revoke via an `if: always()` post-step, so they're equivalent from a rollback standpoint.
 
 To reset the smoketest:
 

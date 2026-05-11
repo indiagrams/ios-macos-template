@@ -67,7 +67,21 @@ jobs:
     # by hardcoded path and uses secrets configured only on this repo. On any
     # other repo it would fail at the secrets-write step or produce meaningless
     # results. Skipped runs surface as a single grey check, not red errors.
-    if: github.repository == 'indiagrams/apple-shipkit'
+    #
+    # Skip on Dependabot PRs: Dependabot-triggered workflow runs don't expose
+    # the repo's Actions secrets (GitHub security policy — secrets live in a
+    # parallel Dependabot secret store, populated separately via Settings →
+    # Security → Dependabot → secrets). Without ASC_API_KEY_ID, FASTLANE_TEAM_ID,
+    # ASC_API_KEY_P8_BASE64, MATCH_PASSWORD, MATCH_GIT_BASIC_AUTHORIZATION, and
+    # KEYCHAIN_PASSWORD the `.bootstrap.env` materialization step writes empty
+    # values and every matrix cell fails the doctor schema check with
+    # `.bootstrap.env is missing required fields (RELEASE_MODE=ci): FASTLANE_TEAM_ID,
+    # ASC_API_KEY_ID, ASC_API_KEY_ISSUER_ID`. The scheduled Monday 07:00 UTC run
+    # (using the repo's normal Actions secrets) and any post-merge manual
+    # `workflow_dispatch` re-run cover post-merge verification of action-version
+    # bumps. Maintainers who want PR-time doctor coverage on Dependabot bumps
+    # can populate the parallel Dependabot secret store with the same 6 secrets.
+    if: github.repository == 'indiagrams/apple-shipkit' && github.actor != 'dependabot[bot]'
     runs-on: macos-15
     timeout-minutes: 15
     strategy:

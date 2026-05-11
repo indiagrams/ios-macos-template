@@ -181,7 +181,14 @@ For App Store *review* (not just TestFlight), you still need:
   `subtitle`, `description`, `keywords`, `release_notes`, `marketing_url`,
   `privacy_url`, `support_url`)
 - Fill `fastlane/metadata/review_information/*.txt` (`first_name`,
-  `last_name`, `email_address`, `phone_number`, `notes`)
+  `last_name`, `email_address`, `phone_number`, `notes`) — OR export
+  `APP_REVIEW_FIRST_NAME`, `APP_REVIEW_LAST_NAME`, `APP_REVIEW_EMAIL`,
+  `APP_REVIEW_PHONE`, `APP_REVIEW_NOTES` (env wins; tracked .txt is
+  the file fallback). Shared `~/code/.bootstrap.env` auto-loaded by
+  the Makefile is the recommended home for cross-fork values.
+- Demo account for apps with auth (App Review rejects login-walled
+  submissions without one): export `APP_REVIEW_DEMO_USER` +
+  `APP_REVIEW_DEMO_PASSWORD`. No-auth apps skip this.
 - Update `fastlane/metadata/copyright.txt`
 - Capture screenshots: `ci/take-screenshots.sh`
 - Upload metadata + screenshots: `bundle exec fastlane ios upload_metadata` etc.

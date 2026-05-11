@@ -509,10 +509,45 @@ apply_substitutions() {
   # The placeholder is a literal string with no regex metachars and
   # no HelloApp/com.example.helloapp/etc. literal substrings — it
   # passes through Step F (broad HelloApp -> APP_NAME sweep) untouched.
+  #
+  # We derive `current_display` from project.yml (or Project.swift as
+  # fallback for tuist-only forks) instead of hardcoding "HelloApp".
+  # Rationale: on a freshly-cloned template the CFBundleDisplayName is
+  # the broad-sweep token (`HelloApp`), but on any FORK of this template
+  # CFBundleDisplayName is the fork's DISPLAY_NAME (e.g.
+  # `Indiagram Smoke App`). Hardcoding the broad-sweep token here means
+  # Step E silently no-ops on re-forks, then Step F's
+  # `HelloApp -> APP_NAME` sweep doesn't catch the already-renamed
+  # CFBundleDisplayName, leaving every re-forked tree with the wrong
+  # app display name. Runtime-derive fixes this.
   step "Replacing DISPLAY_NAME sites with placeholder (HIGH-6)"
 
+  local current_display=""
   if [ -f app/project.yml ]; then
-    sed -i '' "s|CFBundleDisplayName: HelloApp|CFBundleDisplayName: $DISPLAY_PLACEHOLDER|g" app/project.yml
+    current_display=$(awk '/CFBundleDisplayName:/{
+      sub(/^[[:space:]]*CFBundleDisplayName:[[:space:]]*/, "")
+      sub(/[[:space:]]*$/, "")
+      print
+      exit
+    }' app/project.yml)
+  fi
+  if [ -z "$current_display" ] && [ -f app/Project.swift ]; then
+    current_display=$(grep -oE '"CFBundleDisplayName": "[^"]*"' app/Project.swift | head -1 | sed 's/.*"CFBundleDisplayName": "\(.*\)"/\1/')
+  fi
+  if [ -z "$current_display" ]; then
+    fail "Could not extract current CFBundleDisplayName from app/project.yml or app/Project.swift"
+  fi
+  # Sed safety: a `#` in the display name would break our chosen delimiter.
+  # `#` is unusual in app display names (Apple's "App Name" guidance
+  # discourages punctuation) so we fail fast with a clear message rather
+  # than auto-escape.
+  case "$current_display" in
+    *'#'*) fail "current CFBundleDisplayName '$current_display' contains '#' which breaks rename.sh's sed delimiter; rename the display name first" ;;
+  esac
+  ok "current DISPLAY_NAME detected: '$current_display'"
+
+  if [ -f app/project.yml ]; then
+    sed -i '' "s#CFBundleDisplayName: $current_display#CFBundleDisplayName: $DISPLAY_PLACEHOLDER#g" app/project.yml
     ok "DISPLAY placeholder set in app/project.yml (2 CFBundleDisplayName sites)"
   fi
 
@@ -522,12 +557,12 @@ apply_substitutions() {
   # to the APP_NAME (forker's code-name) instead of the DISPLAY_NAME
   # (forker's user-facing name). Project.swift was added to `main` in #39.
   if [ -f app/Project.swift ]; then
-    sed -i '' "s|\"CFBundleDisplayName\": \"HelloApp\"|\"CFBundleDisplayName\": \"$DISPLAY_PLACEHOLDER\"|g" app/Project.swift
+    sed -i '' "s#\"CFBundleDisplayName\": \"$current_display\"#\"CFBundleDisplayName\": \"$DISPLAY_PLACEHOLDER\"#g" app/Project.swift
     ok "DISPLAY placeholder set in app/Project.swift (2 CFBundleDisplayName sites)"
   fi
 
   if [ -f app/Shared/ContentView.swift ]; then
-    sed -i '' "s|Text(\"HelloApp\")|Text(\"$DISPLAY_PLACEHOLDER\")|g" app/Shared/ContentView.swift
+    sed -i '' "s#Text(\"$current_display\")#Text(\"$DISPLAY_PLACEHOLDER\")#g" app/Shared/ContentView.swift
     ok "DISPLAY placeholder set in app/Shared/ContentView.swift"
     # Platform label: "iOS + macOS template" → "$PLATFORMS_LABEL" (one of
     # "iOS template" / "macOS template" / "iOS + macOS template"). Driven
@@ -540,12 +575,12 @@ apply_substitutions() {
   fi
 
   if [ -f app/UITests/AppStoreScreenshotTests.swift ]; then
-    sed -i '' "s|staticTexts\[\"HelloApp\"\]|staticTexts[\"$DISPLAY_PLACEHOLDER\"]|g" app/UITests/AppStoreScreenshotTests.swift
+    sed -i '' "s#staticTexts\[\"$current_display\"\]#staticTexts[\"$DISPLAY_PLACEHOLDER\"]#g" app/UITests/AppStoreScreenshotTests.swift
     ok "DISPLAY placeholder set in app/UITests/AppStoreScreenshotTests.swift"
   fi
 
   if [ -f fastlane/metadata/en-US/name.txt ]; then
-    sed -i '' "s|^HelloApp$|$DISPLAY_PLACEHOLDER|" fastlane/metadata/en-US/name.txt
+    sed -i '' "s#^$current_display\$#$DISPLAY_PLACEHOLDER#" fastlane/metadata/en-US/name.txt
     ok "DISPLAY placeholder set in fastlane/metadata/en-US/name.txt"
   fi
 

@@ -366,6 +366,63 @@ def annotate_testflight_whats_new(app_identifier:, marketing_version:, ship_star
       UI.important("  Annotate: failed to annotate build #{b.version} (#{b.platform}): #{e.message[0, 250]}")
     end
   end
+
+  # G10 — Export Compliance per build. `ASC_USES_NON_EXEMPT_ENCRYPTION`
+  # ("true"/"false") patches the build's `usesNonExemptEncryption`
+  # attribute. Apple requires this to be set on every build before
+  # submission for review: the App Review queue will reject any build
+  # that hasn't answered the encryption-export question. Most apps that
+  # use only HTTPS qualify for the exemption — Apple's docs list HTTPS,
+  # SSL/TLS, and standard library encryption as exempt — so `false` is
+  # the safe default for forks that don't ship custom crypto. Set the
+  # env to `true` for apps doing custom encryption (Signal-class apps,
+  # E2EE messengers, etc.).
+  #
+  # When the env is unset, we DO NOT patch. ASC's existing value (often
+  # unset on a fresh fork) stays untouched and the forker resolves it
+  # via the ASC web UI before submitting for review — same workflow
+  # as before this PR. Setting the env opts into one-shot automation.
+  export_compliance = ENV["ASC_USES_NON_EXEMPT_ENCRYPTION"].to_s.strip.downcase
+  if %w[true false].include?(export_compliance)
+    targets.each do |b|
+      begin
+        b.update(attributes: { uses_non_exempt_encryption: export_compliance == "true" })
+        UI.message("  Export compliance: build #{b.version} (#{b.platform}) → usesNonExemptEncryption=#{export_compliance}")
+      rescue Spaceship::UnexpectedResponse, Spaceship::InternalServerError, Spaceship::BadGatewayError => e
+        UI.important("  Export compliance: failed to patch build #{b.version} (#{b.platform}): #{e.message[0, 250]}")
+      end
+    end
+  end
+
+  # G13 — TestFlight Beta App information (app-wide, en-US). The four
+  # `BETA_APP_*` envs map to BetaAppLocalization fields. Each is patched
+  # only when its env is set non-empty; unset envs leave ASC's existing
+  # values untouched (safe-additive for existing forks). PATCHes an
+  # existing en-US BetaAppLocalization if present, else POSTs a new one
+  # — mirrors the BBL pattern above so first-run forks work the same as
+  # repeat-run forks.
+  beta_app_fields = {
+    description:        ENV["BETA_APP_DESCRIPTION"].to_s.strip,
+    feedbackEmail:      ENV["BETA_APP_FEEDBACK_EMAIL"].to_s.strip,
+    marketingUrl:       ENV["BETA_APP_MARKETING_URL"].to_s.strip,
+    privacyPolicyUrl:   ENV["BETA_APP_PRIVACY_URL"].to_s.strip,
+  }.reject { |_, v| v.empty? }
+
+  unless beta_app_fields.empty?
+    locale = "en-US"
+    begin
+      existing = app.get_beta_app_localizations.find { |x| x.locale == locale }
+      if existing
+        Spaceship::ConnectAPI.patch_beta_app_localizations(localization_id: existing.id, attributes: beta_app_fields)
+        UI.message("  TestFlight beta app info: patched #{beta_app_fields.keys.join(', ')} via existing localization #{existing.id}")
+      else
+        Spaceship::ConnectAPI.post_beta_app_localizations(app_id: app.id, attributes: beta_app_fields.merge(locale: locale))
+        UI.message("  TestFlight beta app info: created #{locale} localization with #{beta_app_fields.keys.join(', ')}")
+      end
+    rescue Spaceship::UnexpectedResponse, Spaceship::InternalServerError, Spaceship::BadGatewayError => e
+      UI.important("  TestFlight beta app info: failed to update: #{e.message[0, 250]}")
+    end
+  end
 end
 
 

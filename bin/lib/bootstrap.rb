@@ -652,7 +652,7 @@ module Bootstrap
     # ships `https://example.com[/path]` in every URL .txt; Apple's deliver
     # accepts these but they're clearly placeholder leaks, so we flag them
     # alongside the explicit TODO/REPLACE_ME markers.
-    PLACEHOLDER_PATTERN = /\bTODO\b|REPLACE_ME|com\.example\.helloapp|HelloApp|\bexample\.com\b/i
+    PLACEHOLDER_PATTERN = /\bTODO\b|REPLACE_ME|com\.example\.helloapp|HelloApp|\bexample\.com\b|\+10000000000/i
 
     def check
       todos = []
@@ -738,6 +738,20 @@ module Bootstrap
       # forks pinned to earlier gem versions get a soft warning + skip
       # rather than a hard crash.
       [:warn, "spaceship AppDataUsagesPublishState not available in this fastlane version (#{e.message[0, 100]}); upgrade Gemfile pin if you want App Privacy form auto-check."]
+    rescue Spaceship::UnexpectedResponse => e
+      # Apple renamed the App Privacy API surface in Apr-May 2026 — the
+      # `dataUsagePublishState` and `dataUsages` relationships on the App
+      # resource were removed in favor of (per Apple's developer forums)
+      # versioned subresources that spaceship hasn't shipped support for
+      # yet (fastlane 2.234.0 still uses the old path). When we get this
+      # specific 4xx, the probe is dead but the form itself is reachable
+      # via the ASC web UI; surface a clearer remediation than the raw
+      # Apple error.
+      if e.message.include?("dataUsagePublishState") || e.message.include?("dataUsages")
+        [:warn, app_privacy_msg("App Privacy publish-state probe is broken (Apple renamed the API; current spaceship gem hasn't caught up).")]
+      else
+        [:warn, "App Privacy probe failed: #{e.message[0, 200]}"]
+      end
     rescue StandardError => e
       [:warn, "App Privacy probe failed: #{e.message[0, 200]}"]
     end

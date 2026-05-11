@@ -263,6 +263,21 @@ KEYCHAIN_PASSWORD_FILE=                     # ~/.config/secrets/keychain-passwor
 
 > **Why pick a platform subset?** If you're shipping an iPhone-only app and don't care about Mac, set `PLATFORMS=ios` — `make doctor` will stop probing for the Mac Installer cert, `make ship` skips the macOS .pkg build/upload, and CI on PRs runs fewer jobs (saving ~2-4 min/PR of macOS runner time). Same in reverse for `PLATFORMS=macos`. Switchable later: change the value, re-run `make bootstrap-fork`. **In CI mode, also re-run `bin/setup-github.sh`** — the required-checks list is set on first bootstrap and won't update automatically when you flip platforms.
 
+> **Shipping more than one app from this template?** Cross-fork values like reviewer contact info, App Store URLs, copyright, ASC API key, and team ID are typically the *same* across every app you ship. Put them once in `~/code/.bootstrap.env` (gitignored, lives outside any clone); every fork's Makefile auto-sources it for `make doctor` / `bootstrap-fork` / `ship` / `verify` / `submit`. Per-fork values (`APP_NAME`, `BUNDLE_ID`, `DISPLAY_NAME`, `GH_APP_REPO`) stay in each clone's in-repo `.bootstrap.env` and always win when both files define a key.
+>
+> Cross-fork-eligible envs (each one optional; tracked file fallback always works):
+>
+> | Group | Envs | Notes |
+> |---|---|---|
+> | App Review contact | `APP_REVIEW_FIRST_NAME`, `APP_REVIEW_LAST_NAME`, `APP_REVIEW_EMAIL`, `APP_REVIEW_PHONE`, `APP_REVIEW_NOTES` | E.164 phone (`+14155551234`); placeholder `+10000000000` is fail-loud |
+> | Demo account (apps with auth) | `APP_REVIEW_DEMO_USER`, `APP_REVIEW_DEMO_PASSWORD` | Required for any submission with a login wall |
+> | App Store metadata | `ASC_PRIVACY_URL`, `ASC_SUPPORT_URL`, `ASC_MARKETING_URL`, `ASC_COPYRIGHT` | Doctor flags `example.com` URLs |
+> | App Store locale + category | `ASC_PRIMARY_LOCALE` (default `en-US`), `ASC_PRIMARY_CATEGORY`, `ASC_SECONDARY_CATEGORY` | Locale drives `fastlane/metadata/<locale>/*.txt` |
+> | TestFlight build-level | `ASC_USES_NON_EXEMPT_ENCRYPTION` (`true`/`false`) | HTTPS-only apps qualify for exempt (`false`); custom crypto = `true` + BIS registration |
+> | TestFlight app-level | `BETA_APP_DESCRIPTION`, `BETA_APP_FEEDBACK_EMAIL`, `BETA_APP_MARKETING_URL`, `BETA_APP_PRIVACY_URL` | Privacy URL required for external testers |
+>
+> Full schema in [`.bootstrap.env.example`](.bootstrap.env.example); each section has inline docs on storage, format, and when to set vs. leave blank.
+
 ---
 
 ## Step 7 — Verify everything is good (~30 seconds)

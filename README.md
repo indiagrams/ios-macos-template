@@ -25,7 +25,7 @@ I'm a first-time iOS developer. Before writing a feature of my actual app, I spe
 
 I automated or documented every requirement I encountered. That's what this template is — the boring prep work, done.
 
-A public canary fork ([`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)) real-ships to TestFlight on two cadences: CI mode every Monday and local mode every Saturday, both on xcodegen and tuist generators, so Apple-side regressions surface upstream within a week. Catalog at [`docs/CONTINUOUS-VALIDATION.md`](docs/CONTINUOUS-VALIDATION.md).
+A public canary fork ([`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)) real-ships to TestFlight on two cadences: CI mode every Tuesday and local mode every Saturday, both on xcodegen and tuist generators, so Apple-side regressions surface upstream within a week. Catalog at [`docs/CONTINUOUS-VALIDATION.md`](docs/CONTINUOUS-VALIDATION.md).
 
 ---
 

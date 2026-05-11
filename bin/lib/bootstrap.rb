@@ -621,11 +621,28 @@ module Bootstrap
     def metadata_dir; REPO_ROOT.join("fastlane", "metadata", "en-US"); end
     def review_dir;   REPO_ROOT.join("fastlane", "metadata", "review_information"); end
 
+    # Maps review_information/<file>.txt → corresponding APP_REVIEW_* env
+    # var. When the env var is set non-empty (typically from the shared
+    # `~/code/.bootstrap.env` auto-sourced by the Makefile), the tracked
+    # placeholder file is allowed to keep its TODO — Fastfile's
+    # `read_review_field` uses env first, file second. This keeps doctor
+    # from nagging about TODO placeholders that are deliberately tracked.
+    REVIEW_FIELD_ENV = {
+      "first_name.txt"    => "APP_REVIEW_FIRST_NAME",
+      "last_name.txt"     => "APP_REVIEW_LAST_NAME",
+      "email_address.txt" => "APP_REVIEW_EMAIL",
+      "phone_number.txt"  => "APP_REVIEW_PHONE",
+      "notes.txt"         => "APP_REVIEW_NOTES"
+    }.freeze
+
     def check
       todos = []
       [metadata_dir, review_dir].each do |dir|
         next unless dir.directory?
         Dir.glob(dir.join("*.txt")).each do |f|
+          basename = File.basename(f)
+          env_name = REVIEW_FIELD_ENV[basename] if dir == review_dir
+          next if env_name && !ENV[env_name].to_s.strip.empty?
           content = File.read(f)
           if content.match?(/\bTODO\b|REPLACE_ME|com\.example\.helloapp|HelloApp/i)
             todos << Pathname.new(f).relative_path_from(REPO_ROOT).to_s

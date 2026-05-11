@@ -369,6 +369,31 @@ def annotate_testflight_whats_new(app_identifier:, marketing_version:, ship_star
 end
 
 
+# Resolve a single App Review information field. Order:
+#   1. ENV[env_name] — wins if set and non-empty.
+#   2. Contents of file_path — read+stripped if the file exists.
+# Returns nil for any of:
+#   - missing file AND unset env
+#   - empty / whitespace-only value
+#   - value starts with "TODO" (the tracked placeholder convention)
+#   - value equals "+10000000000" (the deliberately-invalid phone sentinel
+#     shipped in phone_number.txt — see comment block in do_upload_metadata)
+# Callers omit nil fields from the deliver hash; deliver then errors at
+# submit time with a clear "<field> is required" message instead of
+# silently shipping placeholder text to App Review.
+def read_review_field(env_name, file_path)
+  env_val = ENV[env_name].to_s.strip
+  raw = if !env_val.empty?
+          env_val
+        elsif File.exist?(file_path)
+          File.read(file_path).strip
+        end
+  return nil if raw.nil? || raw.empty?
+  return nil if raw.start_with?("TODO")
+  return nil if raw == "+10000000000"
+  raw
+end
+
 # Reads every metadata file directly and passes explicit hashes to deliver.
 # Bypasses deliver's load_from_filesystem, which silently drops fields when
 # metadata_path is passed alone (we've reproduced this for support_url,
@@ -381,36 +406,35 @@ def do_upload_metadata(platform:)
   en_us_dir       = File.join(metadata_dir, "en-US")
   review_info_dir = File.join(metadata_dir, "review_information")
 
-  review_info = {
-    first_name:    File.read(File.join(review_info_dir, "first_name.txt")).strip,
-    last_name:     File.read(File.join(review_info_dir, "last_name.txt")).strip,
-    email_address: File.read(File.join(review_info_dir, "email_address.txt")).strip,
-    notes:         File.read(File.join(review_info_dir, "notes.txt")).strip,
-  }
-  # Phone for App Review. Resolution order:
-  #   1. APP_REVIEW_PHONE env var (recommended — keeps the value out of the
-  #      template repo's tracked files). Suggested home for the export:
-  #      `~/.bootstrap.env` (sourced from shell init) or a per-machine
-  #      secrets file sourced before `make submit`.
-  #   2. fastlane/metadata/review_information/phone_number.txt (legacy
-  #      fallback for forks that still want a tracked phone).
-  # The template ships with `+10000000000` in the file — a deliberately-
-  # invalid placeholder that Apple's `contactPhone` validator rejects, so
-  # any forker that runs `make submit` without setting APP_REVIEW_PHONE
-  # gets a fail-loud `An attribute value is invalid` error from ASC instead
-  # of silently shipping the placeholder to App Review. Values starting
-  # with `TODO` or matching the placeholder are treated as unconfigured
-  # and omitted from the review_info hash (deliver then errors at submit
-  # time with a clearer "contactPhone is required" message).
-  env_phone  = ENV["APP_REVIEW_PHONE"].to_s.strip
-  phone_path = File.join(review_info_dir, "phone_number.txt")
-  phone = if !env_phone.empty?
-            env_phone
-          elsif File.exist?(phone_path)
-            File.read(phone_path).strip
-          end
-  if phone && !phone.empty? && !phone.start_with?("TODO") && phone != "+10000000000"
-    review_info[:phone_number] = phone
+  # App Review information. Each field's resolution order:
+  #   1. APP_REVIEW_* env var (recommended — keeps PII out of the tracked
+  #      template tree). Suggested home for these exports: the shared
+  #      `~/code/.bootstrap.env` auto-sourced by the Makefile.
+  #   2. fastlane/metadata/review_information/<name>.txt (file fallback).
+  #
+  # The template ships `TODO`-prefixed placeholders in every .txt file and
+  # the deliberately-invalid sentinel `+10000000000` in phone_number.txt
+  # (Apple's `contactPhone` validator rejects all-zeros). Any field whose
+  # resolved value is empty, TODO-prefixed, or matches the phone sentinel
+  # is omitted from the review_info hash — deliver then errors at submit
+  # time with a clear "<field> is required" message instead of silently
+  # shipping placeholder text to App Review.
+  #
+  # demo_user / demo_password are App Review's login credentials for apps
+  # that gate any meaningful feature behind authentication. Apple rejects
+  # such submissions without them. For no-auth apps both stay blank.
+  review_info = {}
+  [
+    [:first_name,    "APP_REVIEW_FIRST_NAME",    "first_name.txt"],
+    [:last_name,     "APP_REVIEW_LAST_NAME",     "last_name.txt"],
+    [:email_address, "APP_REVIEW_EMAIL",         "email_address.txt"],
+    [:phone_number,  "APP_REVIEW_PHONE",         "phone_number.txt"],
+    [:notes,         "APP_REVIEW_NOTES",         "notes.txt"],
+    [:demo_user,     "APP_REVIEW_DEMO_USER",     "demo_user.txt"],
+    [:demo_password, "APP_REVIEW_DEMO_PASSWORD", "demo_password.txt"],
+  ].each do |key, env_name, filename|
+    val = read_review_field(env_name, File.join(review_info_dir, filename))
+    review_info[key] = val unless val.nil?
   end
 
   en_us  = ->(name) { File.read(File.join(en_us_dir, "#{name}.txt")).strip }
@@ -439,10 +463,15 @@ def do_upload_metadata(platform:)
     automatic_release:        false,
     precheck_include_in_app_purchases: false
   )
-  if review_info[:phone_number].nil?
-    UI.success("Metadata uploaded. (Phone number for review still pending — export APP_REVIEW_PHONE=+1XXXXXXXXXX or fill fastlane/metadata/review_information/phone_number.txt before submit_for_review.)")
-  else
+  required_keys = %i[first_name last_name email_address phone_number]
+  missing = required_keys.reject { |k| review_info[k] }
+  if missing.empty?
     UI.success("Metadata uploaded.")
+  else
+    env_map = { first_name: "APP_REVIEW_FIRST_NAME", last_name: "APP_REVIEW_LAST_NAME",
+                email_address: "APP_REVIEW_EMAIL", phone_number: "APP_REVIEW_PHONE" }
+    pretty = missing.map { |k| env_map[k] }.join(", ")
+    UI.success("Metadata uploaded. (App Review fields still pending: #{missing.join(', ')} — export #{pretty} or fill fastlane/metadata/review_information/*.txt before submit_for_review.)")
   end
 end
 

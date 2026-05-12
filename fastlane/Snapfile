@@ -31,4 +31,9 @@ clear_previous_screenshots(true)
 # Serial — concurrent simulators race when shared state is involved.
 concurrent_simulators(false)
 
-override_status_bar(false)
+# Pin the simulator status bar to a clean 9:41 / full battery / full
+# wifi state for App Store screenshots. Apple-recommended convention;
+# also used by their official marketing assets. Without this the status
+# bar shows whatever the simulator was on (battery low, no carrier, etc.)
+# which looks unprofessional in App Store screenshots.
+override_status_bar(true)

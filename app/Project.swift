@@ -146,7 +146,7 @@ let iosUITestTarget = Target.target(
     bundleId: "com.example.helloapp.uitests",
     deploymentTargets: .iOS("17.0"),
     infoPlist: .default,
-    sources: ["UITests/**"],
+    sources: ["UITests/**", "Shared/AccessibilityIdentifiers.swift"],
     dependencies: [.target(name: "HelloApp-iOS")],
     settings: .settings(base: [
         "TEST_TARGET_NAME": "HelloApp-iOS",
@@ -165,7 +165,7 @@ let macUITestTarget = Target.target(
     bundleId: "com.example.helloapp.macuitests",
     deploymentTargets: .macOS("14.0"),
     infoPlist: .default,
-    sources: ["MacOSUITests/**"],
+    sources: ["MacOSUITests/**", "Shared/AccessibilityIdentifiers.swift"],
     dependencies: [.target(name: "HelloApp-macOS")],
     settings: .settings(base: [
         "TEST_TARGET_NAME": "HelloApp-macOS",

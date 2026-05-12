@@ -119,6 +119,13 @@ targets:
     platform: iOS
     sources:
       - path: UITests
+      # Shared with the main app target so the same enum constants drive
+      # both the views (.accessibilityIdentifier(...)) and the UI tests
+      # (app.otherElements[...]). UI tests run in a separate process and
+      # can't `@testable import` the main app binary — compiling this one
+      # file into both targets is the standard workaround. Single source
+      # of truth preserved (same path, listed twice).
+      - path: Shared/AccessibilityIdentifiers.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp.uitests
@@ -152,6 +159,10 @@ targets:
     platform: macOS
     sources:
       - path: MacOSUITests
+      # See HelloAppUITests above — same rationale for the shared
+      # selector enum. The macOS UI test doesn't query it today, but
+      # making the symbol available so future macOS test screens can.
+      - path: Shared/AccessibilityIdentifiers.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.helloapp.macuitests

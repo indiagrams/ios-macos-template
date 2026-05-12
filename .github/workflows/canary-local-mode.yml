@@ -67,7 +67,7 @@ name: canary-local-mode
 # Cache evicted (>7 days idle, never on a weekly cron) → orphans linger; manual
 # revoke via developer.apple.com/account/resources/certificates (30 sec).
 # User-driven mint contends during canary's 12-min window → fixed cron Saturdays
-# 11:30 UTC keeps the window predictable (separate from CI canary on Tuesdays).
+# 07:00 UTC keeps the window predictable (separate from CI canary on Sundays).
 #
 # ─── Generator matrix: xcodegen × tuist ───────────────────────────────────────
 #
@@ -107,10 +107,10 @@ on:
   #   2. running v1.5's one-time setup (revoke 1 spare DIST + 1 spare
   #      MAC_INSTALLER cert via the developer portal to dedicate cycling
   #      slots — see Phase 7 of `.planning/SMOKETEST_PLAN.md`)
-  # Cron is Saturdays 11:30 UTC to stay clear of the existing CI canary
-  # (canary-trigger.yml dispatches release.yml on Tuesdays 09:00 UTC).
+  # Cron is Saturdays 07:00 UTC to stay clear of the existing CI canary
+  # (canary-trigger.yml dispatches release.yml on Sundays 07:00 UTC).
   # schedule:
-  #   - cron: '30 11 * * 6'   # Saturdays 11:30 UTC
+  #   - cron: '0 7 * * 6'   # Saturdays 07:00 UTC
 
 permissions:
   contents: read

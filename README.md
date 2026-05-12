@@ -43,7 +43,7 @@ I'm a first-time iOS developer. Before writing a feature of my actual app, I spe
 
 I automated or documented every requirement I encountered. That's what this template is — the boring prep work, done.
 
-A public canary fork ([`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)) real-ships to TestFlight on two cadences: CI mode every Tuesday and local mode every Saturday, both on xcodegen and tuist generators, so Apple-side regressions surface upstream within a week. Catalog at [`docs/CONTINUOUS-VALIDATION.md`](docs/CONTINUOUS-VALIDATION.md).
+A public canary fork ([`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)) real-ships to TestFlight on two cadences: CI mode every Sunday and local mode every Saturday, both on xcodegen and tuist generators, so Apple-side regressions surface upstream within a week. Catalog at [`docs/CONTINUOUS-VALIDATION.md`](docs/CONTINUOUS-VALIDATION.md).
 
 ---
 
@@ -83,8 +83,8 @@ The five-command journey hides:
 
 ### Continuous validation (against real Apple infrastructure)
 - **Mondays 07:00 UTC**: bootstrap doctor matrix (xcodegen | tuist × ci | local — 4 cells). Covers the toolchain.
-- **Tuesdays 09:00 UTC**: full CI-mode release ship to TestFlight, both generators. Covers the mint-fresh signing pipeline + Apple infrastructure.
-- **Saturdays 11:30 UTC**: full local-mode release ship to TestFlight, both generators. Covers the local signing pipeline (sigh, fresh-cert minting, β cert SHA-1 pinning, controlled keychain).
+- **Sundays 07:00 UTC**: full CI-mode release ship to TestFlight, both generators. Covers the mint-fresh signing pipeline + Apple infrastructure.
+- **Saturdays 07:00 UTC**: full local-mode release ship to TestFlight, both generators. Covers the local signing pipeline (sigh, fresh-cert minting, β cert SHA-1 pinning, controlled keychain).
 - **Bugs in fastlane / sigh / Apple's signing infra surface there first**, before they bite forks — patches land in this template before they hit your repo.
 
 ---

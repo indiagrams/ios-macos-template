@@ -148,7 +148,7 @@ The switch is reversible: change `RELEASE_MODE=ci`, populate `KEYCHAIN_PASSWORD_
 Local mode is no longer a "no canary" mode. The template ships
 `.github/workflows/canary-local-mode.yml`, which is dormant by default
 (workflow_dispatch only) and can be enabled by uncommenting its `schedule:`
-block (default `30 11 * * 6` = Saturdays 11:30 UTC).
+block (default `0 7 * * 6` = Saturdays 07:00 UTC).
 
 When enabled, the canary mints 3 throwaway signing certs into a controlled
 keychain on the GH runner, runs full `fastlane release` (sigh-based App

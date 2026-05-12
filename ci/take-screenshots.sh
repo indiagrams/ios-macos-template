@@ -123,7 +123,9 @@ fi
 if ! $IOS_ONLY; then
   step "Capture macOS screenshots (xcodebuild test)"
   XCRESULT="/tmp/mac-screenshots.xcresult"
-  rm -rf "$XCRESULT"
+  DERIVED="/tmp/mac-screenshots-derived"
+  rm -rf "$XCRESULT" "$DERIVED"
+
   # On forks where the project.yml still has DEVELOPMENT_TEAM=TEAM_ID_PLACEHOLDER
   # (no real Apple team set yet — typical fresh-fork state), Xcode's automatic
   # signing fails: "No signing certificate Mac Development found ... team ID
@@ -133,17 +135,53 @@ if ! $IOS_ONLY; then
   # to bypass signing entirely — UI tests don't need real signatures to run.
   # Mirror that here so screenshots work on fresh forks regardless of whether
   # the user has minted real Mac Development certs.
-  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test \
+  #
+  # Split build and test into two phases so we can clear macOS Gatekeeper
+  # quarantine on the runner between them. Some host configurations leave a
+  # `com.apple.quarantine` xattr on the freshly-built MacOSUITests-Runner.app
+  # (most often: Xcode installed via xcodes-cli/.xip carries quarantine on
+  # the .app itself and propagates it to frameworks copied into the test
+  # bundle; AV/EDR software writing xattrs on new files; cloud-sync metadata
+  # on the build path). macOS Gatekeeper then refuses to launch the runner
+  # with "<APP>MacOSUITests-Runner is damaged and can't be opened." Surfaced
+  # 2026-05-11 on a fresh teammate's MacBook Pro. Stripping the xattr +
+  # ad-hoc re-signing the runner between build-for-testing and
+  # test-without-building reliably clears the rejection on every host
+  # configuration we've tested. Idempotent / no-op on hosts where the xattr
+  # isn't present.
+  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild build-for-testing \
     -project "$XCODEPROJ" \
     -scheme "${APP_NAME}-macOS" \
     -destination 'platform=macOS' \
-    -resultBundlePath "$XCRESULT" \
-    -only-testing:"${APP_NAME}MacOSUITests/AppStoreScreenshotTests" \
+    -derivedDataPath "$DERIVED" \
     CODE_SIGN_IDENTITY="" \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGNING_ALLOWED=NO \
     ONLY_ACTIVE_ARCH=YES 2>&1 | xcbeautify --quiet || {
-      echo "error: macOS screenshot test failed — see $XCRESULT" >&2
+      echo "error: macOS screenshot build-for-testing failed" >&2
+      exit 1
+    }
+
+  RUNNER="$DERIVED/Build/Products/Debug/${APP_NAME}MacOSUITests-Runner.app"
+  if [ -d "$RUNNER" ]; then
+    xattr -cr "$RUNNER" 2>/dev/null || true
+    codesign --force --deep --sign - "$RUNNER" 2>/dev/null || true
+  fi
+
+  # build-for-testing emits the .xctestrun next to Build/Products; glob picks
+  # up the platform-specific filename (e.g. SmokeAppMacOSUITests_macos.xctestrun).
+  XCTESTRUN="$(ls "$DERIVED/Build/Products/"*.xctestrun 2>/dev/null | head -1)"
+  if [ -z "$XCTESTRUN" ]; then
+    echo "error: no .xctestrun emitted by build-for-testing in $DERIVED/Build/Products/" >&2
+    exit 1
+  fi
+
+  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild test-without-building \
+    -xctestrun "$XCTESTRUN" \
+    -destination 'platform=macOS' \
+    -resultBundlePath "$XCRESULT" \
+    -only-testing:"${APP_NAME}MacOSUITests/AppStoreScreenshotTests" 2>&1 | xcbeautify --quiet || {
+      echo "error: macOS screenshot test-without-building failed — see $XCRESULT" >&2
       exit 1
     }
   ./ci/extract-mac-screenshots.sh "$XCRESULT"

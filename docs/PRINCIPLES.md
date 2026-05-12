@@ -32,9 +32,9 @@ first and let's talk.
 6. **The release pipeline is continuously validated by a public downstream.**
    [`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)
    runs **two** canaries weekly to TestFlight against this template's
-   signing pattern: `release.yml` (CI mode) on Mondays 09:00 UTC via
+   signing pattern: `release.yml` (CI mode) on Sundays 07:00 UTC via
    `canary-trigger.yml`, and `canary-local-mode.yml` (local mode) on
-   Saturdays 11:30 UTC. As of v1.6, both exercise the **same**
+   Saturdays 07:00 UTC. As of v1.6, both exercise the **same**
    mint-fresh-cert-then-revoke code path — the architectural distinction
    between "CI mode = match-based" and "local mode = sigh-based" that
    prompted two separate canaries in v1.5 is gone. They remain as two

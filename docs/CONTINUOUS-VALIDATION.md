@@ -9,11 +9,11 @@ public reference fork:
 
 Two canaries run there on complementary cadences:
 
-- **Tuesdays 09:00 UTC** — `canary-trigger.yml` dispatches `release.yml` on
+- **Sundays 07:00 UTC** — `canary-trigger.yml` dispatches `release.yml` on
   the smoketest. Exercises the **CI-mode** shipping path (match-based
   signing, certs sourced from a private repo via fastlane match). Pre-existing
   shipping certs; no mint/revoke loop.
-- **Saturdays 11:30 UTC** — `canary-local-mode.yml` runs in-place on the
+- **Saturdays 07:00 UTC** — `canary-local-mode.yml` runs in-place on the
   smoketest. Exercises the **local-mode** shipping path (sigh-based App Store
   profiles minted via API key, signing certs minted fresh into a controlled
   keychain, β cert SHA-1 pinning via `DeveloperCertificates[0]` from the
@@ -101,7 +101,7 @@ There are two opt-in canaries; pick whichever matches your fork's
   dispatches it weekly against the smoketest from upstream.
 - **Local mode** (`RELEASE_MODE=local`, sigh-based, no match) — uncomment
   the `schedule:` block in `.github/workflows/canary-local-mode.yml`
-  (default `30 11 * * 6` = Saturdays 11:30 UTC), configure five GH
+  (default `0 7 * * 6` = Saturdays 07:00 UTC), configure five GH
   Secrets on the fork (`ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`,
   `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`, `KEYCHAIN_PASSWORD`),
   and run the v1.5 one-time cert-slot dedication described in the

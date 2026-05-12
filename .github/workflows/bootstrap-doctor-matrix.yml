@@ -33,7 +33,7 @@ name: bootstrap doctor matrix
 
 on:
   schedule:
-    - cron: '0 7 * * 1' # Mondays 07:00 UTC, day before canary-trigger's Tuesday release cron
+    - cron: '0 7 * * 1' # Mondays 07:00 UTC — read-only sweep after the Sat (local-mode) + Sun (CI-mode) canary ships. All three at 07:00 UTC for memorability.
   workflow_dispatch:
   pull_request:
     paths:

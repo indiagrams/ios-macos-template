@@ -72,7 +72,7 @@ endif
 _PARENT_ENV := $(HOME)/code/.bootstrap.env
 _LOAD_PARENT_ENV := $(if $(wildcard $(_PARENT_ENV)),set -a; . $(_PARENT_ENV); set +a;,true;)
 
-.PHONY: all go bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help init doctor bootstrap-fork ship verify submit mint-local-certs clean-revoked-certs format format-check _check-bundle
+.PHONY: all go bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help init doctor bootstrap-fork ship verify submit mint-local-certs clean-revoked-certs revoke-orphan-certs format format-check _check-bundle
 
 help:
 	@echo "Targets:"
@@ -95,6 +95,7 @@ help:
 	@echo "  submit           Stage (default) or auto-submit the latest TestFlight build for App Store review across PLATFORMS. Toggle via SUBMIT_FOR_REVIEW in .bootstrap.env."
 	@echo "  mint-local-certs Auto-mint missing local-mode signing identities into the login keychain via fastlane cert. Idempotent."
 	@echo "  clean-revoked-certs  Audit login.keychain vs Apple's valid-cert list, delete revoked locals (usage: make clean-revoked-certs [DRY_RUN=1] [YES=1])"
+	@echo "  revoke-orphan-certs  Audit Apple's distribution-cert list vs login.keychain, revoke Apple-side orphans whose private keys live nowhere (usage: make revoke-orphan-certs [DRY_RUN=1] [YES=1])"
 	@echo "  phase-checklist  Print the GSD canonical per-phase checklist (usage: make phase-checklist N=3.1)"
 	@echo "  milestone-checklist  Print the GSD milestone wrap-up checklist (usage: make milestone-checklist M=1)"
 
@@ -181,6 +182,9 @@ mint-local-certs: _check-bundle
 
 clean-revoked-certs: _check-bundle
 	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/clean-revoked-certs.rb $(if $(YES),--yes,) $(if $(DRY_RUN),--dry-run,)
+
+revoke-orphan-certs: _check-bundle
+	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/revoke-orphan-certs.rb $(if $(YES),--yes,) $(if $(DRY_RUN),--dry-run,)
 
 # Guard for bundle-using targets above. Fails fast with an actionable hint
 # when ruby gems aren't installed yet (typical on a fresh fork before

@@ -499,11 +499,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          # BUNDLE_ID — the canonical source for any fork is fastlane/Fastfile's
-          # APP_IDENTIFIER constant (set by bin/rename.sh during fork creation).
-          BUNDLE_ID=$(grep '^APP_IDENTIFIER' fastlane/Fastfile | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+          # BUNDLE_ID comes from the workflow-level env block at the top of
+          # this file, which reads vars.BUNDLE_ID. Fail-loud guard if a fork
+          # hasn't configured the repo variable yet.
           if [ -z "${BUNDLE_ID:-}" ]; then
-            echo "::error::Could not extract APP_IDENTIFIER from fastlane/Fastfile"
+            echo "::error::vars.BUNDLE_ID is not set on this repo. Configure it via:"
+            echo "::error::  gh variable set BUNDLE_ID --body <com.you.app> --repo ${{ github.repository }}"
+            echo "::error::Also set APP_NAME the same way."
             exit 1
           fi
 

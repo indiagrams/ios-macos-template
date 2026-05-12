@@ -81,6 +81,13 @@ The five-command journey hides:
 - **Branch protection** auto-configured by `bin/setup-github.sh`: squash-only merge, required reviews, force-push blocked.
 - **`bin/preflight.sh`** — one-shot prerequisite checker; clone temporarily, run, get a report on what's missing and how to install it.
 
+### Fork extensibility (added 2026-05; v1.6.1)
+- **`fastlane/Fastfile.local` extension point** — forks add custom lanes (Slack hook, Crashlytics dSYM upload, Firebase App Distribution, internal-ticket bumps) in a fork-owned file that survives upstream syncs. Template Fastfile imports it at EOF; `after_all` and `error` are reserved for forks, `before_all` is template-claimed. See [`fastlane/Fastfile.local.example`](fastlane/Fastfile.local.example) for seven copy-pasteable patterns.
+- **Env-driven Fastfile constants** — `APP_NAME`, `APP_IDENTIFIER`, and downstream `IOS_SCHEME` / `MACOS_SCHEME` / `IPA_NAME_PATTERN` / `PKG_NAME_PATTERN` all resolve from `.bootstrap.env` at lane-resolution time, with `ENV` override for CI. Forks no longer sed-substitute Fastfile literals during rename; the file stays byte-equivalent across template and every fork.
+- **Env-driven `pr.yml`** — workflow's `xcodebuild -project / -scheme` arguments resolve `${{ vars.APP_NAME || 'HelloApp' }}`. Forks set repo `vars.APP_NAME` once; the workflow file stays byte-equivalent across template and forks for safe `cp`-mirror.
+- **Fork-friendly CI timeouts** — `pr.yml` job-level cap 60min (was 15); test steps inherit the job cap so a fork's 30-min test suite doesn't hit a template-tuned ceiling. Infrastructure-only steps (build, simulator pre-boot) keep tight bounds so stuck infrastructure fails fast without constraining user test duration.
+- **Single Sat 07:00 UTC canary cron** in [`canary-trigger.yml`](.github/workflows/canary-trigger.yml) — orchestrates three sequential ships (CI xcodegen → CI tuist → local-mode). Forks inherit no cron (the trigger file is template-only); each fork wires its own schedule when ready.
+
 ### Continuous validation (against real Apple infrastructure)
 - **PR-time, on any change to `bin/lib/bootstrap.rb` / `bin/doctor.rb` / `fastlane/Fastfile` / `.bootstrap.env.example` / `Makefile`**: bootstrap doctor matrix (xcodegen | tuist × ci | local — 4 cells). Catches doctor/bootstrap pipeline regressions before merge. Plus weekly hermetic regression tests (parser, bundle-guard) Mondays 07:00 UTC against runner-image drift.
 - **Saturdays 07:00 UTC**: full canary sweep — apple-shipkit's `canary-trigger.yml` orchestrates 3 sequential ships on the smoketest fork against real Apple infrastructure: CI-mode xcodegen (`release.yml`), CI-mode tuist (`release.yml`), then local-mode (`canary-local-mode.yml`, which internally runs both generators). ~35–40 min total. Covers the mint-fresh CI signing pipeline, the local sigh-based signing pipeline, and both project generators. Apple-side regressions surface upstream within a week.
@@ -115,7 +122,7 @@ Different tradeoff from other iOS starters:
 | You want… | Use | Why |
 |---|---|---|
 | Pipeline (signing + CI + TestFlight + ASC submission) prewired | **apple-shipkit** | What this template focuses on. Fastlane (sigh) + GitHub Actions (mint-fresh CI signing) + canary continuous validation. |
-| UI architecture + screens + sample data | [`ios-project-template`](https://github.com/messeb/ios-project-template), [`ios-mvp-template`](https://github.com/onl1ner/ios-mvp-template), or `SwiftPlate` | These ship app scaffolding (MVVM/MVP/Coordinator). You'd bring fastlane/CI yourself. |
+| UI architecture + screens + sample data | [`iOS-Clean-Architecture-MVVM`](https://github.com/kudoleh/iOS-Clean-Architecture-MVVM) (Clean + MVVM, actively maintained), [`SwiftUI-MVVM-C`](https://github.com/huynguyencong/SwiftUI-MVVM-C) (SwiftUI + Combine + Coordinator), or Apple's built-in Xcode "App" template for bare scaffolding | These ship app scaffolding (ViewModels, Coordinators, sample data). You'd bring fastlane/CI yourself. Older Swift app templates (SwiftPlate, ios-project-template, ios-mvp-template) commonly cited in this space are inactive — SwiftPlate last touched 2019 + is a framework generator (not an app scaffold); ios-project-template still references Travis CI + HockeyApp; ios-mvp-template is UIKit + Storyboards. |
 | Generate a fresh project from a manifest | `tuist scaffold` | Generates project files. No signing, no CI, no release wiring. |
 | Subscription bundle (RevenueCat + paywall + IAP) | [RevenueCat Quickstart](https://www.revenuecat.com/docs/getting-started/quickstart) | apple-shipkit is intentionally framework-agnostic; bring your own monetization. |
 | Bare `gh repo create` from a Swift project you already have | _no template needed_ | apple-shipkit is for people who don't have the project yet, or who do but want fastlane + CI signing prewired. |
@@ -183,6 +190,7 @@ Each step is its own fastlane lane in `fastlane/Fastfile`. Read the file — it'
 │   └── lib/                     # SHA-pinned shared library
 ├── fastlane/
 │   ├── Fastfile                 # release | bootstrap_certs | upload_metadata | submit_for_review
+│   ├── Fastfile.local.example   # fork extension scaffolding (cp to Fastfile.local + edit)
 │   ├── Appfile                  # bundle ID + team
 │   ├── Snapfile / MacSnapfile   # screenshot capture config
 │   └── metadata/                # App Store listing copy + review info

@@ -14,6 +14,7 @@ struct ContentView: View {
             Text("HelloApp")
                 .font(.largeTitle.bold())
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier(AccessibilityIdentifiers.title)
             Text("iOS + macOS template")
                 .font(.headline)
                 .foregroundStyle(.secondary)
@@ -25,10 +26,6 @@ struct ContentView: View {
         }
         .padding()
         .frame(minWidth: 320, minHeight: 240)
-        // Single accessibility identifier scoped to the whole stub UI so UI
-        // tests can match the screen without depending on visible text
-        // (which varies once forks localize).
-        .accessibilityIdentifier("HelloApp.stub")
     }
 }
 

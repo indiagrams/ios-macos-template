@@ -11,8 +11,8 @@ This is the default mode shipped by `.bootstrap.env.example` since v1.3.0. Forks
 | Where `make ship` runs | GitHub Actions runner (macos-15) | Your Mac |
 | Code signing | Fresh certs minted into a controlled keychain per run, revoked on `always()` | Login Keychain (auto-minted by `bootstrap-fork`) |
 | Required GH Secrets | 5 (`KEYCHAIN_PASSWORD`, `ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`) | 0 |
-| Bootstrap pipeline length | 14 steps | 14 steps (same — v1.6 collapsed the difference) |
-| Branch protection | 7 required CI checks | None (configure manually if you want) |
+| Bootstrap pipeline length | 16 steps | 16 steps (same — v1.6 collapsed the difference) |
+| Branch protection | required CI checks set by `bin/setup-github.sh` (count varies by PLATFORMS + committed generator manifests — typically 8) | None (configure manually if you want) |
 | Required certs repo | no (dropped in v1.6) | no |
 | Auto-minted signing certs | yes — release.yml mints fresh per run on the runner | yes — `bootstrap-fork` mints into your login Keychain (see "Cert provisioning" below) |
 
@@ -110,7 +110,7 @@ Or in the GitHub web UI: Settings → Branches → main → Delete rule.
 
 ### 4. Skip `make setup-github`
 
-`bin/setup-github.sh` configures the 7 required CI checks. In local-only mode, don't run it — or remove it from your local `make all` flow if you wired it in.
+`bin/setup-github.sh` configures the required CI checks (count varies by PLATFORMS + committed generator manifests — typically 8). In local-only mode, don't run it — or remove it from your local `make all` flow if you wired it in.
 
 ## What `make ship` does in local-only mode
 

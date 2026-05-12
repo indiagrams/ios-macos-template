@@ -2,8 +2,8 @@
 
 # Shared library for `bin/doctor.rb` (read-only) and `bin/bootstrap-fork.rb`
 # (idempotent driver). Reads `.bootstrap.env`, validates config, exposes a
-# pipeline of 19 step classes. CI mode runs 18 steps with default
-# PLATFORMS=ios,macos; local mode runs 14. Each step has a `check`
+# pipeline of 18 step classes. CI mode runs 17 steps with default
+# PLATFORMS=ios,macos; local mode runs 17. Each step has a `check`
 # (returns bool, no side effects)
 # and a `do_it` (idempotent: safe to re-run on partial state).
 #
@@ -825,6 +825,61 @@ module Bootstrap
     end
   end
 
+  class FastlaneTmpKeychain < Step
+    def name; "Leaked fastlane temp keychains"; end
+
+    def check
+      # Linux runners have no Keychain Services — skip cleanly.
+      return :done unless RUBY_PLATFORM.include?("darwin")
+
+      # Parse `security list-keychains -d user` output. Format is one
+      # whitespace-indented quoted path per line:
+      #     "/Users/prakash/Library/Keychains/login.keychain-db"
+      #     "/Users/prakash/Library/Keychains/fastlane_tmp_keychain-db"
+      # Filter for fastlane's temp-keychain naming pattern. fastlane
+      # action setup_ci (fastlane-2.234.0, actions/setup_ci.rb:60-71)
+      # uses `match_keychain` action with name "fastlane_tmp_keychain"
+      # which lands as `~/Library/Keychains/fastlane_tmp_keychain-db`
+      # in the user keychain search list.
+      out = `security list-keychains -d user 2>/dev/null`.to_s
+      leaked = out.scan(/"([^"]*fastlane_tmp_keychain[^"]*)"/).flatten
+      return :done if leaked.empty?
+
+      [:warn, leak_msg(leaked)]
+    end
+
+    def do_it
+      # No-op. `security delete-keychain` is destructive — it removes the
+      # keychain from the user search list AND deletes the on-disk file.
+      # A leaked fastlane temp keychain typically holds no real state
+      # (throwaway CI signing identities, wiped on legitimate cleanup),
+      # but we surface the one-liner and let the user run it. The advisory
+      # nature mirrors XcodeQuarantine's policy of not mutating shared
+      # macOS state outside this fork's scope.
+    end
+
+    private
+
+    def leak_msg(paths)
+      list = paths.map { |p| "    - #{p}" }.join("\n")
+      <<~MSG.strip
+        #{paths.length} fastlane temp keychain(s) leaked into your user keychain search list:
+        #{list}
+          These are normally created by `setup_ci` during CI-mode fastlane runs and
+          cleaned up on process exit. A leaked keychain on your local Mac means a
+          prior fastlane invocation was killed (Ctrl-C, SIGKILL, OOM, crash) before
+          its `at_exit` cleanup ran. Apps that scan all keychains for credentials
+          (Google Drive, 1Password, iCloud Keychain, browser auth dialogs) then
+          repeatedly prompt for the temp keychain's password.
+          To clear permanently (one-time, ~1 sec, no sudo):
+            security delete-keychain ~/Library/Keychains/fastlane_tmp_keychain-db
+          Safe to delete — these keychains hold throwaway CI signing identities,
+          never real secrets. The next legitimate fastlane CI run recreates one
+          on demand and cleans it up on exit.
+      MSG
+    end
+  end
+
   class ScanScreenshots < Step
     def name; "App Store screenshots"; end
 
@@ -1064,7 +1119,8 @@ module Bootstrap
       ScanMetadata,          # informational
       ScanScreenshots,
       AppPrivacyForm,        # informational; queries ASC for App Privacy publish state
-      XcodeQuarantine        # informational; advisory-only check for com.apple.quarantine xattr on Xcode.app
+      XcodeQuarantine,       # informational; advisory-only check for com.apple.quarantine xattr on Xcode.app
+      FastlaneTmpKeychain    # informational; advisory-only check for leaked setup_ci temp keychains
     ].freeze
 
     def initialize(config)

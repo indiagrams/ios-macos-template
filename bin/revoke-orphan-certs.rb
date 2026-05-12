@@ -1,17 +1,20 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Audit Apple's valid-cert list against the user's login.keychain and (with
-# confirmation) revoke the Apple-side distribution certs whose private keys
-# live nowhere on the user's Mac.
+# Audit Apple's valid signing-cert list (distribution + development) against
+# the user's login.keychain and (with confirmation) revoke the Apple-side
+# certs whose private keys live nowhere on the user's Mac.
 #
-# Why this exists: Apple caps distribution certs at 3 per team. Each CI release
-# run mints a fresh cert and revokes it in an `if: always()` post-step, but the
-# post-step can be skipped (runner evicted mid-run, hard crash, cache-evicted
-# tracking file >7 days idle). Over time, the team accumulates Apple-side cert
-# IDs whose private keys live nowhere. The next release run then hits
+# Why this exists: Apple caps both Distribution (3 per team) and Development
+# (~2 per registered device) signing certs. Each CI release run mints a fresh
+# set and revokes them in an `if: always()` post-step, but the post-step can
+# be skipped (runner evicted mid-run, hard crash, cache-evicted tracking file
+# >7 days idle). Over time, the team accumulates Apple-side cert IDs whose
+# private keys live nowhere. The next release run then hits one of:
 #   [!] Could not create another Distribution certificate, reached the maximum
 #       number of available Distribution certificates.
+#   [!] Could not create another Development certificate, reached the maximum
+#       number of available Development certificates.
 # at the minting step. Previously the only recovery was the developer.apple.com
 # web UI (~30 sec but error-prone — easy to revoke a cert that IS in use
 # elsewhere). This script makes the recovery local + scriptable + safe.

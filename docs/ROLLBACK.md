@@ -97,7 +97,7 @@ There's no certs repo to clear in v1.6 — every `release.yml` run mints its own
 
 ## Reset the smoketest fork (maintainer-only)
 
-Two canaries run on the smoketest — `canary-trigger.yml` dispatching `release.yml` (Sundays 07:00 UTC) and `canary-local-mode.yml` (Saturdays 07:00 UTC). Since v1.6 both paths mint fresh certs per run and self-revoke via an `if: always()` post-step, so they're equivalent from a rollback standpoint.
+A single weekly canary sweep runs on the smoketest — apple-shipkit's `canary-trigger.yml` orchestrates 3 sequential ships on Saturdays 07:00 UTC: CI-mode xcodegen (`release.yml`), CI-mode tuist (`release.yml`), and local-mode (`canary-local-mode.yml`). All three paths mint fresh certs per run and self-revoke via `if: always()` post-steps, so they're equivalent from a rollback standpoint.
 
 To reset the smoketest:
 

@@ -83,8 +83,7 @@ The five-command journey hides:
 
 ### Continuous validation (against real Apple infrastructure)
 - **PR-time, on any change to `bin/lib/bootstrap.rb` / `bin/doctor.rb` / `fastlane/Fastfile` / `.bootstrap.env.example` / `Makefile`**: bootstrap doctor matrix (xcodegen | tuist × ci | local — 4 cells). Catches doctor/bootstrap pipeline regressions before merge. Plus weekly hermetic regression tests (parser, bundle-guard) Mondays 07:00 UTC against runner-image drift.
-- **Sundays 07:00 UTC**: full CI-mode release ship to TestFlight, both generators. Covers the mint-fresh signing pipeline + Apple infrastructure.
-- **Saturdays 07:00 UTC**: full local-mode release ship to TestFlight, both generators. Covers the local signing pipeline (sigh, fresh-cert minting, β cert SHA-1 pinning, controlled keychain).
+- **Saturdays 07:00 UTC**: full canary sweep — apple-shipkit's `canary-trigger.yml` orchestrates 3 sequential ships on the smoketest fork against real Apple infrastructure: CI-mode xcodegen (`release.yml`), CI-mode tuist (`release.yml`), then local-mode (`canary-local-mode.yml`, which internally runs both generators). ~35–40 min total. Covers the mint-fresh CI signing pipeline, the local sigh-based signing pipeline, and both project generators. Apple-side regressions surface upstream within a week.
 - **Bugs in fastlane / sigh / Apple's signing infra surface there first**, before they bite forks — patches land in this template before they hit your repo.
 
 ---

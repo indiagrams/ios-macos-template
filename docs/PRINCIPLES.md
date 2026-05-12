@@ -31,15 +31,16 @@ first and let's talk.
    warning.
 6. **The release pipeline is continuously validated by a public downstream.**
    [`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)
-   runs **two** canaries weekly to TestFlight against this template's
-   signing pattern: `release.yml` (CI mode) on Sundays 07:00 UTC via
-   `canary-trigger.yml`, and `canary-local-mode.yml` (local mode) on
-   Saturdays 07:00 UTC. As of v1.6, both exercise the **same**
-   mint-fresh-cert-then-revoke code path — the architectural distinction
-   between "CI mode = match-based" and "local mode = sigh-based" that
-   prompted two separate canaries in v1.5 is gone. They remain as two
-   schedules to keep coverage cadence and as separate signals on the
-   smoketest dashboard; consolidating them is a separate workstream.
+   runs a **single weekly canary sweep** to TestFlight against this template's
+   signing pattern. Apple-shipkit's `canary-trigger.yml` fires once on
+   Saturdays 07:00 UTC and orchestrates three sequential cells against the
+   smoketest: CI-mode xcodegen (`release.yml`), CI-mode tuist (`release.yml`),
+   and local-mode (`canary-local-mode.yml`, which internally iterates both
+   generators). As of v1.6, all three exercise the **same** mint-fresh-cert-
+   then-revoke code path — the architectural distinction between "CI mode =
+   match-based" and "local mode = sigh-based" from v1.5 is gone. They remain
+   as three cells to give the smoketest dashboard separate signals per
+   shipping path.
    Because Apple's signing infra (certs, profiles, `timestamp.apple.com`,
    ASC ingestion) and the fastlane / pilot stacks drift independently
    of this template, the smoketest catches rot before forkers do.

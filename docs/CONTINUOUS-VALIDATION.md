@@ -7,18 +7,15 @@ public reference fork:
 
 > [`indiagrams/ios-macos-smoketest`](https://github.com/indiagrams/ios-macos-smoketest)
 
-Two canaries run there on complementary cadences:
+The canary sweep runs once weekly on a single cron, with three sequential cells:
 
-- **Sundays 07:00 UTC** — `canary-trigger.yml` dispatches `release.yml` on
-  the smoketest. Exercises the **CI-mode** shipping path (match-based
-  signing, certs sourced from a private repo via fastlane match). Pre-existing
-  shipping certs; no mint/revoke loop.
-- **Saturdays 07:00 UTC** — `canary-local-mode.yml` runs in-place on the
-  smoketest. Exercises the **local-mode** shipping path (sigh-based App Store
-  profiles minted via API key, signing certs minted fresh into a controlled
-  keychain, β cert SHA-1 pinning via `DeveloperCertificates[0]` from the
-  .mobileprovision). Mint→ship→verify→revoke loop in the same Apple team;
-  net team-cert delta per run = 0.
+- **Saturdays 07:00 UTC** — apple-shipkit's `canary-trigger.yml` orchestrates a 3-cell sequential matrix against the smoketest:
+  1. dispatch `release.yml` with `generator=xcodegen` → exercises **CI-mode** shipping with the mint-fresh-cert pattern (cert minted into a controlled keychain on the runner, revoked in an `if: always()` post-step).
+  2. dispatch `release.yml` with `generator=tuist` → same as above but against the Tuist project manifest.
+  3. dispatch `canary-local-mode.yml` → exercises **local-mode** shipping (sigh-based App Store profiles minted via API key, signing certs minted fresh into a controlled keychain, β cert SHA-1 pinning via `DeveloperCertificates[0]` from the .mobileprovision). Internally runs both generators sequentially.
+
+  Net runtime ~35–40 min; net Apple-team cert delta = 0 per run (every mint paired with a revoke).
+- (was: separate Saturday + Sunday crons through #221; consolidated to a single Saturday cron in #222 for simpler operational rhythm).
 
 Either canary going red means the pipeline has broken somewhere between
 fastlane, match (CI-mode only), Apple's signing infrastructure, the ASC API,
@@ -99,14 +96,7 @@ There are two opt-in canaries; pick whichever matches your fork's
   setup. The same `release.yml` then runs on `workflow_dispatch` and
   whenever you tag a release; `canary-trigger.yml` (template-only)
   dispatches it weekly against the smoketest from upstream.
-- **Local mode** (`RELEASE_MODE=local`, sigh-based, no match) — uncomment
-  the `schedule:` block in `.github/workflows/canary-local-mode.yml`
-  (default `0 7 * * 6` = Saturdays 07:00 UTC), configure five GH
-  Secrets on the fork (`ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`,
-  `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`, `KEYCHAIN_PASSWORD`),
-  and run the v1.5 one-time cert-slot dedication described in the
-  cert-caps bullet above. Optional `DISCORD_CANARY_WEBHOOK` for failure
-  notifications.
+- **Local mode** (`RELEASE_MODE=local`, sigh-based, no match) — apple-shipkit's `canary-trigger.yml` already dispatches `canary-local-mode.yml` on the smoketest as part of its Saturday sweep. To run the same canary against your own fork on a schedule, fork apple-shipkit, set `SMOKETEST_DISPATCH_PAT` + `DISCORD_CANARY_WEBHOOK` secrets on it, point `TARGET_REPO` at your fork, and configure the five GH Secrets on the target fork (`ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`, `KEYCHAIN_PASSWORD`). Plus the v1.5 one-time cert-slot dedication from the cert-caps bullet above. For an ad-hoc one-shot, just `gh workflow run canary-local-mode.yml --repo <your-fork>` (no apple-shipkit infrastructure required).
 
 Either way, the workflow runs against your fork's bundle ID + ASC app
 record + signing identity — same shape as the smoketest.

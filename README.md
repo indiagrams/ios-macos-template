@@ -1,13 +1,15 @@
 # apple-shipkit
 
+> **Release-engineering scaffolding for shipping iOS + macOS apps.**
+> Code signing, GitHub Actions CI for PRs, mint-fresh certificates per CI release, TestFlight upload, App Store submission — all prewired.
+> Deliberately doesn't pick a UI framework, networking stack, or persistence layer.
+
 [![CI](https://github.com/indiagrams/apple-shipkit/actions/workflows/pr.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/pr.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Swift 5.9](https://img.shields.io/badge/Swift-5.9-orange.svg)](https://swift.org)
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/sExv9eKdA)
-[![Weekly canary](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)
-[![Local-mode canary](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml/badge.svg)](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml)
-
-> **Goal of this README:** if you've never shipped an iOS or Mac app before, by the end of it you will have one running on your phone (or Mac) via TestFlight. About 30–60 minutes of focused time, $99/year for Apple Developer Program, and a Mac to build on (Xcode and the rest of Apple's build tools only run on macOS — you need a Mac even for an iPhone-only app).
+[![Weekly canary (CI mode)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)
+[![Weekly canary (local mode)](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml/badge.svg)](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml)
 
 <p align="center">
   <img src="docs/screenshots/ios-home.png"   alt="HelloApp template running on iOS Simulator — hammer icon, 'HelloApp' title, and 'Rename me' instruction visible" width="260">
@@ -15,7 +17,23 @@
   <img src="docs/screenshots/macos-home.png" alt="HelloApp template running natively on macOS — same hammer icon, title, and rename instruction"                       width="500">
 </p>
 
-That's the starter app you'll customize into yours.
+> **First time shipping an iOS or Mac app?** Start with **[docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)** — every prerequisite, every Apple-side click, 30–60 minutes to your first TestFlight build.
+
+---
+
+## The five-command journey
+
+Once `.bootstrap.env` is filled in (see [Getting Started](docs/GETTING-STARTED.md)), shipping any app from this template is five commands. Each is idempotent. Each fails loud with an actionable error message. Each is designed so the first one to break tells you exactly what to fix and where:
+
+| | Command | What it does |
+|---|---|---|
+| 1 | `make doctor` | Surfaces every known onboarding hazard with one-line actionable fixes — Apple credentials, GitHub credentials, Bundle ID registration, ASC App record, signing certs, metadata placeholders, screenshot coverage, App Privacy form publish state, Xcode quarantine state. Read-only; mutates nothing. |
+| 2 | `make bootstrap` | One-time dev-env setup: `brew bundle`, `bundle install`, `xcodegen`/`tuist generate`, lefthook pre-push hook. Survives a fresh host without pre-installed brew Ruby (auto re-execs after `ruby@3.3` lands on disk so `_BUNDLE` resolves to the brew shim, not stock `/usr/bin/bundle` on Ruby 2.6). |
+| 3 | `make all` | `doctor → bootstrap-fork → ship → verify`. Builds + signs + uploads to TestFlight, then polls App Store Connect until both binaries process. Env-first metadata propagation through both ship and submit paths — no placeholders in flight. |
+| 4 | `make screenshots` | Captures App Store screenshots (iOS + macOS) into `fastlane/screenshots/en-US/`. Survives a quarantined Xcode (auto strip + ad-hoc re-sign on the UI-test runner bundle before launch) without you needing to know what quarantine even is. |
+| 5 | `make submit` | Stages (default) or auto-submits the latest TestFlight build for App Store review. 9/9 precheck green; reads your real URLs + phone from `~/code/.bootstrap.env` or `.bootstrap.env`, not the tracked `+10000000000` / `example.com` fail-loud placeholders. |
+
+Returning forkers running their second-or-later ship typically use just `make ship` (subset of `make all`) plus `make submit` when they want to push the build past TestFlight.
 
 ---
 
@@ -29,398 +47,51 @@ A public canary fork ([`indiagrams/ios-macos-smoketest`](https://github.com/indi
 
 ---
 
-## What you'll learn to do
-
-By the end of this guide:
-
-1. You'll have **forked this template** into your own GitHub repo.
-2. You'll have **customized the starter app** to your name + bundle ID.
-3. You'll have **shipped a signed build to TestFlight** — Apple's official "beta testing" service.
-4. You'll be able to **install your app on your iPhone or Mac** through the TestFlight app.
-5. You'll have a release pipeline that re-runs every time you say `make ship` — no more "I forgot how to release" months later.
-
-You will **not** be on the App Store yet — that's a separate Apple review step (covered briefly at the end). TestFlight is the staging ground; everyone uses it before going public.
-
----
-
-## Vocabulary you'll see (skim this once)
-
-| Term | Plain English |
-|---|---|
-| **Apple Developer Program** | Apple's paid membership ($99/year). Required to ship apps anywhere outside your own computer. Sign up at [developer.apple.com](https://developer.apple.com). |
-| **App Store Connect** (ASC) | The website where you manage your apps, builds, screenshots, and TestFlight testers. Lives at [appstoreconnect.apple.com](https://appstoreconnect.apple.com). |
-| **TestFlight** | Apple's beta-testing service. You upload a build here, and you (or invited testers) install it on real devices via the TestFlight app. Free. |
-| **Bundle ID** | A unique identifier for your app, in reverse-domain form (e.g. `com.yourname.coolapp`). Once chosen, it's hard to change — pick something you'll keep. |
-| **Code signing** | Apple cryptographically signs every app so iPhones know it's "really from you." Setting this up is the most painful part of shipping; this template hides 90% of the pain. |
-| **Certificate** (cert) | The cryptographic identity Apple gives you. Lives in your Mac's Keychain. Limited to 3 distribution certs per developer team. |
-| **Provisioning profile** | A document Apple generates that ties your cert + your bundle ID + the device(s) it can run on. The release tool auto-creates these for you. |
-| **Xcode** | Apple's app — the IDE used to build iOS/Mac apps. Free, but a 15+ GB download. |
-| **fastlane** | An open-source tool that automates the dozens of clicks Apple's UI normally requires for a release. The template uses it. |
-| **CI** (continuous integration) | "When you push code, GitHub runs your tests/builds automatically." This template uses GitHub Actions. |
-| **Repo / fork** | A GitHub repository (a project's home). To "fork" is to make your own copy you can change without affecting the original. |
-
-You don't need to memorize these — refer back as you hit each.
-
----
-
-## What you need before you start
-
-### Hardware
-- **A Mac.** Any Mac running macOS Sequoia (15) or newer. **Required even for iOS-only apps** — Xcode 26, xcodebuild, fastlane, and the iOS Simulator only run on macOS. There is no supported way to build iOS or Mac apps on Windows or Linux.
-- **(Optional) An iPhone or iPad** to install your app via TestFlight at the end. Not strictly required — TestFlight also works on Mac.
-
-### Money
-- **$99 USD/year** for the Apple Developer Program. This is non-negotiable — Apple controls who can ship apps. Pay it once, you're set for a year.
-- That's it. The template, GitHub, fastlane, and TestFlight itself are all free.
-
-### Time
-- **30–60 minutes** of focused time for the first ship. Most of it is waiting (Xcode install, Apple verification, etc.).
-- **5 minutes** for every subsequent release.
-
-### Patience for one specific thing
-- **Apple Developer enrollment** sometimes requires a real-name verification step that takes 24–48 hours. If this hits you, plan for a 2-day setup window. Most enrollments go through in minutes.
-
----
-
-## Step 1 — Install the developer tools (~15 minutes)
-
-These are one-time installs. If you've done iOS/Mac development before, you may have most already.
-
-```bash
-# 1. Xcode (Apple's IDE — required for building anything Apple)
-#    Open the Mac App Store, search "Xcode", install. ~15 GB download.
-#    After install, open Xcode once to accept the license.
-
-# 2. Xcode Command Line Tools (the underlying build tools)
-xcode-select --install   # opens a system installer dialog; click Install
-
-# 3. Homebrew (macOS package manager — installs everything else)
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# 4. The GitHub CLI + git
-brew install gh git
-
-# 5. Authenticate gh (this opens your browser to log into GitHub)
-gh auth login    # pick: GitHub.com → HTTPS → Yes (auth git) → browser
-```
-
-**Sanity check** — paste this and confirm each line shows a version number, not "command not found":
-
-```bash
-xcodebuild -version    # Xcode 26.x or higher
-brew --version         # Homebrew 4.x or higher
-gh --version           # gh version 2.x
-git --version          # git version 2.x
-```
-
-If anything is missing, this template ships a one-shot checker — clone temporarily and run it:
-
-```bash
-git clone https://github.com/indiagrams/apple-shipkit.git /tmp/preflight \
-  && bash /tmp/preflight/bin/preflight.sh \
-  && rm -rf /tmp/preflight
-```
-
-It tells you exactly what's missing and how to install it.
-
----
-
-## Step 2 — Sign up for Apple Developer Program ($99, ~5 minutes most cases)
-
-1. Go to [developer.apple.com/programs/enroll](https://developer.apple.com/programs/enroll).
-2. Sign in with the Apple ID you want to ship under. **This Apple ID is permanent** — apps you ship are tied to it. If you don't have one or want a separate "developer" Apple ID, create one first at [appleid.apple.com](https://appleid.apple.com).
-3. Choose **Individual** (you, personally) or **Organization** (a registered LLC/Corp — needs a D-U-N-S number; skip unless you have one). Most highschoolers pick Individual.
-4. Pay $99 USD via Apple Pay or credit card.
-5. Wait for the confirmation email. Most accounts activate within minutes; a small percentage need 24–48 hours of human review.
-
-Once active, you get access to two sites:
-- **[developer.apple.com](https://developer.apple.com)** — for certificates, bundle IDs, devices.
-- **[appstoreconnect.apple.com](https://appstoreconnect.apple.com)** — for TestFlight, App Store listings, screenshots.
-
-Both use the same Apple ID.
-
----
-
-## Step 3 — Find your Team ID (~2 minutes)
-
-The Team ID is a 10-character string Apple uses to identify you. You'll need it shortly.
-
-1. Go to [developer.apple.com/account](https://developer.apple.com/account).
-2. Click **Membership details** (sidebar) — sometimes labeled **Membership**.
-3. Find **Team ID**. Looks like `A1B2C3D4E5`. Copy it.
-
-Save it somewhere — you'll paste it into a config file in Step 6.
-
----
-
-## Step 4 — Create an App Store Connect API key (~5 minutes)
-
-This is the credential that lets the release tool talk to App Store Connect on your behalf — so you don't have to log into Apple's website every time you ship.
-
-1. Go to [appstoreconnect.apple.com/access/integrations/api](https://appstoreconnect.apple.com/access/integrations/api).
-2. Click **+** to generate a key.
-3. Name it `apple-shipkit` (any name works).
-4. Access: **App Manager** (gives the key permission to upload builds + edit metadata).
-5. Click **Generate**.
-6. **Download the `.p8` file immediately** — Apple shows it ONCE. If you miss the download, you have to revoke the key and start over.
-7. Note the **Key ID** (10 chars, like `ABC1234567`) and **Issuer ID** (UUID, like `12345678-abcd-...`).
-
-Save the `.p8` file somewhere safe. A reasonable convention: `~/.config/secrets/AuthKey_<Key-ID>.p8` with `chmod 600`.
-
-```bash
-# Set up a tidy place for your secrets:
-mkdir -p ~/.config/secrets
-chmod 700 ~/.config/secrets
-mv ~/Downloads/AuthKey_*.p8 ~/.config/secrets/
-chmod 600 ~/.config/secrets/AuthKey_*.p8
-```
-
----
-
-## Step 5 — Fork this template (~1 minute)
-
-```bash
-# Pick a name for your repo (lowercase, hyphens):
-gh repo create my-cool-app --template indiagrams/apple-shipkit --public --clone
-cd my-cool-app
-```
-
-This creates `https://github.com/<your-username>/my-cool-app`, copies the template into it, and clones it locally.
-
-> **Why public?** Public repos are free on GitHub. You can choose `--private` if you prefer; both work the same.
-
----
-
-## Step 6 — Customize your app (~5 minutes)
-
-The template ships with a starter app called **HelloApp**. Time to make it yours.
-
-First, run the one-time dev-env setup. This installs the Ruby gems (fastlane et al.), Homebrew packages (xcodegen, lefthook, etc.), regenerates the Xcode project, and wires up the pre-push git hook. Takes ~30-90 seconds depending on what's already installed:
-
-```bash
-make bootstrap
-```
-
-Then scaffold a config file for the fork-bootstrap pipeline:
-
-```bash
-make init
-```
-
-This creates `.bootstrap.env` — open it in your editor and fill in the values:
-
-```bash
-$EDITOR .bootstrap.env
-```
-
-You'll see something like this. The fields marked `# fill in` are yours to set; the rest are sensible defaults or auto-filled by `make init` from your git remote:
-
-```env
-# What to call your app
-APP_NAME=MyCoolApp                          # PascalCase, no spaces. Used as scheme + product name.
-BUNDLE_ID=com.yourname.mycoolapp            # Reverse-domain. Must be globally unique.
-DISPLAY_NAME='My Cool App'                  # The name iPhone users see under the icon.
-APP_EMAIL=you@example.com                   # Your contact email. Required by App Store review.
-
-# Pick your project generator (xcodegen is simpler; tuist is more flexible)
-GENERATOR=xcodegen                          # xcodegen | tuist
-
-# How releases run: ci = GitHub Actions builds + ships; local = your laptop ships
-RELEASE_MODE=local                          # local is easier for first-time. Switch to ci later.
-
-# Which platforms you ship: ios, macos, or both. Default 'ios,macos'.
-PLATFORMS=ios,macos                         # 'ios' or 'macos' to ship just one
-
-# Apple credentials (from Steps 3 + 4)
-FASTLANE_TEAM_ID=A1B2C3D4E5                 # fill in — from Step 3
-ASC_API_KEY_ID=ABC1234567                   # fill in — from Step 4 — Key ID
-ASC_API_KEY_ISSUER_ID=12345678-abcd-...     # fill in — from Step 4 — Issuer ID
-ASC_API_KEY_P8_PATH=~/.config/secrets/AuthKey_ABC1234567.p8  # fill in — from Step 4
-
-# GitHub identity — auto-filled from `git remote get-url origin`. Override only
-# if your fork lives somewhere other than github.com/<you>/<repo>.
-GH_ORG=your-username                        # auto-filled by make init
-GH_APP_REPO=my-cool-app                     # auto-filled by make init
-
-# Optional design + ASC fields. Fill these in before running `make ship` for
-# real (placeholder icon is fine for TestFlight; SKU/ASC name only matter once
-# you've created the App Store Connect App record — see Step 7 below).
-ICON_1024_PATH=                             # leave blank to use the placeholder hammer icon
-ASC_APP_SKU=mycoolapp-001                   # any unique-to-you string
-ASC_APP_NAME='My Cool App'                  # what shows on the App Store
-
-# CI-mode only — leave blank for RELEASE_MODE=local. `make bootstrap-fork`
-# generates a random 32-char password and writes it to this file if it
-# doesn't exist yet, for when you switch to CI mode later. It locks the
-# controlled keychain that release.yml mints fresh signing certs into
-# per release run (then revokes them on workflow exit).
-KEYCHAIN_PASSWORD_FILE=                     # ~/.config/secrets/keychain-password (CI mode only)
-```
-
-> **Pick BUNDLE_ID carefully.** It's the unique fingerprint of your app, and you can't change it later without losing your TestFlight history. If you own a domain, use it (`com.yourdomain.appname`). If you don't, `com.yourgithubusername.appname` is fine.
-
-> **Why two modes?** `RELEASE_MODE=local` signs from your laptop using certs in your Keychain — easy first-run, no server config needed. `RELEASE_MODE=ci` runs the full pipeline on GitHub Actions when you run `make ship` (which dispatches `release.yml` via `gh workflow run`) — more setup, but it means anyone with repo write access can ship from any machine. Each CI release run mints its own short-lived signing certs into a controlled keychain and revokes them when the run ends, so there's no shared certs repo or PAT to manage. Start with `local`. You can switch later.
-
-> **Why pick a platform subset?** If you're shipping an iPhone-only app and don't care about Mac, set `PLATFORMS=ios` — `make doctor` will stop probing for the Mac Installer cert, `make ship` skips the macOS .pkg build/upload, and CI on PRs runs fewer jobs (saving ~2-4 min/PR of macOS runner time). Same in reverse for `PLATFORMS=macos`. Switchable later: change the value, re-run `make bootstrap-fork`. **In CI mode, also re-run `bin/setup-github.sh`** — the required-checks list is set on first bootstrap and won't update automatically when you flip platforms.
-
-> **Shipping more than one app from this template?** Cross-fork values like reviewer contact info, App Store URLs, copyright, ASC API key, and team ID are typically the *same* across every app you ship. Put them once in `~/code/.bootstrap.env` (gitignored, lives outside any clone); every fork's Makefile auto-sources it for `make doctor` / `bootstrap-fork` / `ship` / `verify` / `submit`. Per-fork values (`APP_NAME`, `BUNDLE_ID`, `DISPLAY_NAME`, `GH_APP_REPO`) stay in each clone's in-repo `.bootstrap.env` and always win when both files define a key.
->
-> Cross-fork-eligible envs (each one optional; tracked file fallback always works):
->
-> | Group | Envs | Notes |
-> |---|---|---|
-> | App Review contact | `APP_REVIEW_FIRST_NAME`, `APP_REVIEW_LAST_NAME`, `APP_REVIEW_EMAIL`, `APP_REVIEW_PHONE`, `APP_REVIEW_NOTES` | E.164 phone (`+14155551234`); placeholder `+10000000000` is fail-loud |
-> | Demo account (apps with auth) | `APP_REVIEW_DEMO_USER`, `APP_REVIEW_DEMO_PASSWORD` | Required for any submission with a login wall |
-> | App Store metadata | `ASC_PRIVACY_URL`, `ASC_SUPPORT_URL`, `ASC_MARKETING_URL`, `ASC_COPYRIGHT` | Doctor flags `example.com` URLs |
-> | App Store locale + category | `ASC_PRIMARY_LOCALE` (default `en-US`), `ASC_PRIMARY_CATEGORY`, `ASC_SECONDARY_CATEGORY` | Locale drives `fastlane/metadata/<locale>/*.txt` |
-> | TestFlight build-level | `ASC_USES_NON_EXEMPT_ENCRYPTION` (`true`/`false`) | HTTPS-only apps qualify for exempt (`false`); custom crypto = `true` + BIS registration |
-> | TestFlight app-level | `BETA_APP_DESCRIPTION`, `BETA_APP_FEEDBACK_EMAIL`, `BETA_APP_MARKETING_URL`, `BETA_APP_PRIVACY_URL` | Privacy URL required for external testers |
-> | App Privacy form ack | `ASC_APP_PRIVACY_ACK` (`true`) | Suppresses doctor's "App Privacy form unpublished" warning; fill the form once in the ASC web UI, then set this |
->
-> Full schema in [`.bootstrap.env.example`](.bootstrap.env.example); each section has inline docs on storage, format, and when to set vs. leave blank.
-
----
-
-## Step 7 — Verify everything is good (~30 seconds)
-
-> **Before you run this:** Apple requires you to create the App Store Connect "App record" by hand once, before any tooling can upload a build. This is the one mandatory step the template can't automate (Apple's API forbids `POST /apps`).
->
-> Go to [appstoreconnect.apple.com/apps](https://appstoreconnect.apple.com/apps), click **+ → New App**, fill in your **bundle ID** (matches `BUNDLE_ID` from Step 6) and **display name** (matches `DISPLAY_NAME`). Takes ~30 seconds. If you skip this, `make doctor` will fail at the `bootstrap_asc` step with a clear pointer back here.
-
-```bash
-make doctor
-```
-
-`make doctor` is read-only — it checks every prerequisite without changing anything. You'll see output like:
-
-```
-Bootstrap doctor
-────────────────
-  1. ✓ Required tools on PATH (xcodebuild, brew, fastlane, gh, …)
-  2. ✓ Apple Developer credentials present
-  3. ✓ App Store Connect API key valid
- ...
- 11. ⚠ App Store screenshots
-      No fastlane/screenshots/en-US/ — capture via `ci/take-screenshots.sh` before App Store review (not TestFlight).
-
-Summary
-───────
-  ✓ 9 done    ⚠ 2 advisory
-
-All bootstrap steps complete. Run `make ship` to trigger a release.
-(Advisory items above are App-Store-review-only and don't block TestFlight.)
-```
-
-If you see `✗` (red) marks instead, doctor will tell you exactly what's missing and how to fix it.
-
-> **Common first-time failures:**
-> - Missing `.p8` file → re-check Step 4
-> - Wrong Team ID → copy from Step 3 again
-> - "ASC App record not found" → see the callout above; this is the manual ASC step.
-
-When every step is `✓` or `⚠`, you're ready. (The pipeline runs 14 steps in both `local` and `ci` mode — the local-only and CI-only steps swap in and out, but the totals match.)
-
----
-
-## Step 8 — Ship to TestFlight (~10 minutes)
-
-```bash
-make all
-```
-
-This runs the whole pipeline:
-
-1. `make doctor` — re-verifies (idempotent)
-2. `make bootstrap-fork` — sets up certs, registers the bundle ID, etc.
-3. `make ship` — builds, signs, uploads, tags
-
-You'll see ~5 minutes of build output. The release tool does roughly:
-
-```
-✓ Renaming HelloApp → MyCoolApp
-✓ Generating Xcode project
-✓ Provisioning iOS Distribution cert
-✓ Provisioning Mac Installer Distribution cert
-✓ Building iOS .ipa (5m)
-✓ Building Mac .pkg (3m)
-✓ Uploading both to TestFlight
-✓ Tagging the commit v2026.20.1
-✓ Pushing the tag
-```
-
-If anything goes red, the tool stops and prints a real error message — no swallowed failures. See "When something goes wrong" below.
-
-After upload, Apple takes 5–15 minutes to **process** the build before it's testable. Run:
-
-```bash
-make verify
-```
-
-…to poll Apple until your build shows up as `state=VALID`. Output looks like:
-
-```
-Latest 4 builds for com.yourname.mycoolapp:
-  ✓ 1 (2026.20.1)  state=VALID  uploaded=2026-05-13T15:23:01Z
-  ⏳ 1 (2026.20.1)  state=PROCESSING  uploaded=2026-05-13T15:22:45Z
-
-✅ Latest build 1 is processed and ready for TestFlight testers.
-```
-
-Both binaries `VALID` = you're done shipping. **You just shipped your first iOS + Mac app.**
-
----
-
-## Step 9 — Install the app on your phone
-
-1. Install the **TestFlight** app on your iPhone or iPad ([App Store link](https://apps.apple.com/app/testflight/id899247664)).
-2. Sign in with the same Apple ID you used to enroll.
-3. The TestFlight app shows your `My Cool App` under "Apps" because you're the developer.
-4. Tap **Install**.
-5. Open the app — it's running on your phone, signed by you, distributed by Apple.
-
-For Mac: the same TestFlight app works on macOS Sequoia+ — install from the [Mac App Store](https://apps.apple.com/app/testflight/id899247664).
-
-To invite friends to test: open [appstoreconnect.apple.com](https://appstoreconnect.apple.com) → your app → TestFlight tab → add their Apple IDs as Internal Testers (immediate, no review) or External Testers (requires Apple to approve your build first, takes 24h).
-
----
-
-## What now?
-
-You have a working app + working release pipeline. From here:
-
-| Goal | What to do |
-|---|---|
-| Change the app's behavior | Edit files in `app/Shared/` (SwiftUI code, cross-platform). Run `make check` to verify it still builds. |
-| Ship a new version | `make ship` again — versioning is automatic: tag `v<MARKETING>+<BUILD>` where `<MARKETING>` reads from `app/project.yml` (or `app/Project.swift` for Tuist) and `<BUILD>` resolves to `max(builds at marketing) + 1` from App Store Connect. |
-| Replace the placeholder icon | Drop a 1024×1024 PNG into `app/iOS/Assets.xcassets/AppIcon.appiconset/Icon-1024.png`, run `make icons` to regenerate the macOS .icns, ship again. |
-| Submit to the actual App Store | `make screenshots` (slow — review the PNGs), then `make submit`. Stages by default (review in App Store Connect web UI then click Submit yourself); flip `SUBMIT_FOR_REVIEW=true` in `.bootstrap.env` to auto-submit. Reads `PLATFORMS` so single-platform forks DTRT. See [docs/MAINTAINING-A-FORK.md](docs/MAINTAINING-A-FORK.md#i-want-to-submit-to-app-store-review) for the full ramp. |
-| Move signing to GitHub Actions | Set `RELEASE_MODE=ci` in `.bootstrap.env`, follow the "Two release modes" section in [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md#two-release-modes). |
-
----
-
-## When something goes wrong
-
-Most first-time failures fall into a few buckets. Here's what to do:
-
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| `make doctor` exits 2 with "missing 5 GH Secrets" | You set `RELEASE_MODE=ci` before configuring GH secrets | Either set `RELEASE_MODE=local` for now, or follow [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) to configure CI secrets |
-| Signing fails with "Could not install WWDR certificate" during a CI release | Apple's intermediate cert isn't trusted on the runner before fresh certs are minted | The template's release.yml pre-installs WWDR before sigh provisions — see [docs/CONTINUOUS-VALIDATION.md G4](docs/CONTINUOUS-VALIDATION.md) |
-| `altool` rejects with "ITMS-90296: app sandbox" on Mac | Xcode's Mac App Store profile strips `com.apple.security.app-sandbox` | The template's `local-release-check.sh` re-adds it automatically. If you see this, the script didn't run — file an issue with the full output |
-| "Provisioning profile doesn't include the device" | You're trying to sideload, not TestFlight-distribute | TestFlight builds don't need device IDs in the profile. If you see this from `make ship`, your `RELEASE_MODE` may be misconfigured |
-| `make doctor` says "ASC App record not found" | One-time human step — Apple's API forbids `POST /apps` | Go to [appstoreconnect.apple.com/apps](https://appstoreconnect.apple.com/apps), click + → New App, fill in your bundle ID + display name, then re-run `make doctor` |
-| Apple rejects with "Account holder must accept Paid Apps Agreement" | Skip-able for free apps | If you're shipping a free app, no fix needed. If paid, log in to ASC → Agreements, Tax, and Banking → accept |
-| Random `make ship` failure during CI mode | Check the latest entries in [docs/CONTINUOUS-VALIDATION.md](docs/CONTINUOUS-VALIDATION.md) — a 14-entry catalog of known shipping-pipeline gotchas |
-
-If something isn't on this list, [open an issue](https://github.com/indiagrams/apple-shipkit/issues/new) with the full `make ship` output. The maintainers care; this template exists to absorb new gotchas as they're discovered.
+## What's prewired
+
+The five-command journey hides:
+
+### Signing and certificates
+- **Mint-fresh CI signing certs** per release run, revoked on workflow exit. No shared certs repo. No PAT. Net Apple-team cert delta per release run is 0.
+- **Local-mode signing** reuses your login Keychain identities; `make clean-revoked-certs` audits weekly against Apple's valid-cert list and deletes locals Apple already revoked (avoids 3-cert-cap surprises).
+- **Cert SHA-1 pinning** (`ci/lib/resolve-dist-cert-sha.sh`). `Apple Distribution: <name>` is ambiguous when one team has multiple distribution certs. Pin via `security find-identity` + the cert in the .app's embedded provisioning profile.
+- **WWDR intermediate pre-installed** on CI runners before `sigh` provisions — closes a flake where Apple's intermediate isn't trusted yet on a fresh runner.
+
+### Build and release pipeline
+- **XcodeGen** (default) or **Tuist** — both generate the same buildable project from a manifest, both validated weekly by the canary. Switch with `bin/switch-to-tuist.sh` / `bin/switch-to-xcodegen.sh`.
+- **iOS device build as primary CI signal**, not Simulator. Simulator green with device red happens often (xcframework slice missing, entitlements pathway, real signing). Catch on every push, not at release time.
+- **Mac `.pkg` re-sign step** that re-adds the `com.apple.security.app-sandbox` entitlement Xcode's Mac App Store profile strips (ITMS-90296 fix).
+- **Full 10-size macOS `.icns` generation** (`ci/gen-macos-icons.swift`); actool only emits 4 sizes from a single catalog by default.
+- **Automatic CFBundleVersion bumping**: `max(builds at marketing) + 1` resolved from ASC, never collides.
+- **PlistBuddy quirks worked around**: `Set :key bool true` is a silent no-op; the template uses `Set :key true` for existing keys and `Add :key bool true` for new ones, with explicit verification.
+
+### App Store Connect integration
+- **Bundle ID auto-registered** in the Apple Developer Portal (`make doctor` step 11).
+- **ASC App record verification** with an actionable pointer for the one mandatory manual step — Apple's API forbids `POST /apps`, so the doctor surfaces it instead of failing opaque.
+- **Env-first metadata pipeline**: URLs, copyright, App Review contact info, demo credentials, TestFlight beta description, primary locale, categories — all read from `~/code/.bootstrap.env` (cross-fork) or `.bootstrap.env` (per-fork) before falling back to tracked `.txt` files in `fastlane/metadata/`.
+- **Fail-loud placeholders**: `+10000000000` phone and `example.com` URLs in the tracked metadata fail ASC's validators on purpose, so missing config breaks at submit time, not after App Review rejection.
+- **`make submit` passes full env-first metadata** through both ship and submit paths. Closes a `deliver` gem fallback that previously re-loaded URLs from disk after a clean upload (silent-overwrite bug).
+- **App Privacy form publish-state checked** in `make doctor` (resilient to Apple's 2026 ASC API rename). `ASC_APP_PRIVACY_ACK=true` suppresses the warning once you've filled the form in the ASC web UI.
+- **`deliver` metadata-dropping worked around**: deliver silently drops fields when given just `metadata_path`. The template reads every file itself and passes explicit hashes (`do_upload_metadata` / `do_submit_for_review` in `Fastfile`).
+
+### Quality gates
+- **`make doctor`** — 16-step read-only pipeline; surfaces every prerequisite + every advisory before a byte is built. Each step explains its own failure with a one-line fix.
+- **Lefthook pre-push hook** runs `ci/local-check.sh --fast` (unsigned iOS device build) — same signal CI runs on PR.
+- **PR required checks**: 8 build jobs (3 XcodeGen + 3 Tuist + 2 verify), all green for merge. Single-platform forks see fewer.
+- **Branch protection** auto-configured by `bin/setup-github.sh`: squash-only merge, required reviews, force-push blocked.
+- **`bin/preflight.sh`** — one-shot prerequisite checker; clone temporarily, run, get a report on what's missing and how to install it.
+
+### Continuous validation (against real Apple infrastructure)
+- **Mondays 07:00 UTC**: bootstrap doctor matrix (xcodegen | tuist × ci | local — 4 cells). Covers the toolchain.
+- **Tuesdays 09:00 UTC**: full CI-mode release ship to TestFlight, both generators. Covers the mint-fresh signing pipeline + Apple infrastructure.
+- **Saturdays 11:30 UTC**: full local-mode release ship to TestFlight, both generators. Covers the local signing pipeline (sigh, fresh-cert minting, β cert SHA-1 pinning, controlled keychain).
+- **Bugs in fastlane / sigh / Apple's signing infra surface there first**, before they bite forks — patches land in this template before they hit your repo.
 
 ---
 
 ## When to use this (vs alternatives)
 
-apple-shipkit is **release-engineering scaffolding** — the path from
-`Use this template` to a signed TestFlight build. It deliberately doesn't
-pick a UI framework, networking stack, or persistence layer.
+apple-shipkit is **release-engineering scaffolding** — the path from `Use this template` to a signed TestFlight build. It deliberately doesn't pick a UI framework, networking stack, or persistence layer.
 
 ### vs. Apple's own tooling (Xcode Distribute, Xcode Cloud)
 
@@ -436,7 +107,7 @@ apple-shipkit's value lives in the gap:
 - **More than Xcode Distribute**: reproducible builds (Gemfile.lock + pinned Swift/Xcode), audit-tracked (git tags + workflow logs + CHANGELOG per ship), CI-driven (PRs build real apps; ship is `gh workflow run`, not a button), ephemeral CI signing (each release run mints its own short-lived certs into a controlled keychain on the runner and revokes them on exit, instead of trusting whatever's in any one developer's Keychain).
 - **Different shape from Xcode Cloud**: portable GitHub Actions YAML you can take to GitLab / CircleCI / Buildkite, full bash + ruby + fastlane flexibility, no per-minute Apple billing, debug failures locally with `make ship` or `make release-dryrun`.
 
-You probably **don't need** apple-shipkit if you're solo, ship one app, will always ship from one Mac, and never want to leave Xcode. You probably **do** if any of those is or will be untrue — especially if you've ever lost half a day to "why does signing work on my machine but not in CI".
+You probably **don't need** apple-shipkit if you're solo, ship one app, will always ship from one Mac, and never want to leave Xcode. You probably **do** if any of those is or will be untrue — especially if you've ever lost half a day to "why does signing work on my machine but not in CI."
 
 ### vs. other Swift project templates
 
@@ -451,21 +122,6 @@ Different tradeoff from other iOS starters:
 | Bare `gh repo create` from a Swift project you already have | _no template needed_ | apple-shipkit is for people who don't have the project yet, or who do but want fastlane + CI signing prewired. |
 
 Mix-and-match is fine. Many people start with apple-shipkit for the release pipeline, then drop in a UI template's screens or a RevenueCat paywall on top.
-
----
-
-## Going deeper (advanced)
-
-Once you're past the first ship, these docs cover the rest:
-
-- **[docs/BOOTSTRAP.md](docs/BOOTSTRAP.md)** — every field of `.bootstrap.env` explained; CI-mode setup; manual fallback if you want to drive the bootstrap by hand.
-- **[docs/APPLE-PREREQS.md](docs/APPLE-PREREQS.md)** — Apple-side setup details, especially for the ASC App record.
-- **[docs/CONTINUOUS-VALIDATION.md](docs/CONTINUOUS-VALIDATION.md)** — the 14-entry catalog of shipping-pipeline gotchas (G1–G14, covering both CI and local modes). Living document; updated whenever something new is caught by either canary.
-- **[docs/MIGRATING-TO-TUIST.md](docs/MIGRATING-TO-TUIST.md)** — switching from XcodeGen to Tuist after fork.
-- **[docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md](docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md)** — same archive/export flow without fastlane (uses `xcrun altool` + `notarytool` + ASC API directly).
-- **[docs/PRINCIPLES.md](docs/PRINCIPLES.md)** — design decisions behind the template's structure.
-- **[docs/ROLLBACK.md](docs/ROLLBACK.md)** — undoing a TestFlight build, a git tag, or a partial bootstrap-fork.
-- **[docs/NO-CI.md](docs/NO-CI.md)** — running the template in local-only mode (no GitHub Actions, no GH Secrets).
 
 ---
 
@@ -494,30 +150,7 @@ Each step is its own fastlane lane in `fastlane/Fastfile`. Read the file — it'
 
 ---
 
-## Continuous validation
-
-[![Weekly canary (CI mode)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)
-[![Weekly canary (local mode)](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml/badge.svg)](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml)
-
-The two badges above reflect the most recent canary runs:
-
-- **CI-mode canary** ([`canary-trigger.yml`](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)) — exercises the CI-mode mint-fresh shipping path used by forks with `RELEASE_MODE=ci` (release.yml mints fresh certs per run, ships, then revokes them). Both `dispatch (xcodegen)` and `dispatch (tuist)` cells real-ship to TestFlight on the [smoketest fork](https://github.com/indiagrams/ios-macos-smoketest).
-- **Local-mode canary** ([`canary-local-mode.yml` on the smoketest fork](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml)) — exercises the local-mode sigh-based shipping path used by forks with `RELEASE_MODE=local` (the default). Mints throwaway certs in the same Apple team, ships to TestFlight, revokes the certs on `always()` so net team-cert delta per run is 0. The workflow file lives on apple-shipkit as a template (`schedule:` block commented out); only the smoketest has it uncommented, so the badge tracks runs there.
-
-Either badge red → at least one cell failed. Click the badge to see which cell + why. Per-cell history (xcodegen vs tuist) lives in each workflow's run-by-run breakdown.
-
-The validation infrastructure (all on the smoketest fork):
-- **Mondays 07:00 UTC**: read-only doctor matrix (4 cells: xcodegen|tuist × ci|local) — covers bootstrap toolchain.
-- **Mondays 09:00 UTC**: full release ship to TestFlight via `release.yml`, both generators in sequence — covers the CI-mode signing pipeline + Apple infrastructure.
-- **Saturdays 11:30 UTC**: full release ship to TestFlight via `canary-local-mode.yml`, both generators sequentially — covers the local-mode signing pipeline (sigh-based profiles, fresh-cert minting, β cert SHA-1 pinning, controlled keychain).
-
-Bugs in fastlane / sigh / Apple's signing infra surface there before they bite forkers — patches land in this template before they hit your repo.
-
-If you fork this template and your build breaks unexpectedly, [check the smoketest's Actions tab](https://github.com/indiagrams/ios-macos-smoketest/actions) — it's probably broken there too (Monday morning for CI-mode regressions, Saturday morning for local-mode), and a fix is in flight.
-
----
-
-## Repo layout (skim if curious)
+## Repo layout
 
 ```
 .
@@ -529,7 +162,7 @@ If you fork this template and your build breaks unexpectedly, [check the smokete
 │   ├── canary-local-mode.yml    # weekly local-mode ship-validation (cron commented; forks opt in)
 │   └── verify-rename.yml        # gate: rename script integrity
 ├── Brewfile                     # xcodegen + tuist + fastlane + lefthook + swiftlint + swiftformat
-├── Makefile                     # init | doctor | bootstrap-fork | ship | verify | format | format-check | all
+├── Makefile                     # init | doctor | bootstrap | bootstrap-fork | ship | verify | submit | screenshots | …
 ├── lefthook.yml                 # pre-push: ci/local-check.sh --fast
 ├── .bootstrap.env.example       # template config; copy to .bootstrap.env
 ├── bin/
@@ -537,16 +170,16 @@ If you fork this template and your build breaks unexpectedly, [check the smokete
 │   ├── bootstrap-fork.rb        # `make bootstrap-fork` driver
 │   ├── ship.rb                  # `make ship` driver (handles ci|local modes)
 │   ├── verify-testflight.rb     # `make verify` driver
-│   ├── lib/bootstrap.rb         # the orchestration framework
+│   ├── lib/bootstrap.rb         # the orchestration framework (16-step pipeline)
 │   ├── rename.sh                # rename HelloApp → YourApp
 │   ├── switch-to-tuist.sh       # one-way XcodeGen → Tuist switch
-│   ├── setup-github.sh          # branch protection + squash-only + 8 required checks
+│   ├── setup-github.sh          # branch protection + squash-only + required checks
 │   ├── preflight.sh             # check developer-tool prerequisites
 │   └── ...                      # several smaller helpers
 ├── ci/
 │   ├── local-check.sh           # unsigned iOS device build (CI parity)
 │   ├── local-release-check.sh   # signed .ipa + .pkg pipeline
-│   ├── take-screenshots.sh      # iOS + macOS App Store screenshots
+│   ├── take-screenshots.sh      # iOS + macOS App Store screenshots (quarantine-tolerant)
 │   ├── gen-macos-icons.swift    # 1024 PNG → 10-size .icns + iconset
 │   └── lib/                     # SHA-pinned shared library
 ├── fastlane/
@@ -571,24 +204,58 @@ If you fork this template and your build breaks unexpectedly, [check the smokete
 
 ## Why these patterns (the gotchas already solved for you)
 
-If you're curious why the template is structured the way it is, every choice came from a real production failure. The headline ones:
+Every choice in this template came from a real production failure. The headline ones:
 
 - **iOS device build, not Simulator, as primary CI signal.** Simulator green with device red happens often (xcframework slice missing, entitlements pathway, real signing). Catch on every push.
 - **Cert SHA-1 pinning** (`ci/lib/resolve-dist-cert-sha.sh`). `Apple Distribution: <name>` is ambiguous when one team has multiple distribution certs. Pin via `security find-identity` + the cert in the .app's embedded provisioning profile.
 - **macOS app-sandbox re-sign hack.** Xcode's Mac App Store profile strips `com.apple.security.app-sandbox`. TestFlight rejects with ITMS-90296. Fix: expand the .pkg, force-add sandbox to the .app's signature, repack with `productbuild` + Mac Installer Distribution cert.
 - **PlistBuddy `Set :key bool true` is a silent no-op.** PlistBuddy ignores type hints on `Set`. Use `Set :key true` for existing keys, `Add :key bool true` for new ones.
-- **`fastlane deliver` silently drops metadata fields** when given just `metadata_path`. Workaround: read every metadata file ourselves and pass explicit hashes (see `do_upload_metadata` in `Fastfile`).
+- **`fastlane deliver` silently drops metadata fields** when given just `metadata_path`. Workaround: read every metadata file ourselves and pass explicit hashes (see `do_upload_metadata` / `do_submit_for_review` in `Fastfile`).
+- **`make submit` needed its own env-first metadata path.** `do_upload_metadata` got it first; `do_submit_for_review` fell through to deliver's `load_from_filesystem` which silently re-loaded URLs from disk and overwrote a clean upload. Both paths now route through the shared `build_review_info` + `build_asc_metadata_args` helpers.
 - **macOS screenshots must go directly into `en-US/`** (not `en-US/Mac/`) — deliver's loader globs `<lang>/*.png` and only expands `iMessage` / `appleTV` subdirectories.
 - **fastlane snapshot is iOS-only.** macOS uses `xcodebuild test` + `XCTAttachment` + `extract-mac-screenshots.sh` to pull PNGs from the xcresult.
+- **macOS UI-test runners can't launch under Gatekeeper quarantine.** Xcode installed via xcodes-cli / .xip carries `com.apple.quarantine`; the bit transitively lands on freshly-built `<APP>MacOSUITests-Runner.app`. `ci/take-screenshots.sh` splits `xcodebuild test` into `build-for-testing` + xattr-strip + ad-hoc-codesign + `test-without-building` so the runner launches cleanly. Transparent to users.
 - **macOS icons need a postCompileScript overwrite.** actool emits a 4-size .icns regardless of catalog input; `gen-macos-icons.swift` produces the full 10-size .icns the build then overwrites with.
+- **Fresh-host bootstrap survives `bundle install` before brew Ruby exists.** `make bootstrap` re-execs `$(MAKE)` for the bundle step so `_BUNDLE` resolves through the freshly-installed `/opt/homebrew/opt/ruby@3.3/bin` PATH — otherwise the install routes through stock `/usr/bin/bundle = Bundler 1.17.2 on Ruby 2.6.10` which rejects modern transitive deps.
 
 Full catalog of CI-specific gotchas: [docs/CONTINUOUS-VALIDATION.md](docs/CONTINUOUS-VALIDATION.md).
 
 ---
 
+## Continuous validation
+
+[![Weekly canary (CI mode)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml/badge.svg)](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)
+[![Weekly canary (local mode)](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml/badge.svg)](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml)
+
+The two badges above reflect the most recent canary runs:
+
+- **CI-mode canary** ([`canary-trigger.yml`](https://github.com/indiagrams/apple-shipkit/actions/workflows/canary-trigger.yml)) — exercises the CI-mode mint-fresh shipping path used by forks with `RELEASE_MODE=ci` (release.yml mints fresh certs per run, ships, then revokes them). Both `dispatch (xcodegen)` and `dispatch (tuist)` cells real-ship to TestFlight on the [smoketest fork](https://github.com/indiagrams/ios-macos-smoketest).
+- **Local-mode canary** ([`canary-local-mode.yml` on the smoketest fork](https://github.com/indiagrams/ios-macos-smoketest/actions/workflows/canary-local-mode.yml)) — exercises the local-mode sigh-based shipping path used by forks with `RELEASE_MODE=local` (the default). Mints throwaway certs in the same Apple team, ships to TestFlight, revokes the certs on `always()` so net team-cert delta per run is 0. The workflow file lives on apple-shipkit as a template (`schedule:` block commented out); only the smoketest has it uncommented, so the badge tracks runs there.
+
+Either badge red → at least one cell failed. Click the badge to see which cell + why. Per-cell history (xcodegen vs tuist) lives in each workflow's run-by-run breakdown.
+
+If you fork this template and your build breaks unexpectedly, [check the smoketest's Actions tab](https://github.com/indiagrams/ios-macos-smoketest/actions) — it's probably broken there too (Monday morning for CI-mode regressions, Saturday morning for local-mode), and a fix is in flight.
+
+---
+
+## Going deeper
+
+- **[docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)** — first-time shipper walkthrough. Apple Developer enrollment, ASC API key, the full `.bootstrap.env` configuration, your first `make all`. **Start here if you've never shipped before.**
+- **[docs/BOOTSTRAP.md](docs/BOOTSTRAP.md)** — every field of `.bootstrap.env` explained; CI-mode setup; manual fallback if you want to drive the bootstrap by hand.
+- **[docs/APPLE-PREREQS.md](docs/APPLE-PREREQS.md)** — Apple-side setup details, especially the ASC App record.
+- **[docs/CONTINUOUS-VALIDATION.md](docs/CONTINUOUS-VALIDATION.md)** — the catalog of shipping-pipeline gotchas (G1–G14+, covering both CI and local modes). Living document; updated whenever something new is caught by either canary.
+- **[docs/MAINTAINING-A-FORK.md](docs/MAINTAINING-A-FORK.md)** — what to do after the first ship: bumping versions, replacing icons, submitting to App Store review.
+- **[docs/MIGRATING-TO-TUIST.md](docs/MIGRATING-TO-TUIST.md)** — switching from XcodeGen to Tuist after fork.
+- **[docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md](docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md)** — same archive/export flow without fastlane (uses `xcrun altool` + `notarytool` + ASC API directly).
+- **[docs/PRINCIPLES.md](docs/PRINCIPLES.md)** — design decisions behind the template's structure.
+- **[docs/ROLLBACK.md](docs/ROLLBACK.md)** — undoing a TestFlight build, a git tag, or a partial bootstrap-fork.
+- **[docs/NO-CI.md](docs/NO-CI.md)** — running the template in local-only mode (no GitHub Actions, no GH Secrets).
+
+---
+
 ## Community
 
-Got stuck on Step 4? Apple rejected your build with a cryptic error code? Want to know if anyone else hit the same gotcha? **Come hang out in Discord.**
+Got stuck on Apple Developer enrollment? Got a cryptic rejection code? Want to know if anyone else hit the same gotcha? **Come hang out in Discord.**
 
 [![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/sExv9eKdA)
 

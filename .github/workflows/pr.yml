@@ -142,7 +142,11 @@ jobs:
     needs: config
     name: "app (${{ matrix.display_name }})"
     runs-on: macos-15
-    timeout-minutes: 30
+    # Cell-level safety net. Individual steps below set their own tighter
+    # timeouts (build ≤5m, test ≤10m). A stuck simulator now fails at the
+    # step level within minutes — this 15m cap is the backstop for any
+    # step that escapes its own bound (e.g. brew install hanging).
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
@@ -180,14 +184,23 @@ jobs:
             xcodegen generate
           fi
 
-      # iOS Simulator picker: the macos-15 runner pool has variable simulator
-      # availability — hardcoding `name=iPhone 16 Plus,OS=latest` produces
-      # flakes when that specific runtime/device pair isn't installed on the
-      # assigned runner. xcrun simctl gives the authoritative list per-runner.
-      - name: pick iOS Simulator UDID
+      - name: pick + pre-boot iOS Simulator
         if: matrix.platform == 'ios-sim'
         id: sim
+        timeout-minutes: 6   # boot + bootstatus -d 300 (5m wait); fail fast on stuck booter
         run: |
+          set -euo pipefail
+
+          # Shut down any simulators left running from prior work on this
+          # runner (GH-hosted runners can have stale boot state across
+          # workflow runs that share image caches). Safe no-op if none booted.
+          xcrun simctl shutdown all || true
+
+          # Pick a UDID. The macos-15 runner pool has variable simulator
+          # availability — hardcoding `name=iPhone 16 Plus,OS=latest`
+          # produces flakes when that specific runtime/device pair isn't
+          # installed on the assigned runner. xcrun simctl gives the
+          # authoritative list per-runner.
           UDID=$(xcrun simctl list devices available -j \
             | jq -r '.devices | to_entries[]
                 | select(.key | contains("iOS"))
@@ -199,8 +212,22 @@ jobs:
           echo "Using simulator UDID=$UDID"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
 
+          # Pre-boot. Without this, `xcodebuild test` boots the simulator
+          # as part of its prepare phase — that boot can hang 10-25 min on
+          # cold/contended runners with no progress signal. Booting here
+          # (with a hard 5m bootstatus timeout) means a stuck booter fails
+          # within minutes, surfacing a re-runnable red check instead of
+          # idling for 30 min.
+          #
+          # bootstatus -b -d 300: -b = wait until fully booted (not just
+          # the process is running), -d 300 = give up after 300s.
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b -d 300
+          echo "Simulator pre-booted and responsive."
+
       - name: build iOS device (unsigned)
         if: matrix.platform == 'ios-device'
+        timeout-minutes: 5   # typical ~40s; 5m absorbs cold caches
         run: |
           set -o pipefail
           xcodebuild build \
@@ -216,6 +243,7 @@ jobs:
 
       - name: test iOS Simulator (unsigned)
         if: matrix.platform == 'ios-sim'
+        timeout-minutes: 10  # typical ~6m after pre-boot; 10m headroom for slow runners
         run: |
           set -o pipefail
           # `xcodebuild test` runs the scheme's Test action, which the
@@ -235,6 +263,7 @@ jobs:
 
       - name: test macOS (unsigned)
         if: matrix.platform == 'macos'
+        timeout-minutes: 8   # typical ~2m; 8m absorbs cold-cache + slow xctest startup
         run: |
           set -o pipefail
           # macOS test destination is bare `platform=macOS` — `xcodebuild

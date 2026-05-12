@@ -78,7 +78,7 @@ If you accidentally commit any of these, treat it as a credential leak: revoke t
 ## Per-team certificate quotas (verified empirically)
 
 Apple's per-team cert caps, probed via the ASC API on 2026-05-08 against
-team `A26TJZ8QHQ` (community docs are stale or contradictory):
+team `A1B2C3D4E5` (community docs are stale or contradictory):
 
 | Cert type | Cap | Notes |
 |---|---|---|

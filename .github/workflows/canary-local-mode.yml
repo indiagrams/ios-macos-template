@@ -36,7 +36,7 @@ name: canary-local-mode
 # Net cost per run: 0 certs added, 0 lost. User's existing shipping certs
 # never touched. Apple's API doesn't rate-limit mint+revoke cycles.
 #
-# ─── Empirical Apple cert quotas (verified 2026-05-08, team A26TJZ8QHQ) ───────
+# ─── Empirical Apple cert quotas (verified 2026-05-08, team A1B2C3D4E5) ───────
 #
 #   DISTRIBUTION                  cap = 3 / team
 #   DEVELOPMENT                   cap ≥ 5 / team  (didn't probe to boundary)

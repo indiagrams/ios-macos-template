@@ -40,7 +40,7 @@
 #                       one drives the renamed fork. Pre-flight gate fails if
 #                       --generator=tuist and `tuist` is not on PATH.
 #   --team-id=TEAMID    Apple Developer team ID (10-char alphanumeric, e.g.
-#                       A26TJZ8QHQ). Substitutes TEAM_ID_PLACEHOLDER in
+#                       A1B2C3D4E5). Substitutes TEAM_ID_PLACEHOLDER in
 #                       app/project.yml + app/Project.swift so signed builds
 #                       (`make ship`, `make screenshots`, plain xcodebuild)
 #                       work without manual edits. Optional; if omitted, the
@@ -130,7 +130,7 @@ SLUG=""
 YEAR_ARG=""
 GENERATOR="xcodegen"   # default; --generator=tuist|xcodegen overrides (#38)
 PLATFORMS="ios,macos"  # default; --platforms=ios|macos|ios,macos overrides (matches .bootstrap.env PLATFORMS)
-TEAM_ID=""             # optional; --team-id=A26TJZ8QHQ substitutes TEAM_ID_PLACEHOLDER in app/project.yml + app/Project.swift
+TEAM_ID=""             # optional; --team-id=A1B2C3D4E5 substitutes TEAM_ID_PLACEHOLDER in app/project.yml + app/Project.swift
 DRY_RUN=0
 FORCE=0
 
@@ -180,7 +180,7 @@ parse_args() {
       --team-id=*)
         TEAM_ID="${1#--team-id=}"; shift ;;
       --team-id)
-        [ $# -ge 2 ] || fail "--team-id requires a value (e.g. --team-id=A26TJZ8QHQ)"
+        [ $# -ge 2 ] || fail "--team-id requires a value (e.g. --team-id=A1B2C3D4E5)"
         case "$2" in -*) fail "--team-id value cannot start with '-' (got '$2')";; esac
         TEAM_ID="$2"; shift 2 ;;
       -*)
@@ -290,7 +290,7 @@ validate_args() {
   # than silently writing garbage into app/project.yml + app/Project.swift.
   if [ -n "$TEAM_ID" ]; then
     [[ "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || \
-      fail "invalid --team-id '$TEAM_ID' — must match ^[A-Z0-9]{10}$ (10-char uppercase alphanumeric, e.g. A26TJZ8QHQ)"
+      fail "invalid --team-id '$TEAM_ID' — must match ^[A-Z0-9]{10}$ (10-char uppercase alphanumeric, e.g. A1B2C3D4E5)"
     ok "--team-id '$TEAM_ID' valid"
   fi
 }
@@ -647,7 +647,7 @@ apply_substitutions() {
   # ci/local-release-check.sh's ExportOptions-plist patch, build-script
   # comments). A broad sweep would corrupt those scripts' source-of-truth
   # — e.g. switch-to-xcodegen.sh's `sed s|TEAM_ID_PLACEHOLDER|$fork_team|`
-  # would become `sed s|A26TJZ8QHQ|$fork_team|`, baking apple-shipkit's
+  # would become `sed s|A1B2C3D4E5|$fork_team|`, baking apple-shipkit's
   # team id permanently into every renamed fork.
   if [ -n "$TEAM_ID" ]; then
     step "Substituting TEAM_ID_PLACEHOLDER -> $TEAM_ID"
@@ -1029,7 +1029,7 @@ main() {
   ok "$APP_NAME ($BUNDLE_ID) — \"$DISPLAY_NAME\""
   if [ -z "$TEAM_ID" ]; then
     printf '\033[33m⚠ \033[0m  TEAM_ID_PLACEHOLDER still in app/project.yml + app/Project.swift — set FASTLANE_TEAM_ID in .bootstrap.env\n'
-    printf '\033[33m⚠ \033[0m  or re-run `bin/rename.sh ... --team-id=A26TJZ8QHQ` to substitute. Signed builds will fail until then.\n'
+    printf '\033[33m⚠ \033[0m  or re-run `bin/rename.sh ... --team-id=A1B2C3D4E5` to substitute. Signed builds will fail until then.\n'
   fi
   ok "next: run 'make check' to verify the build is green"
 }

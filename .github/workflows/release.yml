@@ -30,7 +30,7 @@ name: release
 # Saturday cron since 2026-05-09. v1.6 promotes it from canary-only to the
 # canonical CI release path.
 #
-# ─── Empirical Apple cert quotas (verified 2026-05-08, team A26TJZ8QHQ) ───────
+# ─── Empirical Apple cert quotas (verified 2026-05-08, team A1B2C3D4E5) ───────
 #
 #   DISTRIBUTION                  cap = 3 / team
 #   DEVELOPMENT                   cap ≥ 5 / team

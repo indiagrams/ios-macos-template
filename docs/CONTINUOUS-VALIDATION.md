@@ -74,7 +74,7 @@ The smoketest also surfaced two ecosystem-level constraints:
   `bootstrap_asc` lane in `fastlane/Fastfile` verifies-or-fails-loudly with
   one-time-setup instructions for creating the App via web UI.
 - **Apple's per-team certificate caps** (verified empirically 2026-05-08
-  against team `A26TJZ8QHQ`; community docs are stale or contradictory):
+  against team `A1B2C3D4E5`; community docs are stale or contradictory):
   `DISTRIBUTION` (Apple Distribution) cap = **3** / team;
   `DEVELOPMENT` (Apple Development) cap **≥ 5** / team;
   `MAC_INSTALLER_DISTRIBUTION` cap = **2** / team. At-cap mint without

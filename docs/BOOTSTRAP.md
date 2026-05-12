@@ -219,7 +219,7 @@ worth keeping out of source control.
   mode) hits "Could not create another Distribution certificate, reached
   the maximum number of available Distribution certificates"** — Apple's
   per-team cert quotas (verified empirically May 2026 against team
-  `A26TJZ8QHQ`): Apple Distribution = 3, Apple Development ≥ 5, 3rd Party
+  `A1B2C3D4E5`): Apple Distribution = 3, Apple Development ≥ 5, 3rd Party
   Mac Developer Installer = 2. Forkers shipping macOS commonly hit the
   installer cap (2) before the distribution cap (3). Revoke an unused one
   via `bundle exec fastlane revoke_cert id:<CERT_ID>` (singular) or

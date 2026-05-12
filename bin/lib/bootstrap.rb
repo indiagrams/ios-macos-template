@@ -903,7 +903,7 @@ module Bootstrap
 
     # Returns the matching `security find-identity -v` lines from the user's
     # login keychain. Each line is e.g.
-    #   '  1) BD06...A78 "Apple Distribution: Person Name (A26TJZ8QHQ)"'
+    #   '  1) BD06...A78 "Apple Distribution: Person Name (A1B2C3D4E5)"'
     #
     # Note we deliberately do NOT pass `-p codesigning` here, because that
     # filter excludes installer-signing identities (3rd Party Mac Developer
@@ -920,8 +920,8 @@ module Bootstrap
 
     # Pulls the LAST `(XXXXXXXXXX)` 10-char alphanumeric token from an
     # identity line. For
-    #   '  1) BD06...A78 "Apple Distribution: Person Name (A26TJZ8QHQ)"'
-    # returns "A26TJZ8QHQ". We use scan-and-pick-last because the line ends
+    #   '  1) BD06...A78 "Apple Distribution: Person Name (A1B2C3D4E5)"'
+    # returns "A1B2C3D4E5". We use scan-and-pick-last because the line ends
     # in `"` (not `)`), so a `\)\s*$`-anchored pattern wouldn't fire.
     #
     # Caveat: Apple's "Created via API" cert names use the same `(XXXXXXXXXX)`

@@ -82,7 +82,7 @@ The five-command journey hides:
 - **`bin/preflight.sh`** — one-shot prerequisite checker; clone temporarily, run, get a report on what's missing and how to install it.
 
 ### Continuous validation (against real Apple infrastructure)
-- **Mondays 07:00 UTC**: bootstrap doctor matrix (xcodegen | tuist × ci | local — 4 cells). Covers the toolchain.
+- **PR-time, on any change to `bin/lib/bootstrap.rb` / `bin/doctor.rb` / `fastlane/Fastfile` / `.bootstrap.env.example` / `Makefile`**: bootstrap doctor matrix (xcodegen | tuist × ci | local — 4 cells). Catches doctor/bootstrap pipeline regressions before merge. Plus weekly hermetic regression tests (parser, bundle-guard) Mondays 07:00 UTC against runner-image drift.
 - **Sundays 07:00 UTC**: full CI-mode release ship to TestFlight, both generators. Covers the mint-fresh signing pipeline + Apple infrastructure.
 - **Saturdays 07:00 UTC**: full local-mode release ship to TestFlight, both generators. Covers the local signing pipeline (sigh, fresh-cert minting, β cert SHA-1 pinning, controlled keychain).
 - **Bugs in fastlane / sigh / Apple's signing infra surface there first**, before they bite forks — patches land in this template before they hit your repo.

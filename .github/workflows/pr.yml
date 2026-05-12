@@ -142,11 +142,17 @@ jobs:
     needs: config
     name: "app (${{ matrix.display_name }})"
     runs-on: macos-15
-    # Cell-level safety net. Individual steps below set their own tighter
-    # timeouts (build ≤5m, test ≤10m). A stuck simulator now fails at the
-    # step level within minutes — this 15m cap is the backstop for any
-    # step that escapes its own bound (e.g. brew install hanging).
-    timeout-minutes: 15
+    # Cell-level safety net at 60 min. Test steps (which run user code)
+    # have no step-level timeout — they fall through to this cap, giving
+    # forks plenty of room for real test suites that legitimately take
+    # 20-30 min. The infrastructure-only steps below (build, pre-boot,
+    # picker) have their own tighter timeouts because they don't run
+    # user code and shouldn't ever take long.
+    #
+    # Forks with a test suite that legitimately exceeds 60 min should
+    # bump this cap; if a fork's tests are flaky and hang past 60 min,
+    # this is a more honest signal than GitHub's 6-hour default ceiling.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.config.outputs.matrix) }}
@@ -169,7 +175,7 @@ jobs:
       # Tuist forks live with their app/Project.swift manifest checked in
       # alongside app/project.yml. switch-to-tuist.sh stages the right one
       # (deletes project.yml, keeps Project.swift) so the subsequent
-      # `tuist generate` produces the same HelloApp.xcodeproj layout the
+      # `tuist generate` produces the same ${APP_NAME}.xcodeproj layout the
       # xcodegen path produces from project.yml.
       - name: switch fork to Tuist
         if: matrix.generator == 'tuist'
@@ -231,8 +237,8 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild build \
-            -project app/HelloApp.xcodeproj \
-            -scheme HelloApp-iOS \
+            -project "app/${{ vars.APP_NAME || 'HelloApp' }}.xcodeproj" \
+            -scheme "${{ vars.APP_NAME || 'HelloApp' }}-iOS" \
             -configuration Debug \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
@@ -243,16 +249,17 @@ jobs:
 
       - name: test iOS Simulator (unsigned)
         if: matrix.platform == 'ios-sim'
-        timeout-minutes: 10  # typical ~6m after pre-boot; 10m headroom for slow runners
         run: |
           set -o pipefail
           # `xcodebuild test` runs the scheme's Test action, which the
           # generator manifest (app/project.yml or app/Project.swift) wires
-          # to HelloAppUITests + HelloAppTests. Test action requires a
-          # concrete simulator destination (generic/* doesn't work).
+          # to <APP_NAME>UITests + <APP_NAME>Tests (these are renamed at fork creation
+          # by bin/rename.sh — the literal names in apple-shipkit are HelloAppUITests
+          # + HelloAppTests). Test action requires a concrete simulator destination
+          # (generic/* doesn't work).
           xcodebuild test \
-            -project app/HelloApp.xcodeproj \
-            -scheme HelloApp-iOS \
+            -project "app/${{ vars.APP_NAME || 'HelloApp' }}.xcodeproj" \
+            -scheme "${{ vars.APP_NAME || 'HelloApp' }}-iOS" \
             -configuration Debug \
             -sdk iphonesimulator \
             -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
@@ -263,14 +270,13 @@ jobs:
 
       - name: test macOS (unsigned)
         if: matrix.platform == 'macos'
-        timeout-minutes: 8   # typical ~2m; 8m absorbs cold-cache + slow xctest startup
         run: |
           set -o pipefail
           # macOS test destination is bare `platform=macOS` — `xcodebuild
           # test` doesn't accept `generic/platform=macOS`.
           xcodebuild test \
-            -project app/HelloApp.xcodeproj \
-            -scheme HelloApp-macOS \
+            -project "app/${{ vars.APP_NAME || 'HelloApp' }}.xcodeproj" \
+            -scheme "${{ vars.APP_NAME || 'HelloApp' }}-macOS" \
             -configuration Debug \
             -destination 'platform=macOS' \
             CODE_SIGN_IDENTITY="" \

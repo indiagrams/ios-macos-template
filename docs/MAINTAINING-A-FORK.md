@@ -102,6 +102,40 @@ These are **entitlements** registered against your Bundle ID. They have no separ
 
 ## Day-2 operations: when you need to do something
 
+### "I want to add custom lanes (Slack notify, Crashlytics dSYM, Firebase distribution, etc.)"
+
+The template's `fastlane/Fastfile` is intentionally release-shaped for App Store + TestFlight only. Forks extend it via `fastlane/Fastfile.local` — a tracked, fork-owned file that survives upstream `apple-shipkit` syncs without merge conflicts.
+
+```bash
+cp fastlane/Fastfile.local.example fastlane/Fastfile.local
+# edit — uncomment the patterns you want
+git add fastlane/Fastfile.local
+git commit -m "chore(fastlane): add custom release hooks"
+```
+
+The example file ships ~7 copy-pasteable patterns adapted from [`fastlane/examples`](https://github.com/fastlane/examples):
+
+| Pattern | What it does |
+|---|---|
+| 1. `after_all` Slack hook | Posts a success message to a channel after every successful lane (`release`, `submit_for_review`, etc.) |
+| 2. `error` Slack hook | Posts a failure message when any lane raises |
+| 3. `lane :ship_with_crashlytics` | Wraps the template's `release` lane with a follow-up `download_dsyms` + `upload_symbols_to_crashlytics` step |
+| 4. `lane :beta` | Mints an ad-hoc profile and pushes to Firebase App Distribution (skips TestFlight processing latency) |
+| 5. App Store submission notification | Filters `after_all` to fire only on `submit_for_review` — useful for bumping Jira / Linear / internal tracker tickets |
+| 6. Custom action under `fastlane/actions/` | Drops a Discord webhook action; fastlane auto-loads any `.rb` under that path |
+| 7. Internal version-tracking → Linear | Pushes the just-shipped tag into a project-management system on `release` success |
+
+All patterns use only documented fastlane primitives (`after_all`, `error`, `override_lane`, `import`). Template constants (`APP_NAME`, `APP_IDENTIFIER`, `IOS_SCHEME`, `MACOS_SCHEME`) and helpers (`asc_api_key`, `pilot_with_retry`, `changelog_text`, `extract_changelog_section`, `parse_release_tag`) are all callable from `Fastfile.local` because fastlane merges imported files into a single namespace.
+
+Hook conventions:
+
+- The template **claims `before_all`** for `setup_ci` (CI mode) + `asc_api_key` setup. Fastlane's `before_all` is last-write-wins, so DON'T define `before_all` in `Fastfile.local` — it would silently drop the template's ASC bootstrap. To run setup before a specific lane, override that lane.
+- The template **does NOT claim `after_all` or `error`** — both are free for forks to use without conflict. Multiple `after_all` / `error` blocks compose: every imported file's hooks fire in import order.
+- The import sits at the BOTTOM of the template Fastfile (not the top) so `override_lane` works — the original lane has to exist before it can be overridden.
+- Wrap every third-party API call in `rescue StandardError` and log via `UI.important`. The template's contract is that the App Store ship succeeded; a Slack 404 must not turn that into a fastlane "failure" exit code that retro-actively breaks `make ship` reporting.
+
+Custom actions: any `fastlane/actions/<name>.rb` is auto-loaded at startup. No `import` needed; the action is callable from any lane. The example file has the action skeleton.
+
 ### "I want to ship a new version"
 
 `make ship` (CI mode) or `make ship` from your local Mac (local mode). Versioning is automatic: `v<MARKETING>+<BUILD>` where `<MARKETING>` is read from `app/project.yml` (or `app/Project.swift` for Tuist) and `<BUILD>` resolves from ASC as `max(builds at this marketing version) + 1`. Cert minting, signing, upload, tag push, "What to Test" annotation all happen end-to-end. Takes ~5 minutes.

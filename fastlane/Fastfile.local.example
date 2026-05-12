@@ -1,0 +1,282 @@
+# fastlane/Fastfile.local.example
+#
+# Copy this file to fastlane/Fastfile.local and uncomment the patterns
+# you want. The template's Fastfile auto-imports Fastfile.local if present;
+# absent file = no-op (no error).
+#
+#   cp fastlane/Fastfile.local.example fastlane/Fastfile.local
+#   git add fastlane/Fastfile.local
+#   # edit, commit, ship
+#
+# Patterns below are adapted from https://github.com/fastlane/examples and
+# from production iOS + macOS shipping setups at Slack, 1Password, Notion-iOS,
+# MindNode, Wikipedia. All examples preserve the template's invariants:
+#
+#   • No secrets in this file — read from ENV (set via .bootstrap.env or
+#     GH Secrets). The template's Fastfile loads .bootstrap.env via _fork_config.
+#   • No fail-loud changes to the release contract — additive only. If a hook
+#     fails, log via UI.important and continue; the App Store ship has already
+#     happened by the time after_all runs.
+#   • Reuse template helpers (asc_api_key, pilot_with_retry, changelog_text,
+#     extract_changelog_section) rather than re-implementing them.
+#
+# Once edited, this file IS part of your fork — commit it. Upstream
+# apple-shipkit changes never touch Fastfile.local, so `git pull upstream main`
+# produces zero conflicts here.
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PATTERN 1: Slack / Discord notification on every successful lane
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Fastlane composes multiple after_all blocks across imported files. The
+# template doesn't define after_all, so this claim is conflict-free.
+#
+# after_all do |lane|
+#   next unless ENV["SLACK_WEBHOOK_URL"]
+#   slack(
+#     slack_url: ENV.fetch("SLACK_WEBHOOK_URL"),
+#     message:   ":rocket: `#{APP_NAME}` ship succeeded — lane: #{lane}",
+#     success:   true,
+#     payload:   {
+#       "Marketing version" => begin
+#                                read_marketing_version || "(unknown)"
+#                              rescue StandardError
+#                                "(unknown)"
+#                              end,
+#       "Git tag"           => `git describe --tags --abbrev=0`.strip,
+#       "Built by"          => ENV["GITHUB_ACTOR"] || `git config user.email`.strip,
+#     },
+#     default_payloads: [], # suppress fastlane's verbose default payload
+#   )
+# end
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PATTERN 2: Slack / Discord notification on lane failure
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Pairs with PATTERN 1. The `error` hook runs whenever any lane raises;
+# template doesn't claim it.
+#
+# error do |lane, exception|
+#   next unless ENV["SLACK_WEBHOOK_URL"]
+#   slack(
+#     slack_url:   ENV.fetch("SLACK_WEBHOOK_URL"),
+#     message:     ":fire: `#{APP_NAME}` lane `#{lane}` FAILED",
+#     success:     false,
+#     payload:     {
+#       "Error"   => exception.message[0, 1000],
+#       "Built by" => ENV["GITHUB_ACTOR"] || `git config user.email`.strip,
+#     },
+#     attachment_properties: {
+#       fields: [{
+#         title: "Lane",
+#         value: lane.to_s,
+#         short: true,
+#       }],
+#     },
+#   )
+# end
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PATTERN 3: Upload dSYMs to Crashlytics / Firebase / Sentry after release
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# `release` lives inside `platform :ios do … end` in the template, so the
+# override must be inside the same platform block. Same shape for macOS
+# under `platform :mac`.
+#
+# Note: fastlane doesn't have `super` for override_lane. To "extend"
+# the template's release, you either (a) re-implement it (heavy), or (b)
+# define a new lane that wraps release + the extension (lightweight and
+# what 99% of forks want).
+#
+# Approach (b) — wrap release in a new lane your `make ship` calls:
+#
+# platform :ios do
+#   lane :ship_with_crashlytics do |options|
+#     release(options)        # invoke the template's release lane
+#     ship_start_time = Time.now.utc  # for dSYM time-window filter
+#
+#     # Crashlytics dSYM upload (Firebase Crashlytics example).
+#     # The dSYMs live in ~/Library/Developer/Xcode/DerivedData/<...>/Build/Products/.
+#     # `download_dsyms` pulls server-processed dSYMs from ASC for bitcode-recompiled
+#     # builds. Apps that ship without bitcode (default since Xcode 14) can skip this.
+#     download_dsyms(
+#       api_key:        asc_api_key,
+#       app_identifier: APP_IDENTIFIER,
+#       version:        options[:tag].sub(/^v/, "").split("+").first,
+#       wait_for_dsym_processing: true,
+#       wait_timeout:   600, # 10min cap
+#     )
+#
+#     upload_symbols_to_crashlytics(
+#       gsp_path: "app/iOS/GoogleService-Info.plist",
+#     )
+#
+#     # Then clean up the downloaded files.
+#     clean_build_artifacts
+#   end
+# end
+#
+# Then route make ship to your new lane: edit bin/ship.rb (CI: edit
+# release.yml's fastlane invocation) to invoke `fastlane ios ship_with_crashlytics`
+# instead of `fastlane ios release`. Or override_lane :release entirely:
+#
+# platform :ios do
+#   override_lane :release do |options|
+#     # Inline the template's release-equivalent here, or:
+#     UI.user_error!("override_lane :release: please re-implement or wrap via lane :ship_with_crashlytics")
+#   end
+# end
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PATTERN 4: Custom :beta lane for Firebase App Distribution (non-App-Store)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Useful for distributing internal/QA builds to testers WITHOUT going through
+# TestFlight processing time (10-30 min vs Firebase's ~30 seconds). Requires
+# fastlane-plugin-firebase_app_distribution:
+#
+#   bundle add fastlane-plugin-firebase_app_distribution --group=development
+#
+# platform :ios do
+#   desc "Build an unsigned-for-App-Store but signed-for-AdHoc .ipa and push to Firebase"
+#   lane :beta do |options|
+#     # Mint an ad-hoc profile (different from sigh's :appstore default).
+#     sigh(
+#       app_identifier: APP_IDENTIFIER,
+#       team_id:        ENV.fetch("FASTLANE_TEAM_ID"),
+#       api_key:        asc_api_key,
+#       platform:       "ios",
+#       adhoc:          true,
+#       readonly:       false,
+#     )
+#     build_app(
+#       project:        "app/#{APP_NAME}.xcodeproj",
+#       scheme:         IOS_SCHEME,
+#       configuration:  "Release",
+#       export_method:  "ad-hoc",
+#       output_directory: "build",
+#       output_name:    "#{APP_NAME}-beta.ipa",
+#     )
+#     firebase_app_distribution(
+#       app:            ENV.fetch("FIREBASE_APP_ID_IOS"),
+#       service_credentials_file: ENV.fetch("FIREBASE_SERVICE_ACCOUNT_JSON"),
+#       groups:         "qa-testers,beta-testers",
+#       release_notes:  changelog_text(File.expand_path("..", __dir__), "beta-#{Time.now.strftime('%Y%m%d-%H%M')}"),
+#     )
+#   end
+# end
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PATTERN 5: Notify external systems on App Store submission
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Hook into the after_all path but filter to only fire on submit_for_review
+# (and only when SUBMIT_FOR_REVIEW=true — the auto-submit path).
+#
+# after_all do |lane|
+#   next unless [:submit_for_review].include?(lane)
+#   next unless ENV["JIRA_API_TOKEN"]
+#
+#   # Example: bump a "submitted to App Review" ticket in Jira.
+#   sh(<<~CURL.strip)
+#     curl -sS -X POST -H 'Content-Type: application/json' \\
+#       -u "#{ENV.fetch('JIRA_USER')}:#{ENV.fetch('JIRA_API_TOKEN')}" \\
+#       -d '{"transition":{"id":"31"}}' \\
+#       "https://#{ENV.fetch('JIRA_DOMAIN')}/rest/api/3/issue/#{ENV.fetch('JIRA_RELEASE_ISSUE')}/transitions"
+#   CURL
+# end
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PATTERN 6: Custom action — drop into fastlane/actions/<name>.rb
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Fastlane auto-loads any .rb file under fastlane/actions/ at startup. No
+# import needed; the action is callable from any lane (including this
+# Fastfile.local).
+#
+# Example: fastlane/actions/post_to_discord.rb
+#
+#   module Fastlane
+#     module Actions
+#       class PostToDiscordAction < Action
+#         def self.run(params)
+#           require 'net/http'
+#           require 'json'
+#           uri = URI(params[:webhook])
+#           Net::HTTP.post(uri, { content: params[:content] }.to_json, "Content-Type" => "application/json")
+#         end
+#
+#         def self.available_options
+#           [
+#             FastlaneCore::ConfigItem.new(key: :webhook, env_name: "DISCORD_WEBHOOK_URL"),
+#             FastlaneCore::ConfigItem.new(key: :content, description: "Message body"),
+#           ]
+#         end
+#
+#         def self.is_supported?(platform); true; end
+#       end
+#     end
+#   end
+#
+# Then from this file:
+#
+#   after_all do |lane|
+#     post_to_discord(content: ":white_check_mark: #{APP_NAME} #{lane} succeeded") if ENV["DISCORD_WEBHOOK_URL"]
+#   end
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PATTERN 7: Internal version-tracking — push tag to internal ticket system
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Useful when your eng team correlates marketing version → sprint → tickets.
+#
+# after_all do |lane|
+#   next unless lane == :release
+#   marketing_version = read_marketing_version
+#   build_number      = ENV["RELEASE_BUILD_NUMBER"]
+#   tag               = "v#{marketing_version}+#{build_number}"
+#
+#   # Linear example — same shape works for Shortcut, Jira, Asana.
+#   require "net/http"
+#   require "json"
+#   uri = URI("https://api.linear.app/graphql")
+#   Net::HTTP.start(uri.host, uri.port, use_ssl: true) do |http|
+#     req = Net::HTTP::Post.new(uri)
+#     req["Authorization"] = "Bearer #{ENV.fetch('LINEAR_API_KEY')}"
+#     req["Content-Type"]  = "application/json"
+#     req.body = JSON.dump(
+#       query: "mutation { releaseCreate(input: { name: \"#{tag}\", projectId: \"#{ENV.fetch('LINEAR_PROJECT_ID')}\" }) { success } }"
+#     )
+#     http.request(req)
+#   end
+# rescue StandardError => e
+#   UI.important("Linear release create failed (non-fatal): #{e.message[0, 200]}")
+# end
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Style notes
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# • Always rescue StandardError around third-party API calls in after_all /
+#   error hooks. Fastlane re-raises from hooks, which would turn a successful
+#   App Store ship into a fastlane "failure" because a Slack ping 404'd. The
+#   binary upload is the contract; everything else is best-effort.
+#
+# • Read secrets from ENV. .bootstrap.env is auto-sourced by `make ship`;
+#   for CI, set GH Secrets and add a workflow-level `env:` block in
+#   release.yml. Never inline tokens in this file.
+#
+# • If a hook is fork-specific (a single fork's release-engineering channel),
+#   that's fine — Fastfile.local is fork-owned. The template's value is
+#   that this file CAN diverge per fork without conflict, not that every
+#   fork has identical hooks.

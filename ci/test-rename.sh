@@ -171,6 +171,22 @@ test -f "app/macOS/$TEST_APP.entitlements" || fail "app/macOS/$TEST_APP.entitlem
 test ! -f "app/Shared/HelloApp.swift" || fail "old app/Shared/HelloApp.swift still present"
 test ! -f "app/iOS/HelloApp.entitlements" || fail "old app/iOS/HelloApp.entitlements still present"
 test ! -f "app/macOS/HelloApp.entitlements" || fail "old app/macOS/HelloApp.entitlements still present"
+
+# Optional test-target file-path renames (added in #88; pre-#88 trees lack
+# these). Assert conditional on the new file basenames being present —
+# bin/rename.sh's optional_pairs loop silently skips when src is missing,
+# so the absence of HelloAppTests.swift pre-rename means absence of
+# ${TEST_APP}Tests.swift post-rename, which is fine.
+if [ -f "app/Tests/${TEST_APP}Tests.swift" ]; then
+  test ! -f "app/Tests/HelloAppTests.swift" \
+    || fail "old app/Tests/HelloAppTests.swift still present after rename"
+  ok "app/Tests/HelloAppTests.swift -> app/Tests/${TEST_APP}Tests.swift"
+fi
+if [ -f "app/MacOSTests/${TEST_APP}MacOSTests.swift" ]; then
+  test ! -f "app/MacOSTests/HelloAppMacOSTests.swift" \
+    || fail "old app/MacOSTests/HelloAppMacOSTests.swift still present after rename"
+  ok "app/MacOSTests/HelloAppMacOSTests.swift -> app/MacOSTests/${TEST_APP}MacOSTests.swift"
+fi
 ok "file-path renames complete"
 
 # xcodegen regenerated

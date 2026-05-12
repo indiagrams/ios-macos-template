@@ -776,6 +776,55 @@ module Bootstrap
     end
   end
 
+  class XcodeQuarantine < Step
+    def name; "Xcode.app quarantine xattr"; end
+
+    XCODE = "/Applications/Xcode.app".freeze
+
+    def check
+      # Skip cleanly on hosts that don't have Xcode at the canonical location
+      # (Linux CI, command-line-tools-only Macs, alternate Xcode install paths).
+      # The check is advisory anyway — a missing Xcode.app surfaces elsewhere
+      # via BrewBootstrap / xcodebuild failures, not here.
+      return :done unless File.exist?(XCODE)
+
+      # Top-level xattr scan only — one syscall, ~1ms. The canonical place where
+      # `com.apple.quarantine` lives is on Xcode.app itself, set by macOS when
+      # the .xip archive (xcodes-cli, manual Apple Developer downloads) was
+      # extracted. Recursive `xattr -lr` on Xcode.app takes 30+ seconds
+      # (12+ GB tree) which is unacceptable for a doctor check. If quarantine
+      # is hidden on a nested file with no top-level bit, `make screenshots`
+      # still handles it via the runner-bundle strip from ci/take-screenshots.sh.
+      out = `xattr #{XCODE.shellescape} 2>/dev/null`.to_s
+      return :done unless out.include?("com.apple.quarantine")
+      [:warn, quarantine_msg]
+    end
+
+    def do_it
+      # No-op; advisory only. The actual fix needs sudo (Xcode.app is owned by
+      # root:wheel) — running it silently from a project-local script would
+      # violate scope (mutates a machine-wide app outside this fork) and would
+      # need a sudo password prompt mid-doctor. The advisory surfaces the
+      # one-line fix; the user decides whether to run it.
+    end
+
+    private
+
+    def quarantine_msg
+      <<~MSG.strip
+        /Applications/Xcode.app carries com.apple.quarantine xattr.
+          `make screenshots` works around it automatically (strips + ad-hoc re-signs
+          the UI test runner before launch via ci/take-screenshots.sh), so this is
+          NOT blocking. But Gatekeeper may reject other dev-tool launches
+          (command-line builds, third-party Xcode plugins, ad-hoc binaries).
+          To clear permanently (one-time, ~5 sec, requires sudo):
+            sudo xattr -dr com.apple.quarantine /Applications/Xcode.app
+          Most often appears when Xcode was installed via xcodes-cli or a manually
+          downloaded .xip archive; App Store installs don't carry the bit.
+      MSG
+    end
+  end
+
   class ScanScreenshots < Step
     def name; "App Store screenshots"; end
 
@@ -1014,7 +1063,8 @@ module Bootstrap
       LocalKeychainCerts,    # local-only
       ScanMetadata,          # informational
       ScanScreenshots,
-      AppPrivacyForm         # informational; queries ASC for App Privacy publish state
+      AppPrivacyForm,        # informational; queries ASC for App Privacy publish state
+      XcodeQuarantine        # informational; advisory-only check for com.apple.quarantine xattr on Xcode.app
     ].freeze
 
     def initialize(config)

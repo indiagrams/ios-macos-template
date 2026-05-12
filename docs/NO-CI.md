@@ -146,11 +146,17 @@ The switch is reversible: change `RELEASE_MODE=ci`, populate `KEYCHAIN_PASSWORD_
 ## Continuous validation in local mode
 
 Local mode is no longer a "no canary" mode. The template ships
-`.github/workflows/canary-local-mode.yml`, which is dormant by default
-(workflow_dispatch only) and can be enabled by uncommenting its `schedule:`
-block (default `0 7 * * 6` = Saturdays 07:00 UTC).
+`.github/workflows/canary-local-mode.yml`, which runs on
+`workflow_dispatch` only — no `schedule:` trigger of its own. The
+weekly Sat 07:00 UTC cron lives entirely in apple-shipkit's
+`canary-trigger.yml`, which dispatches `canary-local-mode.yml` on
+the smoketest as one of its three sequential canary cells. Forks
+that want their own local-mode canary either:
 
-When enabled, the canary mints 3 throwaway signing certs into a controlled
+- **Manual / ad-hoc**: `gh workflow run canary-local-mode.yml --repo <your-fork>` whenever you want a one-shot validation. No additional setup beyond the standard 5 GH Secrets enumerated below.
+- **Scheduled**: fork apple-shipkit, point `canary-trigger.yml`'s `TARGET_REPO` at your fork, configure `SMOKETEST_DISPATCH_PAT` (a fine-grained PAT on your fork with `Actions: Read and write`), and let the apple-shipkit-fork's Saturday cron dispatch into your fork's `canary-local-mode.yml`.
+
+When the canary runs, it mints 3 throwaway signing certs into a controlled
 keychain on the GH runner, runs full `fastlane release` (sigh-based App
 Store profiles, no match), uploads to TestFlight, then revokes the 3
 just-minted certs on `always()`. Net Apple-team cert delta per run = 0;
@@ -169,8 +175,8 @@ Prerequisites for enabling on your fork:
    cycling slot per at-cap type so the canary can mint without hitting
    Apple's per-team caps. See [docs/CONTINUOUS-VALIDATION.md](CONTINUOUS-VALIDATION.md)
    for the empirical caps (DIST=3, DEV≥5, MAC_INSTALLER=2).
-3. Uncomment the `schedule:` block in
-   `.github/workflows/canary-local-mode.yml`.
+3. (Scheduled path only) fork apple-shipkit and configure
+   `SMOKETEST_DISPATCH_PAT` + `TARGET_REPO` to point at your fork.
 
 That's it. Saturday morning runs ship a clean canary build to TestFlight
 under your bundle ID + ASC app, verifying the entire local-mode shipping

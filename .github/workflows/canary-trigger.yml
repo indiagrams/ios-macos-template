@@ -22,7 +22,7 @@ name: canary-trigger
 
 on:
   schedule:
-    - cron: '0 7 * * 0'   # Sundays 07:00 UTC (alongside the smoketest's Sat 07:00 local-mode canary and the Mon 07:00 doctor matrix — all three at 07:00 UTC for memorability)
+    - cron: '0 7 * * 6'   # Saturdays 07:00 UTC — single weekly canary cron; dispatches BOTH the CI-mode (release.yml) and local-mode (canary-local-mode.yml) ships on the smoketest in sequence. Doctor-matrix regression jobs fire Mon 07:00 UTC.
   workflow_dispatch:
     inputs:
       dry_run:
@@ -54,23 +54,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
-      # Run both generators every Monday so distribution-signing regressions
-      # specific to one generator surface here. fail-fast=false ensures the
-      # tuist cell still runs if xcodegen fails (or vice versa) — useful when
-      # one cell breaks and you want to know if the other does too.
-      # max-parallel=1 forces sequential dispatch so the timestamp-based
-      # locate step in each cell finds an unambiguous "dispatched-after-our-baseline"
-      # run. The dispatched release.yml's concurrency:group:release would
-      # serialize anyway, but explicit serialization keeps the trigger logic
-      # simpler.
+      # Three sequential cells weekly so every canary surface gets exercised:
+      #   1. CI-mode xcodegen ship (dispatches smoketest's release.yml)
+      #   2. CI-mode tuist ship    (dispatches smoketest's release.yml)
+      #   3. Local-mode ship       (dispatches canary-local-mode.yml, which
+      #                             internally iterates both generators)
+      # max-parallel=1 forces sequential dispatch. Apple's 3-distribution-cert
+      # quota is enough headroom for 1 outstanding cert at a time, and the
+      # timestamp-based `locate` step needs an unambiguous baseline per cell.
+      # fail-fast=false ensures the local-mode cell still runs even if a
+      # CI-mode cell fails (or vice versa).
       fail-fast: false
       max-parallel: 1
       matrix:
-        generator: [xcodegen, tuist]
+        include:
+          - { name: "CI-mode ship (xcodegen)",  target: release.yml,           generator: xcodegen }
+          - { name: "CI-mode ship (tuist)",     target: release.yml,           generator: tuist }
+          - { name: "Local-mode ship",          target: canary-local-mode.yml, generator: "" }
+
+    name: ${{ matrix.name }}
 
     env:
       TARGET_REPO: indiagrams/ios-macos-smoketest
-      TARGET_WORKFLOW: release.yml
+      TARGET_WORKFLOW: ${{ matrix.target }}
       TARGET_REF: main
       GH_TOKEN: ${{ secrets.SMOKETEST_DISPATCH_PAT }}
       GENERATOR: ${{ matrix.generator }}
@@ -97,18 +103,29 @@ jobs:
           echo "baseline=${baseline}" >> "${GITHUB_OUTPUT}"
           echo "Baseline (only runs created after this count): ${baseline}"
 
-      - name: Dispatch smoketest release (${{ matrix.generator }})
+      - name: Dispatch ${{ matrix.name }}
         run: |
           dry_run='${{ inputs.dry_run }}'
           dry_run="${dry_run:-false}"
-          echo "Dispatching ${TARGET_REPO} ${TARGET_WORKFLOW} on ref=${TARGET_REF} dry_run=${dry_run} generator=${GENERATOR} platforms=${PLATFORMS}"
-          gh workflow run "${TARGET_WORKFLOW}" \
-            --repo "${TARGET_REPO}" \
-            --ref "${TARGET_REF}" \
-            -f version='' \
-            -f "dry_run=${dry_run}" \
-            -f "generator=${GENERATOR}" \
-            -f "platforms=${PLATFORMS}"
+          echo "Dispatching ${TARGET_REPO} ${TARGET_WORKFLOW} on ref=${TARGET_REF} dry_run=${dry_run}"
+          if [ "${TARGET_WORKFLOW}" = "release.yml" ]; then
+            # CI-mode ship: release.yml takes per-generator + platforms inputs.
+            echo "  inputs: generator=${GENERATOR} platforms=${PLATFORMS}"
+            gh workflow run "${TARGET_WORKFLOW}" \
+              --repo "${TARGET_REPO}" \
+              --ref "${TARGET_REF}" \
+              -f version='' \
+              -f "dry_run=${dry_run}" \
+              -f "generator=${GENERATOR}" \
+              -f "platforms=${PLATFORMS}"
+          else
+            # Local-mode ship: canary-local-mode.yml only takes dry_run; it
+            # iterates both generators internally via its own matrix.
+            gh workflow run "${TARGET_WORKFLOW}" \
+              --repo "${TARGET_REPO}" \
+              --ref "${TARGET_REF}" \
+              -f "dry_run=${dry_run}"
+          fi
 
       - name: Locate the dispatched run
         id: locate
@@ -174,7 +191,7 @@ jobs:
         if: failure()
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_CANARY_WEBHOOK }}
-          GENERATOR: ${{ matrix.generator }}
+          CELL_NAME: ${{ matrix.name }}
           RUN_URL: ${{ steps.locate.outputs.run_url }}
           TRIGGER_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -187,10 +204,10 @@ jobs:
           # Discord webhook expects {"content": "..."} or {"embeds": [...]}.
           # Keep payload simple — links speak louder than prose for diagnosis.
           payload=$(jq -nc \
-            --arg gen   "${GENERATOR}"        \
             --arg run   "${RUN_URL:-(unknown)}"     \
             --arg trig  "${TRIGGER_URL}"            \
-            '{ content: ":rotating_light: **Canary failed** — generator=\($gen)\nSmoketest run: \($run)\nTrigger run: \($trig)" }')
+            --arg cell  "${CELL_NAME}"              \
+            '{ content: ":rotating_light: **Canary failed** — \($cell)\nSmoketest run: \($run)\nTrigger run: \($trig)" }')
           curl -fsSL -X POST -H 'Content-Type: application/json' -d "${payload}" "${DISCORD_WEBHOOK}" \
             && echo "Posted Discord notification." \
             || echo "::warning::Discord notification failed (webhook URL may be invalid; check secret). Continuing."

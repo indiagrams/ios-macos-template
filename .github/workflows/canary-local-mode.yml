@@ -101,32 +101,6 @@ on:
         required: false
         type: boolean
         default: false
-  # The schedule below is always uncommented in BOTH apple-shipkit (template)
-  # and ios-macos-smoketest (live canary). The job-level `if:` gate at the
-  # bottom of this file is what decides whether the scheduled run actually
-  # executes work: enable the canary on a fork by setting the
-  # `CANARY_ENABLED` repo variable to `true` via:
-  #
-  #   gh variable set CANARY_ENABLED --body true --repo <owner>/<fork>
-  #
-  # On forks without the variable (apple-shipkit included), the Saturday
-  # 07:00 UTC trigger fires but the job is skipped — a single grey check
-  # on the Actions tab, no work performed. This pattern keeps the workflow
-  # file byte-equivalent across template + fork (no cp-mirror divergence).
-  #
-  # Cross-canary timing: the CI canary fires Sundays 07:00 UTC via
-  # canary-trigger.yml on apple-shipkit. The doctor matrix fires Mondays
-  # 07:00 UTC via bootstrap-doctor-matrix.yml. All three at 07:00 UTC for
-  # memorability.
-  #
-  # One-time setup required on the fork before flipping the variable:
-  #   1. Configure all 5 GH Secrets enumerated in canary's
-  #      `bin/setup-github.sh --canary` flow
-  #   2. Revoke 1 spare DIST + 1 spare MAC_INSTALLER cert on the fork's
-  #      Apple team to dedicate cycling slots (see Phase 7 of
-  #      `.planning/SMOKETEST_PLAN.md` in the smoketest repo).
-  schedule:
-    - cron: '0 7 * * 6'   # Saturdays 07:00 UTC
 
 permissions:
   contents: read
@@ -143,12 +117,12 @@ concurrency:
 jobs:
   canary:
     name: Local-mode shipping path canary (${{ matrix.generator }})
-    # Gate: scheduled runs ONLY execute on forks that have flipped the
-    # repo variable CANARY_ENABLED=true (see the comment block on the
-    # schedule trigger above). Manual workflow_dispatch always runs.
-    # This keeps apple-shipkit's Actions tab quiet (single grey "skipped"
-    # marker on Sat 07:00 UTC) while the smoketest actually ships.
-    if: ${{ github.event_name == 'workflow_dispatch' || vars.CANARY_ENABLED == 'true' }}
+    # Dispatched by apple-shipkit's canary-trigger.yml on the weekly Sat 07:00
+    # UTC cron, sequenced after the two CI-mode ships. Also runs on manual
+    # workflow_dispatch for ad-hoc validation. No `schedule:` trigger on this
+    # file itself — the weekly cron lives entirely in canary-trigger.yml on
+    # apple-shipkit so both repos' canary-local-mode.yml stay byte-equivalent
+    # without per-fork divergence.
     runs-on: macos-15
     timeout-minutes: 60
 

@@ -700,12 +700,26 @@ check_idempotency() {
 # ── File-path renames via git mv (REQ-3; D-1 mv-after-sed ordering) ──────
 
 rename_file_paths() {
-  step "Renaming file paths (3 git mv operations)"
+  step "Renaming file paths (3 canonical git mv operations + up to 2 optional test-target pairs)"
 
   local pairs=(
     "app/Shared/HelloApp.swift:app/Shared/$APP_NAME.swift"
     "app/iOS/HelloApp.entitlements:app/iOS/$APP_NAME.entitlements"
     "app/macOS/HelloApp.entitlements:app/macOS/$APP_NAME.entitlements"
+  )
+
+  # Optional pairs introduced in #88 (HelloAppTests + HelloAppMacOSTests
+  # unit-test targets). Older forks created before #88 lack these files
+  # entirely; the loop's existing fail-on-missing-src guard would break
+  # bin/rename.sh on those trees, so the optional pairs use a separate
+  # loop with `continue` instead of `fail` when src is missing. The
+  # in-file `class HelloAppTests`/`class HelloAppMacOSTests` declarations
+  # get renamed by Step F's broad sweep regardless; this loop only
+  # handles the file BASENAMES, which Step F can't reach (sed -i edits
+  # content, doesn't rename files).
+  local optional_pairs=(
+    "app/Tests/HelloAppTests.swift:app/Tests/${APP_NAME}Tests.swift"
+    "app/MacOSTests/HelloAppMacOSTests.swift:app/MacOSTests/${APP_NAME}MacOSTests.swift"
   )
 
   local pair src dst
@@ -723,6 +737,24 @@ rename_file_paths() {
 
     git mv "$src" "$dst"
     ok "$src -> $dst"
+  done
+
+  for pair in "${optional_pairs[@]}"; do
+    src="${pair%%:*}"
+    dst="${pair##*:}"
+
+    # Silently skip when src is absent — pre-#88 forks legitimately don't
+    # have these files, and skipping keeps bin/rename.sh idempotent across
+    # historical fork generations. ok-line stays observable when the rename
+    # DOES happen so users see the action in the script's output.
+    [ -f "$src" ] || continue
+
+    if [ -e "$dst" ]; then
+      fail "rename target already exists: $dst — refusing to overwrite"
+    fi
+
+    git mv "$src" "$dst"
+    ok "$src -> $dst (optional test-target rename)"
   done
 }
 
@@ -843,6 +875,12 @@ EOF
   echo "  app/Shared/HelloApp.swift       -> app/Shared/$APP_NAME.swift"
   echo "  app/iOS/HelloApp.entitlements   -> app/iOS/$APP_NAME.entitlements"
   echo "  app/macOS/HelloApp.entitlements -> app/macOS/$APP_NAME.entitlements"
+  if [ -f app/Tests/HelloAppTests.swift ]; then
+    echo "  app/Tests/HelloAppTests.swift            -> app/Tests/${APP_NAME}Tests.swift"
+  fi
+  if [ -f app/MacOSTests/HelloAppMacOSTests.swift ]; then
+    echo "  app/MacOSTests/HelloAppMacOSTests.swift  -> app/MacOSTests/${APP_NAME}MacOSTests.swift"
+  fi
 
   echo
   echo "xcodegen regen:"

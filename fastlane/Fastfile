@@ -1686,3 +1686,36 @@ platform :mac do
     do_submit_for_review(platform: :osx, submit: false)
   end
 end
+
+# ─── Fork extension point ─────────────────────────────────────────────────────
+#
+# Forks extend the template with their own lanes, hooks, and overrides via
+# fastlane/Fastfile.local — a fork-owned, tracked file that survives upstream
+# syncs without merge conflicts. The template ships fastlane/Fastfile.local.example
+# with copy-pasteable patterns adapted from https://github.com/fastlane/examples:
+#
+#   • after_all + error hooks for Slack / Discord / OneSignal notifications
+#   • override_lane :release to add post-ship steps (dSYM → Crashlytics,
+#     bumping internal trackers, posting to release-engineering channels)
+#   • new lanes for non-App-Store distribution (Firebase App Distribution,
+#     Diawi, TestFairy, ad-hoc enterprise)
+#   • custom actions dropped into fastlane/actions/ (fastlane auto-loads them)
+#
+# How fastlane composes imports
+# (https://docs.fastlane.tools/advanced/Fastfile/): imported files merge
+# into a single namespace. Helpers + constants defined above —
+# APP_NAME, APP_IDENTIFIER, IOS_SCHEME, MACOS_SCHEME, asc_api_key,
+# pilot_with_retry, changelog_text — are all callable from Fastfile.local.
+#
+# Hook slots: this template claims `before_all` (setup_ci in CI mode +
+# asc_api_key bootstrap). `after_all` and `error` are intentionally NOT
+# defined here so forks can claim them freely without clobbering template
+# behavior. To extend `before_all`, override the lane you actually want
+# to extend (`override_lane :release`) instead — fastlane's `before_all`
+# is last-write-wins, so overriding it from Fastfile.local would silently
+# drop the template's ASC bootstrap.
+#
+# Imported at the BOTTOM (not the top) so `override_lane` works: the
+# original lane must be defined before the override replaces it.
+_local = File.join(File.dirname(__FILE__), "Fastfile.local")
+import _local if File.exist?(_local)

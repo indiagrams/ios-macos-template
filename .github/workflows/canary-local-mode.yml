@@ -102,6 +102,13 @@ on:
         type: boolean
         default: false
 
+# Workflow-level env: bring fork identity from repo variables (see release.yml
+# header for the rationale + the two required `gh variable set` invocations).
+# Same pattern; same fail-loud behavior if unset.
+env:
+  APP_NAME:  ${{ vars.APP_NAME }}
+  BUNDLE_ID: ${{ vars.BUNDLE_ID }}
+
 permissions:
   contents: read
   actions: read   # required for actions/cache to read prior cache entries

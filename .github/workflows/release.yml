@@ -89,6 +89,22 @@ on:
         type: string
         default: ''
 
+# Workflow-level env: bring fork identity (APP_NAME, BUNDLE_ID) from repo
+# variables into every step's env. The fastlane Fastfile's APP_NAME +
+# APP_IDENTIFIER constants resolve via ENV first; .bootstrap.env is
+# gitignored so the CI runner can't read it on disk. Forks enabling CI
+# release must configure these two repo variables:
+#
+#   gh variable set APP_NAME  --body <YourApp> --repo <owner>/<fork>
+#   gh variable set BUNDLE_ID --body <com.you.app> --repo <owner>/<fork>
+#
+# If unset, the Fastfile falls through to its template defaults
+# (HelloApp / com.example.helloapp) which Apple rejects at bundle-id
+# registration (com.example.* is reserved) — fail-loud by design.
+env:
+  APP_NAME:  ${{ vars.APP_NAME }}
+  BUNDLE_ID: ${{ vars.BUNDLE_ID }}
+
 # Serialize releases. cancel-in-progress: false → if a manual dispatch lands
 # during another release run, the dispatch waits rather than aborting mid-mint
 # (a cancelled mint can leave orphans even with the always()-post-step,
@@ -259,20 +275,21 @@ jobs:
         # Manual override: workflow_dispatch's `version` input wins. Useful
         # when re-shipping a previously-tagged version or when ASC is
         # unreachable.
-        env:
-          BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
         run: |
           set -euo pipefail
           if [ -n "${{ inputs.version }}" ]; then
             VERSION="${{ inputs.version }}"
           else
-            # Bundle id from .bootstrap.env (real shippers commit this) or
-            # from fastlane/Fastfile's APP_IDENTIFIER (the canonical source
-            # bin/rename.sh sets during fork creation). Either works for
-            # bin/compute-release-tag.rb's pure-env mode.
+            # BUNDLE_ID comes from the workflow-level env block at the top of
+            # this file, which reads vars.BUNDLE_ID. The check below is a
+            # defensive guard for forks that haven't configured the variable
+            # yet — fail loud with an actionable error instead of falling
+            # through to a build that tags the wrong bundle ID.
             if [ -z "${BUNDLE_ID:-}" ]; then
-              BUNDLE_ID=$(grep '^APP_IDENTIFIER' fastlane/Fastfile | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-              export BUNDLE_ID
+              echo "::error::vars.BUNDLE_ID is not set on this repo. Configure it via:"
+              echo "::error::  gh variable set BUNDLE_ID --body <com.you.app> --repo \${{ github.repository }}"
+              echo "::error::Also set APP_NAME the same way."
+              exit 1
             fi
             VERSION=$(bundle exec ruby bin/compute-release-tag.rb)
           fi

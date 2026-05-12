@@ -5,7 +5,14 @@
 #                               (xcodegen|tuist × ci|local), against real GH +
 #                               Apple state via the smoketest fork. Catches
 #                               schema breaks, mode-branching bugs, side state
-#                               drift. Runs on Mondays 07:00 UTC.
+#                               drift. Runs on PR (any change to bootstrap
+#                               surface) and workflow_dispatch; SKIPPED on
+#                               cron because the Sat (local-mode) + Sun (CI-mode)
+#                               destructive canary ships already exercise this
+#                               surface via fastlane. The cron trigger remains
+#                               on the workflow for the two regression jobs
+#                               below — those are hermetic and cheap, worth
+#                               weekly sanity coverage against runner-image drift.
 #
 #   parser-regression         — hermetic test of Bootstrap::Config.parse against
 #                               a fixture that mimics the .bootstrap.env.example
@@ -33,7 +40,7 @@ name: bootstrap doctor matrix
 
 on:
   schedule:
-    - cron: '0 7 * * 1' # Mondays 07:00 UTC — read-only sweep after the Sat (local-mode) + Sun (CI-mode) canary ships. All three at 07:00 UTC for memorability.
+    - cron: '0 7 * * 1' # Mondays 07:00 UTC — fires `parser-regression` + `bundle-guard-regression` only. The `doctor` matrix is SKIPPED on cron (see `if:` gate on that job — its surface is covered by Sat + Sun destructive canary ships).
   workflow_dispatch:
   pull_request:
     paths:
@@ -81,7 +88,17 @@ jobs:
     # `workflow_dispatch` re-run cover post-merge verification of action-version
     # bumps. Maintainers who want PR-time doctor coverage on Dependabot bumps
     # can populate the parallel Dependabot secret store with the same 6 secrets.
-    if: github.repository == 'indiagrams/apple-shipkit' && github.actor != 'dependabot[bot]'
+    # SKIP on schedule events: the Sat (local-mode) + Sun (CI-mode) destructive
+    # canary ships already exercise this surface via fastlane within 24-48h of
+    # any Monday cron run. The doctor matrix's unique value is PR-time pre-merge
+    # feedback on changes to bootstrap.rb / doctor.rb / Fastfile / Makefile.
+    # Cron-triggered runs of this workflow only fire the two regression jobs below.
+    #
+    # Other gates: skip on forks (workflow references indiagrams/ios-macos-smoketest
+    # by hardcoded path and uses secrets configured only on this repo). Skip on
+    # Dependabot PRs (those runs don't expose Actions secrets — GitHub security
+    # policy). Manual workflow_dispatch on this repo always runs.
+    if: github.event_name != 'schedule' && github.repository == 'indiagrams/apple-shipkit' && github.actor != 'dependabot[bot]'
     runs-on: macos-15
     timeout-minutes: 15
     strategy:

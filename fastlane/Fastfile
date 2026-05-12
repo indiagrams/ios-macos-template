@@ -49,13 +49,48 @@ before_all do
   asc_api_key
 end
 
-# ─── Shared helpers ───────────────────────────────────────────────────────────
+# ─── Per-fork identity ────────────────────────────────────────────────────────
+#
+# APP_NAME + BUNDLE_ID are the only two values that differ between this
+# template and any fork made from it. Reading them at lane-resolution time
+# from .bootstrap.env (with ENV-var override for CI workflows) keeps this
+# entire file byte-equivalent across apple-shipkit, ios-macos-smoketest,
+# and every downstream fork.
+#
+# Resolution chain (first non-nil wins):
+#   1. ENV["APP_NAME"]  / ENV["BUNDLE_ID"]   — workflow secrets, manual override
+#   2. <repo-root>/.bootstrap.env values     — per-fork tracked config
+#   3. Template fallbacks ("HelloApp" / "com.example.helloapp") — fail-loud
+#      defaults; if a real ship hits these, the cert / bundle-id lookups
+#      against Apple will surface "not registered" immediately.
+#
+# All other Fastfile constants (IOS_SCHEME, MACOS_SCHEME, IPA_NAME_PATTERN,
+# PKG_NAME_PATTERN, bundle_name) are computed from APP_NAME. Forks no longer
+# need bin/rename.sh to sed-substitute Fastfile literals.
 
-APP_IDENTIFIER     = "com.example.helloapp"
-IOS_SCHEME         = "HelloApp-iOS"
-MACOS_SCHEME       = "HelloApp-macOS"
-IPA_NAME_PATTERN   = "HelloApp-%s.ipa"   # printf with version
-PKG_NAME_PATTERN   = "HelloApp-%s.pkg"
+def _fork_config
+  bootstrap_env = File.join(File.dirname(__FILE__), "..", ".bootstrap.env")
+  return {} unless File.exist?(bootstrap_env)
+  File.foreach(bootstrap_env).each_with_object({}) do |line, h|
+    line = line.strip
+    next if line.empty? || line.start_with?("#")
+    k, v = line.split("=", 2)
+    next unless k && v
+    # Strip surrounding quotes (env values may be quoted) + drop inline `# …` comments.
+    v = v.sub(/\s+#.*\z/, "")
+    v = v.gsub(/\A['"]|['"]\z/, "")
+    h[k.strip] = v.strip
+  end
+end
+
+_FORK_CONFIG       = _fork_config
+
+APP_NAME           = ENV["APP_NAME"]  || _FORK_CONFIG["APP_NAME"]  || "HelloApp"
+APP_IDENTIFIER     = ENV["BUNDLE_ID"] || _FORK_CONFIG["BUNDLE_ID"] || "com.example.helloapp"
+IOS_SCHEME         = "#{APP_NAME}-iOS"
+MACOS_SCHEME       = "#{APP_NAME}-macOS"
+IPA_NAME_PATTERN   = "#{APP_NAME}-%s.ipa"   # printf with version
+PKG_NAME_PATTERN   = "#{APP_NAME}-%s.pkg"
 
 def asc_api_key
   # Decode .p8 to a tmpfile and pass key_filepath instead of key_content +
@@ -803,7 +838,7 @@ lane :register_app_id do
   asc_api_key  # sets Spaceship::ConnectAPI.token globally
 
   bundle_id_str = APP_IDENTIFIER
-  bundle_name   = "HelloApp"
+  bundle_name   = APP_NAME
 
   existing = Spaceship::ConnectAPI::BundleId.all(filter: { identifier: bundle_id_str }).first
 

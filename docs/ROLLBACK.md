@@ -35,7 +35,7 @@ The tag's TestFlight build is still in ASC — handle that separately via the st
 
 ## Roll back a partial bootstrap-fork
 
-If `make bootstrap-fork` fails on step N (both CI mode and local mode run 14 steps in v1.6 — `make doctor` prints the live count), the pipeline is **idempotent** — re-running picks up where it left off:
+If `make bootstrap-fork` fails on step N (both CI mode and local mode run 16 steps post-v1.6 — `make doctor` prints the live count), the pipeline is **idempotent** — re-running picks up where it left off:
 
 ```bash
 make doctor          # see which step is the next pending one
@@ -92,4 +92,4 @@ No manual cert cleanup is required — both canaries revoke their minted certs a
 
 - [`docs/CONTINUOUS-VALIDATION.md`](CONTINUOUS-VALIDATION.md) — the catalog of Apple-side gotchas the canary has surfaced
 - [`docs/BOOTSTRAP.md`](BOOTSTRAP.md) — full `.bootstrap.env` reference
-- [`bin/lib/bootstrap.rb`](../bin/lib/bootstrap.rb) — the 15-step pipeline source (14 steps active per mode)
+- [`bin/lib/bootstrap.rb`](../bin/lib/bootstrap.rb) — the 17-step pipeline source (16 steps active per mode after mode-specific filtering)

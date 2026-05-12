@@ -1103,15 +1103,16 @@ lane :clean_revoked_certs do |options|
   end
 end
 
-desc "Revoke distribution certs on Apple's side that have no matching private key"
+desc "Revoke signing certs on Apple's side (distribution + development) that have"
 desc "in your login.keychain. Inverse direction of clean_revoked_certs:"
 desc ""
 desc "  clean_revoked_certs  : Apple's list is truth → delete stale LOCAL certs"
 desc "  revoke_orphan_certs  : your local Keychain is truth → revoke orphan APPLE certs"
 desc ""
-desc "Why this exists: Apple caps distribution certs at 3 per team. Each CI release"
-desc "run mints a fresh cert and revokes it in an if: always() post-step, but the"
-desc "post-step can be skipped (runner evicted, hard crash, cache-evicted tracking"
+desc "Why this exists: Apple caps both Distribution (3 per team) and Development"
+desc "(~2 per registered device) signing certs. Each CI release run mints a fresh"
+desc "set and revokes them in an if: always() post-step, but the post-step can be"
+desc "skipped (runner evicted, hard crash, cache-evicted tracking"
 desc "file). Over time, the team accumulates Apple-side cert IDs whose private keys"
 desc "live nowhere — neither on the user's Mac nor on any CI runner. The next"
 desc "release run then hits 'Could not create another Distribution certificate,"
@@ -1138,57 +1139,68 @@ lane :revoke_orphan_certs do |options|
 
   asc_api_key
 
-  # Subject-string prefixes that map to distribution-class certs. We only audit
-  # DISTRIBUTION cert types here because the 3-per-team cap is specifically on
-  # distribution certs. Development certs have a separate (higher) cap and
-  # aren't the failure mode this lane addresses.
-  distribution_subject_prefixes = ["Apple Distribution", "iPhone Distribution", "Mac App Distribution", "3rd Party Mac Developer Installer"]
-  distribution_apple_types      = %w[APPLE_DISTRIBUTION DISTRIBUTION IOS_DISTRIBUTION MAC_APP_DISTRIBUTION MAC_INSTALLER_DISTRIBUTION].to_set
+  # Subject-string prefixes that map to signing certs. We audit BOTH Distribution
+  # and Development cert types because Apple caps each independently (3 per team
+  # for Distribution; ~2 per registered device for Development — both surface as
+  # "Could not create another ... certificate, reached the maximum number of
+  # available ... certificates" in `cert` action output). The lane's safety
+  # guard is identical for both: if your Mac has the private key, you can sign
+  # with it somewhere → not an orphan → left alone.
+  audited_subject_prefixes = [
+    # Distribution-class
+    "Apple Distribution", "iPhone Distribution", "Mac App Distribution", "3rd Party Mac Developer Installer",
+    # Development-class
+    "Apple Development", "iPhone Developer", "Mac Developer",
+  ]
+  audited_apple_types = %w[
+    APPLE_DISTRIBUTION DISTRIBUTION IOS_DISTRIBUTION MAC_APP_DISTRIBUTION MAC_INSTALLER_DISTRIBUTION
+    APPLE_DEVELOPMENT DEVELOPMENT IOS_DEVELOPMENT MAC_APP_DEVELOPMENT
+  ].to_set
 
   # Normalize hex serial: uppercase + strip leading zeros (Apple's API renders
   # differently from OpenSSL; normalization makes set-equality work). Mirrors
   # the normalize used in clean_revoked_certs.
   normalize = ->(s) { s.to_s.upcase.gsub(/\A0+/, "") }
 
-  UI.header("Scanning local login.keychain for distribution-cert serials")
+  UI.header("Scanning local login.keychain for signing-cert serials")
   login_keychain = File.expand_path("~/Library/Keychains/login.keychain-db")
   pem_blob = `security find-certificate -a -p "#{login_keychain}" 2>/dev/null`
   pems = pem_blob.scan(/-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----/m)
 
-  local_dist_serials = Set.new
+  local_serials = Set.new
   pems.each do |pem|
     begin
       cert = OpenSSL::X509::Certificate.new(pem)
       subject = cert.subject.to_s
-      next unless distribution_subject_prefixes.any? { |p| subject.include?(p) }
-      local_dist_serials << normalize.call(cert.serial.to_s(16))
+      next unless audited_subject_prefixes.any? { |p| subject.include?(p) }
+      local_serials << normalize.call(cert.serial.to_s(16))
     rescue OpenSSL::X509::CertificateError
       # Non-X.509 entries in the keychain blob — skip silently.
     end
   end
-  UI.message("  found #{local_dist_serials.length} distribution cert(s) locally")
+  UI.message("  found #{local_serials.length} signing cert(s) locally (dist + dev)")
 
-  UI.header("Querying Apple Developer Portal for distribution certificates")
+  UI.header("Querying Apple Developer Portal for distribution + development certificates")
   apple_certs = Spaceship::ConnectAPI::Certificate.all
-  apple_dist_certs = apple_certs.select { |c| distribution_apple_types.include?(c.certificate_type) }
-  UI.message("  Apple lists #{apple_dist_certs.length} distribution cert(s) for this team")
-  apple_dist_certs.each do |c|
-    UI.message("    #{c.id} type=#{c.certificate_type} expires=#{c.expiration_date}")
+  audited_apple_certs = apple_certs.select { |c| audited_apple_types.include?(c.certificate_type) }
+  UI.message("  Apple lists #{audited_apple_certs.length} signing cert(s) for this team")
+  audited_apple_certs.group_by(&:certificate_type).each do |type, certs|
+    UI.message("    #{type}: #{certs.length} (#{certs.map(&:id).join(', ')})")
   end
 
-  orphans = apple_dist_certs.reject { |c| local_dist_serials.include?(normalize.call(c.serial_number)) }
-  in_use  = apple_dist_certs.length - orphans.length
+  orphans = audited_apple_certs.reject { |c| local_serials.include?(normalize.call(c.serial_number)) }
+  in_use  = audited_apple_certs.length - orphans.length
 
   UI.header("Audit summary")
   UI.message("  in-use (matching local private key):  #{in_use}")
   UI.message("  orphan (no local match):              #{orphans.length}")
 
   if orphans.empty?
-    UI.success("All Apple-side distribution certs have matching local private keys. Nothing to revoke.")
+    UI.success("All Apple-side signing certs (distribution + development) have matching local private keys. Nothing to revoke.")
     next
   end
 
-  UI.header("Orphan distribution certs Apple lists but no local private key exists for")
+  UI.header("Orphan signing certs Apple lists but no local private key exists for")
   orphans.each_with_index do |cert, i|
     UI.message("  #{i + 1}. #{cert.id}")
     UI.message("     type:        #{cert.certificate_type}")

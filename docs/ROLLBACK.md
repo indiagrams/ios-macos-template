@@ -54,10 +54,29 @@ Since v1.6, `release.yml` mints fresh signing certs at the start of every run an
 
 If a runner crashes hard enough to skip the post-step (process killed, hosted runner evicted), the next `release.yml` run's pre-step revokes any orphan IDs tracked by the previous run via `actions/cache@v5`. Worst case: the orphan lingers until the next release.
 
-Manual cleanup is only needed if **both** the post-step and the cache miss (e.g. >7 days idle and cache evicted):
+Manual cleanup is only needed if **both** the post-step and the cache miss (e.g. >7 days idle and cache evicted). Symptom is a failed `make ship` whose log contains:
+
+```
+[!] Could not create another Distribution certificate, reached the maximum
+    number of available Distribution certificates.
+```
+
+Two ways to recover:
+
+**Automated (preferred):**
+
+```bash
+make revoke-orphan-certs DRY_RUN=1   # list orphans first
+make revoke-orphan-certs             # interactive revoke
+# or: make revoke-orphan-certs YES=1   (skip prompt)
+```
+
+Apple's distribution-cert list is diffed against your local `~/Library/Keychains/login.keychain-db`. Only certs whose private keys live nowhere on your Mac get revoked — certs you're actively using for local-mode signing are left alone by the safety guard. Re-run `make ship` after the orphans clear.
+
+**Manual fallback** (if for some reason the automated path is unavailable):
 
 1. https://developer.apple.com/account/resources/certificates/list
-2. Filter by recent date → revoke the orphan Apple Distribution / Apple Development / Mac Installer entries left by the failed run (~30 sec)
+2. Filter type = Apple Distribution → revoke entries whose private keys aren't in your `~/Library/Keychains/login.keychain-db` (~30 sec; check each cert's name + creation date carefully — revoking an in-use cert breaks signing on the machine that holds its private key)
 ## Reset a fork to a clean slate
 
 If you want to nuke a fork's Apple-side state and start over (e.g. you used the wrong bundle ID and want to free it up):

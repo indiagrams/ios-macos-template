@@ -2,8 +2,8 @@
 
 # Shared library for `bin/doctor.rb` (read-only) and `bin/bootstrap-fork.rb`
 # (idempotent driver). Reads `.bootstrap.env`, validates config, exposes a
-# pipeline of 18 step classes. CI mode runs 17 steps with default
-# PLATFORMS=ios,macos; local mode runs 17. Each step has a `check`
+# pipeline of 19 step classes. CI mode runs 18 steps with default
+# PLATFORMS=ios,macos; local mode runs 18. Each step has a `check`
 # (returns bool, no side effects)
 # and a `do_it` (idempotent: safe to re-run on partial state).
 #
@@ -892,6 +892,92 @@ module Bootstrap
     end
   end
 
+  # Detects per-fork-only configuration keys (APP_NAME, BUNDLE_ID, etc.) that
+  # ended up in the cross-fork ~/code/.bootstrap.env. The Makefile's
+  # _LOAD_PARENT_ENV macro auto-sources that file into ENV before every
+  # bundle/fastlane invocation, so per-fork keys there SILENTLY OVERRIDE
+  # the same keys in any fork's in-repo .bootstrap.env on this machine.
+  #
+  # Footgun shape (real incident, 2026-05-12): a forker has
+  # ~/code/.bootstrap.env with BUNDLE_ID=com.fork-a.app. They cd into fork-B
+  # (which has BUNDLE_ID=com.fork-b.app in its in-repo .bootstrap.env) and
+  # run `make adopt`. The lane pulls fork-A's ASC metadata into fork-B's
+  # tree — silently, no error, because the env value validated as a real
+  # ASC App record.
+  #
+  # This advisory check runs after every doctor probe; surfaces a warning
+  # listing which per-fork keys are misplaced + the actionable fix. No
+  # auto-edit — the user's cross-fork dotenv may have intentional comments,
+  # custom ordering, or interleaved per-section grouping we shouldn't disturb.
+  class CrossForkConfigLeak < Step
+    def name; "Cross-fork ~/code/.bootstrap.env hygiene"; end
+
+    CROSS_FORK_PATH = File.expand_path("~/code/.bootstrap.env").freeze
+
+    # Keys that identify a specific fork's app. Each fork has DIFFERENT
+    # values for these → they must NOT live in the cross-fork dotenv that's
+    # shared across every fork on this machine.
+    #
+    # Everything else (FASTLANE_TEAM_ID, ASC_API_KEY_*, APP_REVIEW_*,
+    # ASC_PRIVACY_URL, ASC_COPYRIGHT, BETA_APP_*, ASC_USES_NON_EXEMPT_ENCRYPTION,
+    # etc.) is cross-fork-eligible and intentionally goes in the shared file
+    # so a forker shipping multiple apps doesn't duplicate Apple/team identity
+    # in every clone's in-repo dotenv.
+    PER_FORK_KEYS = %w[
+      APP_NAME
+      BUNDLE_ID
+      DISPLAY_NAME
+      APP_EMAIL
+      GENERATOR
+      PLATFORMS
+      GH_APP_REPO
+      ICON_1024_PATH
+    ].freeze
+
+    def check
+      return :done unless File.exist?(CROSS_FORK_PATH)
+
+      leaked = []
+      File.foreach(CROSS_FORK_PATH) do |line|
+        line = line.strip
+        next if line.empty? || line.start_with?("#")
+        key, _, _ = line.partition("=")
+        key = key.strip
+        leaked << key if PER_FORK_KEYS.include?(key)
+      end
+      return :done if leaked.empty?
+
+      [:warn, leak_msg(leaked)]
+    end
+
+    def do_it
+      # No-op; advisory only. We can't safely auto-edit the user's cross-fork
+      # dotenv (intentional comments, section ordering, paired-key groupings
+      # could all be silently disturbed). Surface the fix; user edits.
+    end
+
+    private
+
+    def leak_msg(leaked)
+      list = leaked.map { |k| "    - #{k}" }.join("\n")
+      <<~MSG.strip
+        ~/code/.bootstrap.env contains per-fork-only key(s):
+        #{list}
+          The Makefile's _LOAD_PARENT_ENV macro auto-sources ~/code/.bootstrap.env
+          into ENV on every `make` invocation (set -a; . ~/code/.bootstrap.env; set +a;).
+          Per-fork keys leaked there SILENTLY override the same keys in every fork's
+          in-repo .bootstrap.env on this machine.
+          Concrete failure mode: if ~/code/.bootstrap.env has BUNDLE_ID=com.fork-A.app,
+          running `make adopt` (or `make ship`) in fork-B pulls fork-A's data instead.
+          No error — the value validates as a real bundle id, just the wrong one.
+          Fix: move these keys to each fork's in-repo .bootstrap.env. Leave only
+          cross-fork values (FASTLANE_TEAM_ID, ASC_API_KEY_*, APP_REVIEW_*,
+          ASC_PRIVACY_URL, BETA_APP_*, ASC_COPYRIGHT, etc.) in the shared file.
+          Edit: $EDITOR ~/code/.bootstrap.env
+      MSG
+    end
+  end
+
   class ScanScreenshots < Step
     def name; "App Store screenshots"; end
 
@@ -1132,7 +1218,8 @@ module Bootstrap
       ScanScreenshots,
       AppPrivacyForm,        # informational; queries ASC for App Privacy publish state
       XcodeQuarantine,       # informational; advisory-only check for com.apple.quarantine xattr on Xcode.app
-      FastlaneTmpKeychain    # informational; advisory-only check for leaked setup_ci temp keychains
+      FastlaneTmpKeychain,   # informational; advisory-only check for leaked setup_ci temp keychains
+      CrossForkConfigLeak    # informational; advisory-only check for per-fork keys leaked into ~/code/.bootstrap.env
     ].freeze
 
     def initialize(config)

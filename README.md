@@ -79,7 +79,7 @@ The five-command journey hides:
 - **`deliver` metadata-dropping worked around**: deliver silently drops fields when given just `metadata_path`. The template reads every file itself and passes explicit hashes (`do_upload_metadata` / `do_submit_for_review` in `Fastfile`).
 
 ### Quality gates
-- **`make doctor`** — 17-step read-only pipeline; surfaces every prerequisite + every advisory before a byte is built. Each step explains its own failure with a one-line fix.
+- **`make doctor`** — 18-step read-only pipeline; surfaces every prerequisite + every advisory before a byte is built. Each step explains its own failure with a one-line fix.
 - **Lefthook pre-push hook** runs `ci/local-check.sh --fast` (unsigned iOS device build) — same signal CI runs on PR.
 - **PR required checks**: 8 build jobs (3 XcodeGen + 3 Tuist + 2 verify), all green for merge. Single-platform forks see fewer.
 - **Branch protection** auto-configured by `bin/setup-github.sh`: squash-only merge, required reviews, force-push blocked.
@@ -185,7 +185,7 @@ Each step is its own fastlane lane in `fastlane/Fastfile`. Read the file — it'
 │   ├── ship.rb                  # `make ship` driver (handles ci|local modes)
 │   ├── verify-testflight.rb     # `make verify` driver
 │   ├── adopt.rb                 # `make adopt` driver (existing-app forks)
-│   ├── lib/bootstrap.rb         # the orchestration framework (17-step pipeline)
+│   ├── lib/bootstrap.rb         # the orchestration framework (18-step pipeline)
 │   ├── rename.sh                # rename HelloApp → YourApp
 │   ├── switch-to-tuist.sh       # one-way XcodeGen → Tuist switch
 │   ├── setup-github.sh          # branch protection + squash-only + required checks

@@ -19,7 +19,7 @@ The fork ↔ upstream sync property is the most important architectural invarian
 | Do **not** hardcode `APP_NAME` / `BUNDLE_ID` / ASC URLs in workflows or scripts | They resolve from `.bootstrap.env` (Fastfile) or repo `vars.*` (workflows) | Set the env / repo variable |
 | Do **not** edit files under `bin/`, `ci/`, `.github/workflows/`, `Makefile` | Template-owned | Override via env, or open an upstream issue at `indiagrams/apple-shipkit` |
 | Do **not** commit secrets | `.bootstrap.env` and `.p8` files are gitignored | Commit `.bootstrap.env.example` only; real values live in GitHub Secrets / `~/.config/secrets/` |
-| Do **not** sed-substitute `HelloApp` literals | The template uses env-driven resolution everywhere it matters | Run `bin/rename.sh MyApp com.example.myapp` once at fork creation; afterward, the value is set in `.bootstrap.env` |
+| Do **not** sed-substitute `HelloApp` literals | The template uses env-driven resolution everywhere it matters | Run `bin/rename.sh MyApp com.example.myapp "My App" --email=you@example.com` once at fork creation; afterward, the value is set in `.bootstrap.env` |
 
 ## Where your code goes
 

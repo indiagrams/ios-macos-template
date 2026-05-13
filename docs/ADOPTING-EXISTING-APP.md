@@ -30,7 +30,7 @@ The template's `make doctor` step `Register Bundle ID in Apple Developer Portal`
 ```bash
 gh repo create my-existing-app --template=indiagrams/apple-shipkit --private --clone
 cd my-existing-app
-bin/rename.sh MyExistingApp com.theirteam.myexistingapp
+bin/rename.sh MyExistingApp com.theirteam.myexistingapp "My Existing App" --email=you@example.com
 ```
 
 `bin/rename.sh` substitutes `HelloApp` → `MyExistingApp` and `com.example.helloapp` → your bundle id across the tree. After this step, your fork's identity matches your real app.

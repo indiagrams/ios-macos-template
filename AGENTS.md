@@ -49,6 +49,26 @@ The fork ↔ upstream sync property is the most important architectural invarian
 | Submit for App Review | `make submit` | Stages (default) or auto-submits the latest TestFlight build. Reads `SUBMIT_FOR_REVIEW` from `.bootstrap.env`. |
 | Take App Store screenshots | `make screenshots` | iOS + macOS captures into `fastlane/screenshots/en-US/`. Survives quarantined Xcode. |
 | The full forker journey | `make all` | `doctor → bootstrap-fork → ship → verify`. Use on first ship from a fresh fork. |
+| Adopt an existing live App Store app | `make adopt` | Pulls existing ASC metadata + screenshots into the fork before first ship. **Only for forks of apps already on the App Store** — skip if greenfield. See `docs/ADOPTING-EXISTING-APP.md`. |
+
+## Adopting an existing live App Store app
+
+If your fork represents an app that's **already shipping on the App Store** (not greenfield), you **MUST** run `make adopt` once after `.bootstrap.env` is filled and BEFORE `make submit`. Otherwise, `make submit` uploads the template's placeholder metadata (description, keywords, screenshots) to ASC, **overwriting the real live App Store listing** within minutes — visible to all users browsing the App Store.
+
+`make adopt` is a single command that pulls existing ASC state down to the local tree:
+
+```bash
+make adopt                        # downloads metadata + screenshots from ASC
+make adopt SKIP_SCREENSHOTS=true  # metadata only, ~5 sec
+make adopt SKIP_METADATA=true     # screenshots only
+FORCE=true make adopt             # overwrite even with uncommitted fastlane/ changes
+```
+
+After adoption, `git diff fastlane/` shows the real App Store metadata. Commit it. Then `make ship` joins existing build history and `make submit` ships your real metadata.
+
+Detection cue: `make doctor`'s `App Store metadata text files` warning surfaces the `make adopt` hint when BUNDLE_ID is non-placeholder AND ASC API creds are configured.
+
+Full walkthrough: `docs/ADOPTING-EXISTING-APP.md`.
 
 ## When adding a new feature
 

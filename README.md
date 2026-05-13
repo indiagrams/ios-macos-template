@@ -37,6 +37,8 @@ Once `.bootstrap.env` is filled in (see [Getting Started](docs/GETTING-STARTED.m
 
 Returning forkers running their second-or-later ship typically use just `make ship` (subset of `make all`) plus `make submit` when they want to push the build past TestFlight.
 
+**Adopting an existing live App Store app?** Run `make adopt` ONCE after filling `.bootstrap.env` and BEFORE `make submit` — pulls existing ASC metadata + screenshots into the local tree so the first submit ships YOUR real listing, not template placeholders. See [docs/ADOPTING-EXISTING-APP.md](docs/ADOPTING-EXISTING-APP.md).
+
 ---
 
 ## Why this exists
@@ -89,6 +91,10 @@ The five-command journey hides:
 - **Env-driven `pr.yml`** — workflow's `xcodebuild -project / -scheme` arguments resolve `${{ vars.APP_NAME || 'HelloApp' }}`. Forks set repo `vars.APP_NAME` once; the workflow file stays byte-equivalent across template and forks for safe `cp`-mirror.
 - **Fork-friendly CI timeouts** — `pr.yml` job-level cap 60min (was 15); test steps inherit the job cap so a fork's 30-min test suite doesn't hit a template-tuned ceiling. Infrastructure-only steps (build, simulator pre-boot) keep tight bounds so stuck infrastructure fails fast without constraining user test duration.
 - **Single Sat 07:00 UTC canary cron** in [`canary-trigger.yml`](.github/workflows/canary-trigger.yml) — orchestrates three sequential ships (CI xcodegen → CI tuist → local-mode). Forks inherit no cron (the trigger file is template-only); each fork wires its own schedule when ready.
+
+### Existing-app adoption
+- **`make adopt`** — pulls existing App Store metadata + screenshots from ASC into the local tree before first ship. Single command, idempotent, ~30-60 sec total. Closes the catastrophic "fork the template, run `make submit`, clobber my live App Store listing with template placeholders" failure mode. Bundle ID + Team ID + ASC API creds in `.bootstrap.env` is all that's needed; the lane verifies the ASC App record exists, downloads all locales of metadata via `fastlane deliver download_metadata`, downloads all screenshots via `fastlane deliver download_screenshots`, reports the live marketing version for the user to sync into `app/project.yml`. Skipped for greenfield forks (BUNDLE_ID=`com.example.helloapp` placeholder triggers a fail-loud guard). `make doctor`'s metadata-placeholder warning surfaces the `make adopt` hint when the fingerprint matches an existing-app fork.
+- **Hard-stop guard against placeholder bundle IDs** — `bin/adopt.rb` refuses to run if `BUNDLE_ID=com.example.helloapp` or if there are uncommitted changes in `fastlane/metadata` / `fastlane/screenshots`. `FORCE=true make adopt` overrides the latter for deliberate re-syncs.
 
 ### Continuous validation (against real Apple infrastructure)
 - **PR-time, on any change to `bin/lib/bootstrap.rb` / `bin/doctor.rb` / `fastlane/Fastfile` / `.bootstrap.env.example` / `Makefile`**: bootstrap doctor matrix (xcodegen | tuist × ci | local — 4 cells). Catches doctor/bootstrap pipeline regressions before merge. Plus weekly hermetic regression tests (parser, bundle-guard) Mondays 07:00 UTC against runner-image drift.
@@ -178,6 +184,7 @@ Each step is its own fastlane lane in `fastlane/Fastfile`. Read the file — it'
 │   ├── bootstrap-fork.rb        # `make bootstrap-fork` driver
 │   ├── ship.rb                  # `make ship` driver (handles ci|local modes)
 │   ├── verify-testflight.rb     # `make verify` driver
+│   ├── adopt.rb                 # `make adopt` driver (existing-app forks)
 │   ├── lib/bootstrap.rb         # the orchestration framework (17-step pipeline)
 │   ├── rename.sh                # rename HelloApp → YourApp
 │   ├── switch-to-tuist.sh       # one-way XcodeGen → Tuist switch
@@ -255,6 +262,7 @@ If you fork this template and your build breaks unexpectedly, [check the smokete
 - **[docs/APPLE-PREREQS.md](docs/APPLE-PREREQS.md)** — Apple-side setup details, especially the ASC App record.
 - **[docs/CONTINUOUS-VALIDATION.md](docs/CONTINUOUS-VALIDATION.md)** — the catalog of shipping-pipeline gotchas (G1–G14+, covering both CI and local modes). Living document; updated whenever something new is caught by either canary.
 - **[docs/MAINTAINING-A-FORK.md](docs/MAINTAINING-A-FORK.md)** — what to do after the first ship: bumping versions, replacing icons, submitting to App Store review.
+- **[docs/ADOPTING-EXISTING-APP.md](docs/ADOPTING-EXISTING-APP.md)** — the existing-app migration path. If your fork represents an app already live on the App Store (not greenfield), this is how to safely adopt it onto apple-shipkit's release pipeline without clobbering your live listing.
 - **[docs/MIGRATING-TO-TUIST.md](docs/MIGRATING-TO-TUIST.md)** — switching from XcodeGen to Tuist after fork.
 - **[docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md](docs/RELEASE-WITH-APPLE-NATIVE-TOOLS.md)** — same archive/export flow without fastlane (uses `xcrun altool` + `notarytool` + ASC API directly).
 - **[docs/PRINCIPLES.md](docs/PRINCIPLES.md)** — design decisions behind the template's structure.

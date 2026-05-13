@@ -686,7 +686,19 @@ module Bootstrap
         end
       end
       return :done if todos.empty?
-      [:warn, "#{todos.length} files need attention before App Store review:\n  - #{todos.join("\n  - ")}"]
+      msg = +"#{todos.length} files need attention before App Store review:\n  - #{todos.join("\n  - ")}"
+      # If BUNDLE_ID is set to something non-placeholder + ASC API creds are
+      # configured, the user is plausibly adopting an existing live app. Surface
+      # `make adopt` so they don't overwrite their live App Store listing.
+      # Greenfield forks (BUNDLE_ID is the placeholder) just edit the files.
+      bundle_id = config["BUNDLE_ID"].to_s
+      if !bundle_id.empty? && bundle_id != "com.example.helloapp" && ENV["ASC_API_KEY_ID"]
+        msg << "\n\n  If your fork is adopting a LIVE App Store app, do NOT just edit these files —"
+        msg << "\n  running `make submit` would overwrite your real App Store listing with"
+        msg << "\n  the local placeholders. Instead, run `make adopt` first to pull your"
+        msg << "\n  existing ASC metadata + screenshots down to disk. See docs/ADOPTING-EXISTING-APP.md."
+      end
+      [:warn, msg]
     end
 
     def do_it

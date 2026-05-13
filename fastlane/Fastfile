@@ -1361,6 +1361,165 @@ lane :bootstrap_asc do
   end
 end
 
+# ─── Adopt an existing live App Store app ────────────────────────────────────
+#
+# Pulls existing metadata + screenshots from a live ASC App record into the
+# local `fastlane/` tree. Use this on forks adopting an app that's already in
+# the App Store BEFORE running `make submit`, which would otherwise upload
+# the template's placeholder metadata and CLOBBER your live App Store listing.
+#
+# Idempotent — re-running re-syncs from ASC. Existing local files overwritten.
+#
+# Wraps two fastlane CLI subcommands (`fastlane deliver download_metadata` and
+# `fastlane deliver download_screenshots`) via `sh` because they're not exposed
+# as Ruby actions callable from inside a lane. Builds a temporary api_key JSON
+# file from the template's ENV-triple (ASC_API_KEY_ID / ASC_API_KEY_ISSUER_ID /
+# ASC_API_KEY_P8_BASE64) since `deliver` accepts `--api_key_path PATH_TO_JSON`
+# but not the env triple directly.
+desc "Pull existing metadata + screenshots from a live App Store Connect app."
+desc ""
+desc "Use on forks adopting a LIVE App Store app, BEFORE `make submit` (which"
+desc "would otherwise upload local placeholders and clobber the live listing)."
+desc ""
+desc "Driven by `make adopt` (which pre-validates BUNDLE_ID + git-clean state)."
+desc ""
+desc "Options (CLI-passable or env-set):"
+desc "  skip_metadata:true        skip metadata download (faster — screenshots only)"
+desc "  skip_screenshots:true     skip screenshot download (faster — metadata only)"
+lane :adopt_existing_app do |options|
+  app_identifier = APP_IDENTIFIER
+
+  # Hard-stop on the template placeholder — adoption only makes sense for forks
+  # pointing at a REAL bundle id with a real ASC App record. A user running
+  # `make adopt` without setting BUNDLE_ID would otherwise hit an opaque
+  # "App not found" from Spaceship.
+  if app_identifier == "com.example.helloapp"
+    UI.user_error!(
+      "adopt_existing_app: BUNDLE_ID is the template placeholder " \
+      "'com.example.helloapp'. Set your real bundle id in .bootstrap.env " \
+      "first. If this is a greenfield fork (new app, no existing App Store " \
+      "presence), don't run adopt — just edit fastlane/metadata/en-US/*.txt " \
+      "directly with your App Store copy."
+    )
+  end
+
+  asc_api_key  # primes @asc_p8_path on the singleton (before_all also calls it)
+
+  # Build the api_key JSON file deliver's CLI expects. Format documented at
+  # https://docs.fastlane.tools/app-store-connect-api/#using-fastlane-api-key-json-file.
+  # tmpfile cleaned up on process exit (at_exit hook).
+  require "json"
+  require "tmpdir"
+  api_key_json_path = File.join(
+    Dir.tmpdir,
+    "asc_api_key_#{ENV.fetch('ASC_API_KEY_ID')}.json"
+  )
+  File.write(api_key_json_path, JSON.dump(
+    "key_id"    => ENV.fetch("ASC_API_KEY_ID"),
+    "issuer_id" => ENV.fetch("ASC_API_KEY_ISSUER_ID"),
+    "key"       => File.read(@asc_p8_path),
+    "duration"  => 1200,
+    "in_house"  => false,
+  ))
+  File.chmod(0600, api_key_json_path)
+  at_exit do
+    File.unlink(api_key_json_path) if File.exist?(api_key_json_path)
+  rescue StandardError
+    # Best-effort cleanup; don't blow up the exit path.
+  end
+
+  repo_root        = File.expand_path("..", __dir__)
+  metadata_path    = File.join(repo_root, "fastlane", "metadata")
+  screenshots_path = File.join(repo_root, "fastlane", "screenshots")
+
+  # Verify the app exists on ASC before downloading anything. Spaceship's
+  # `App.find` returns nil on miss; we surface that with actionable next steps
+  # instead of letting `deliver download_metadata` fail later with a less
+  # informative error.
+  require "spaceship"
+  Spaceship::ConnectAPI.token ||= Spaceship::ConnectAPI::Token.create(
+    key_id:    ENV.fetch("ASC_API_KEY_ID"),
+    issuer_id: ENV.fetch("ASC_API_KEY_ISSUER_ID"),
+    key:       File.read(@asc_p8_path),
+  )
+
+  app = Spaceship::ConnectAPI::App.find(app_identifier)
+  unless app
+    UI.user_error!(
+      "adopt_existing_app: no ASC App record found for bundle " \
+      "'#{app_identifier}' on team #{ENV['FASTLANE_TEAM_ID']}.\n" \
+      "Verify:\n" \
+      "  1. BUNDLE_ID in .bootstrap.env is your real app's bundle id\n" \
+      "  2. FASTLANE_TEAM_ID in .bootstrap.env owns the app\n" \
+      "  3. ASC_API_KEY_* credentials have ASC access for this team\n" \
+      "If your fork is greenfield (no existing App Store app), don't run " \
+      "adopt — `make doctor` + `make all` is the greenfield path."
+    )
+  end
+
+  UI.header("Adopting: #{app.name} (#{app_identifier})")
+
+  # Resolve skip flags from both options-hash (CLI: skip_metadata:true) and env
+  # (Makefile target users typically pass via `make adopt SKIP_METADATA=true`).
+  skip_metadata    = options[:skip_metadata].to_s == "true"    || ENV["SKIP_METADATA"]    == "true"
+  skip_screenshots = options[:skip_screenshots].to_s == "true" || ENV["SKIP_SCREENSHOTS"] == "true"
+
+  if skip_metadata
+    UI.message("Skipping metadata download (SKIP_METADATA=true)")
+  else
+    UI.header("Pulling metadata → fastlane/metadata/")
+    sh(
+      "bundle exec fastlane deliver download_metadata " \
+      "--api_key_path #{api_key_json_path.shellescape} " \
+      "--app_identifier #{app_identifier.shellescape} " \
+      "--metadata_path #{metadata_path.shellescape}"
+    )
+    UI.success("Metadata downloaded to #{metadata_path}")
+  end
+
+  if skip_screenshots
+    UI.message("Skipping screenshot download (SKIP_SCREENSHOTS=true)")
+  else
+    UI.header("Pulling screenshots → fastlane/screenshots/")
+    sh(
+      "bundle exec fastlane deliver download_screenshots " \
+      "--api_key_path #{api_key_json_path.shellescape} " \
+      "--app_identifier #{app_identifier.shellescape} " \
+      "--screenshots_path #{screenshots_path.shellescape}"
+    )
+    UI.success("Screenshots downloaded to #{screenshots_path}")
+  end
+
+  # Report current ASC marketing version so the user knows what to set their
+  # local app/project.yml or app/Project.swift to. We deliberately do NOT
+  # auto-edit those files — the user might be doing a deliberate version
+  # bump simultaneously, or their version string might be a custom format
+  # (3.4.2-rc1 etc.) the template's auto-substitution would mangle.
+  begin
+    versions = Spaceship::ConnectAPI::AppStoreVersion.all(
+      app_id: app.id,
+      sort:   "-createdDate",
+      limit:  5
+    )
+    if versions.any?
+      latest = versions.first
+      UI.header("Marketing version sync")
+      UI.message("  Latest ASC version: #{latest.version_string} (state: #{latest.app_store_state})")
+      UI.message("  Update MARKETING_VERSION in app/project.yml (or app/Project.swift)")
+      UI.message("  to #{latest.version_string} or higher before `make ship`.")
+      UI.message("  apple-shipkit's CFBundleVersion auto-bump handles build-number side.")
+    end
+  rescue StandardError => e
+    UI.important("Couldn't fetch ASC version info (non-fatal): #{e.message[0, 200]}")
+  end
+
+  UI.success("\nAdoption complete. Next steps:")
+  UI.message("  1. Review: git diff fastlane/metadata fastlane/screenshots")
+  UI.message("  2. Commit: git add fastlane/ && git commit -m 'chore: adopt existing ASC app state'")
+  UI.message("  3. Sync MARKETING_VERSION in app/project.yml (or app/Project.swift) if needed")
+  UI.message("  4. `make ship` joins existing build history; `make submit` ships YOUR metadata")
+end
+
 
 # ─── iOS lanes ────────────────────────────────────────────────────────────────
 platform :ios do

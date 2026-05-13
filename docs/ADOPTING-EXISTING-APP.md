@@ -28,7 +28,7 @@ The template's `make doctor` step `Register Bundle ID in Apple Developer Portal`
 ### 1. Fork the template + rename
 
 ```bash
-gh repo create my-existing-app --template=indiagrams/apple-shipkit --private
+gh repo create my-existing-app --template=indiagrams/apple-shipkit --private --clone
 cd my-existing-app
 bin/rename.sh MyExistingApp com.theirteam.myexistingapp
 ```

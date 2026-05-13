@@ -2,8 +2,8 @@
 
 # Shared library for `bin/doctor.rb` (read-only) and `bin/bootstrap-fork.rb`
 # (idempotent driver). Reads `.bootstrap.env`, validates config, exposes a
-# pipeline of 18 step classes. CI mode runs 17 steps with default
-# PLATFORMS=ios,macos; local mode runs 17. Each step has a `check`
+# pipeline of 19 step classes. CI mode runs 18 steps with default
+# PLATFORMS=ios,macos; local mode runs 18. Each step has a `check`
 # (returns bool, no side effects)
 # and a `do_it` (idempotent: safe to re-run on partial state).
 #
@@ -873,6 +873,76 @@ module Bootstrap
     end
   end
 
+  class DefaultKeychain < Step
+    def name; "Default keychain set"; end
+
+    def check
+      # Linux runners have no Keychain Services — skip cleanly.
+      return :done unless RUBY_PLATFORM.include?("darwin")
+
+      # `security default-keychain -d user` prints the path on success; on
+      # failure prints `SecKeychainCopyDomainDefault user: A default keychain
+      # could not be found.` to stderr and exits 1. The MISSING-default state
+      # surfaces silently for normal macOS use (Keychain Access, Wi-Fi auth,
+      # browser saved passwords all work without a default — they walk the
+      # search list) but breaks the `security cms -D -i <profile>` decode
+      # that fastlane's sigh runs internally on every freshly-minted
+      # provisioning profile. Caller-visible failure: `make ship` aborts at
+      # sigh step with `Failure to decode <profile>. Exit: 1: security: cert
+      # import failed: A default keychain could not be found.`
+      #
+      # Most common cause: a prior `security delete-keychain` removed a
+      # keychain that was marked as the user-default (fastlane's setup_ci
+      # sets its temp keychain as default via `default_keychain: true`).
+      # Deleting it leaves the user with no default until they re-set one.
+      # Less common: corrupted preferences in ~/Library/Preferences/.
+      _out, ok = Sh.run("security", "default-keychain", "-d", "user")
+      return :done if ok
+      [:warn, missing_default_msg]
+    end
+
+    def do_it
+      # No-op. Mutating user-keychain state stays user-controlled — same
+      # policy as XcodeQuarantine + FastlaneTmpKeychain. The fix is a
+      # single command (no sudo, ~1ms) and we surface it inline; the user
+      # decides whether to run. We deliberately don't `do_it` because:
+      #   1. If login.keychain-db is missing or corrupted, blindly setting
+      #      it as default would leave the user with a broken default
+      #      pointing at a non-existent or unreadable file — worse than
+      #      the current state where Keychain Services walks the search
+      #      list and works for read paths.
+      #   2. The user may have intentionally unset the default (some
+      #      hardened-mac setups deliberately have no default to force
+      #      explicit -k keychain-path arguments on every security call).
+      #      Auto-setting it would silently undo that choice.
+    end
+
+    private
+
+    def missing_default_msg
+      <<~MSG.strip
+        No default keychain set in user domain.
+          fastlane's sigh (called by `make ship`) decodes provisioning profiles
+          via `security cms -D -i <profile>`, which REQUIRES a default keychain
+          to be set. Without one, sigh fails with `Failure to decode <profile>.
+          Exit: 1: security: cert import failed: A default keychain could not
+          be found.` — `make ship` aborts before any signing happens.
+          Most common cause: a prior `security delete-keychain` (e.g. cleaning
+          up a leaked fastlane temp keychain via the FastlaneTmpKeychain advisory)
+          removed the keychain that was set as default. Apps that walk the
+          search list (Keychain Access, browser saved passwords, Wi-Fi auth)
+          keep working — only tools that probe SecKeychainCopyDomainDefault
+          notice. fastlane's sigh is one of those tools.
+          To fix (one-time, ~1ms, no sudo):
+            security default-keychain -d user -s ~/Library/Keychains/login.keychain-db
+          login.keychain-db is the standard macOS default; restoring it is the
+          textbook recovery. If you've never had a login keychain (rare on
+          consumer Macs) or want a different default, point -s at any existing
+          .keychain-db file in your search list. Re-run `make ship` after.
+      MSG
+    end
+  end
+
   class FastlaneTmpKeychain < Step
     def name; "Leaked fastlane temp keychains"; end
 
@@ -921,9 +991,17 @@ module Bootstrap
           repeatedly prompt for the temp keychain's password.
           To clear permanently (one-time, ~1 sec, no sudo):
             security delete-keychain ~/Library/Keychains/fastlane_tmp_keychain-db
-          Safe to delete — these keychains hold throwaway CI signing identities,
-          never real secrets. The next legitimate fastlane CI run recreates one
-          on demand and cleans it up on exit.
+          IMPORTANT — restore default keychain afterward:
+            security default-keychain -d user -s ~/Library/Keychains/login.keychain-db
+          fastlane's setup_ci sets its temp keychain as the user default via
+          `default_keychain: true`. `delete-keychain` removes it from the search
+          list AND deletes the file but leaves the user with NO default — which
+          breaks `security cms -D` (used by sigh during `make ship`) and causes
+          `make ship` to abort at the sigh step. The DefaultKeychain doctor step
+          will catch this independently, but the two-step cleanup avoids that
+          loop entirely. Safe to delete — these keychains hold throwaway CI
+          signing identities, never real secrets. The next legitimate fastlane CI
+          run recreates one on demand and cleans it up on exit.
       MSG
     end
   end
@@ -1168,7 +1246,8 @@ module Bootstrap
       ScanScreenshots,
       AppPrivacyForm,        # informational; queries ASC for App Privacy publish state
       XcodeQuarantine,       # informational; advisory-only check for com.apple.quarantine xattr on Xcode.app
-      FastlaneTmpKeychain    # informational; advisory-only check for leaked setup_ci temp keychains
+      FastlaneTmpKeychain,   # informational; advisory-only check for leaked setup_ci temp keychains
+      DefaultKeychain        # informational; advisory-only check that user-domain default keychain is set
     ].freeze
 
     def initialize(config)

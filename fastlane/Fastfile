@@ -1468,26 +1468,75 @@ lane :adopt_existing_app do |options|
     UI.message("Skipping metadata download (SKIP_METADATA=true)")
   else
     UI.header("Pulling metadata → fastlane/metadata/")
+    # Snapshot existing files' mtimes so we can detect whether `deliver
+    # download_metadata` actually wrote anything. Required because deliver
+    # has a silent-no-op failure mode (see below) where it returns exit 0
+    # without writing any files — and our subsequent UI.success would lie.
+    pre_meta_mtimes = Dir.glob(File.join(metadata_path, "**", "*.txt")).each_with_object({}) do |f, h|
+      h[f] = File.mtime(f)
+    end
+    # `--force` is REQUIRED. fastlane 2.233.x's `deliver download_metadata`
+    # gates the download behind `force_overwrite_metadata?` which:
+    #   - returns true if --force is passed (or DELIVER_FORCE_OVERWRITE=true env)
+    #   - prompts y/n if UI.interactive? (TTY attached)
+    #   - returns nil otherwise → command immediately `return 0` without writing
+    # We're invoked via `sh "bundle exec ..."` from inside another fastlane
+    # lane → no TTY → no --force ⇒ silent no-op. The deliver subcommand log
+    # output looks identical to a real download (summary table prints, exit 0
+    # returned), but zero files are touched. Caller-visible: every existing-app
+    # fork's `make adopt` returned success while pulling nothing. Belt-and-
+    # suspenders: also export DELIVER_FORCE_OVERWRITE=true via the sh env.
     sh(
+      { "DELIVER_FORCE_OVERWRITE" => "true" },
       "bundle exec fastlane deliver download_metadata " \
+      "--force " \
       "--api_key_path #{api_key_json_path.shellescape} " \
       "--app_identifier #{app_identifier.shellescape} " \
       "--metadata_path #{metadata_path.shellescape}"
     )
-    UI.success("Metadata downloaded to #{metadata_path}")
+    # Verify deliver actually wrote files. Counts files whose mtime advanced
+    # relative to the pre-snapshot, plus brand-new files that didn't exist
+    # before. If zero, the silent-no-op bug fired anyway (e.g. fastlane was
+    # upgraded to a version that re-broke this), and we MUST surface it
+    # rather than ship a false-success message that the user trusts and
+    # commits over real ASC state.
+    post_meta_files = Dir.glob(File.join(metadata_path, "**", "*.txt"))
+    rewritten = post_meta_files.count { |f| pre_meta_mtimes[f].nil? || File.mtime(f) > pre_meta_mtimes[f] }
+    if rewritten.zero?
+      UI.user_error!(
+        "deliver download_metadata returned success but wrote 0 files to " \
+        "#{metadata_path}.\n\n" \
+        "This is the fastlane silent-no-op bug: `force_overwrite_metadata?` " \
+        "returned false in non-interactive mode, so download_metadata exited " \
+        "0 without doing any work. Our lane already passes --force; if you're " \
+        "seeing this, fastlane's gate logic likely changed in a newer " \
+        "version. File an issue at indiagrams/apple-shipkit. Workaround: try " \
+        "`bundle update fastlane` and re-run `make adopt`."
+      )
+    end
+    UI.success("Metadata downloaded to #{metadata_path} (#{rewritten} of #{post_meta_files.size} files updated)")
   end
 
   if skip_screenshots
     UI.message("Skipping screenshot download (SKIP_SCREENSHOTS=true)")
   else
     UI.header("Pulling screenshots → fastlane/screenshots/")
+    # Pre-count screenshots so the success line can report what changed.
+    # download_screenshots does NOT have the silent-no-op gate that metadata
+    # does (no force_overwrite_screenshots? wrapper), but we mirror the
+    # post-snapshot for parity and to surface "downloaded 0 screenshots"
+    # cases — common for fresh ASC App records with PREPARE_FOR_SUBMISSION
+    # versions where the user hasn't uploaded screenshots yet.
+    pre_shot_files = Dir.glob(File.join(screenshots_path, "**", "*.{png,jpg,jpeg}"))
     sh(
       "bundle exec fastlane deliver download_screenshots " \
       "--api_key_path #{api_key_json_path.shellescape} " \
       "--app_identifier #{app_identifier.shellescape} " \
       "--screenshots_path #{screenshots_path.shellescape}"
     )
-    UI.success("Screenshots downloaded to #{screenshots_path}")
+    post_shot_files = Dir.glob(File.join(screenshots_path, "**", "*.{png,jpg,jpeg}"))
+    delta = post_shot_files.size - pre_shot_files.size
+    UI.success("Screenshots downloaded to #{screenshots_path} (#{post_shot_files.size} files total#{delta != 0 ? ", #{delta > 0 ? '+' : ''}#{delta} change" : ''})")
   end
 
   # Report current ASC marketing version so the user knows what to set their

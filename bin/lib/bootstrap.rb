@@ -497,13 +497,31 @@ module Bootstrap
 
   class GHSecrets < Step
     MODES = %w[ci].freeze
-    def name; "Set 5 GH Secrets on app repo"; end
+
+    # GH Actions repo Variables (not Secrets) required by both release.yml +
+    # pr.yml. Workflows read these via `${{ vars.APP_NAME }}` /
+    # `${{ vars.BUNDLE_ID }}` at workflow-level env blocks. Distinct from
+    # secrets because they're non-sensitive identity strings the user
+    # purposely wants visible in logs (e.g. so a workflow failure cleanly
+    # shows which app+bundle triggered). They MUST be set for CI-mode
+    # release.yml to compute the release tag (release.yml fails fast with
+    # `vars.BUNDLE_ID is not set on this repo` if missing); pr.yml falls
+    # back to 'HelloApp' literals when unset, which won't match a renamed
+    # fork's scheme/xcodeproj — so PR CI also breaks silently without these.
+    REQUIRED_VARIABLES = %w[APP_NAME BUNDLE_ID].freeze
+
+    def name; "Set 5 GH Secrets + 2 GH Variables on app repo"; end
 
     def check
       out, ok = Sh.run("gh", "secret", "list", "--repo", config.repo_slug)
       return :pending unless ok
-      present = out.lines.map { |l| l.split(/\s+/).first }.compact
-      REQUIRED_SECRETS.all? { |s| present.include?(s) } ? :done : :pending
+      secrets_present = out.lines.map { |l| l.split(/\s+/).first }.compact
+      return :pending unless REQUIRED_SECRETS.all? { |s| secrets_present.include?(s) }
+
+      out, ok = Sh.run("gh", "variable", "list", "--repo", config.repo_slug)
+      return :pending unless ok
+      vars_present = out.lines.map { |l| l.split(/\s+/).first }.compact
+      REQUIRED_VARIABLES.all? { |v| vars_present.include?(v) } ? :done : :pending
     end
 
     def do_it
@@ -513,7 +531,7 @@ module Bootstrap
       p8 = config.expand_path("ASC_API_KEY_P8_PATH").read
       p8_base64 = Base64.strict_encode64(p8)
 
-      values = {
+      secrets = {
         "KEYCHAIN_PASSWORD"             => keychain_pw,
         "ASC_API_KEY_ID"                => config["ASC_API_KEY_ID"],
         "ASC_API_KEY_ISSUER_ID"         => config["ASC_API_KEY_ISSUER_ID"],
@@ -521,9 +539,25 @@ module Bootstrap
         "FASTLANE_TEAM_ID"              => config["FASTLANE_TEAM_ID"]
       }
 
-      values.each do |key, val|
+      secrets.each do |key, val|
         IO.popen(["gh", "secret", "set", key, "--repo", config.repo_slug], "w") { |io| io.write(val) }
         UI.fail!("gh secret set #{key} failed") unless $?.success?
+      end
+
+      # Set the workflow-level repo Variables. These are non-sensitive and
+      # accept `--body` directly (vs secrets which read from stdin to avoid
+      # leaking through process listings). `gh variable set` is idempotent:
+      # re-running overwrites the prior value silently, so this is safe to
+      # re-invoke (e.g. after the user changes APP_NAME / BUNDLE_ID in
+      # `.bootstrap.env` and re-runs `make bootstrap-fork`).
+      variables = {
+        "APP_NAME"  => config["APP_NAME"],
+        "BUNDLE_ID" => config["BUNDLE_ID"]
+      }
+
+      variables.each do |key, val|
+        UI.fail!("#{key} is empty in .bootstrap.env; cannot set as GH variable") if val.to_s.strip.empty?
+        Sh.run!("gh", "variable", "set", key, "--body", val, "--repo", config.repo_slug)
       end
     end
 

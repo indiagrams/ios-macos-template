@@ -48,8 +48,8 @@ env_path.each_line do |line|
   config[k.strip] = v.strip
 end
 
-# ENV wins over file (Makefile's _LOAD_PARENT_ENV already loaded
-# ~/code/.bootstrap.env into ENV before exec'ing this script).
+# ENV wins over file when set (lets shell exports / .envrc / CI env block
+# override the per-fork file for one-off invocations).
 get = ->(key) { ENV[key].to_s.empty? ? config[key] : ENV[key] }
 
 required = %w[APP_NAME BUNDLE_ID FASTLANE_TEAM_ID ASC_API_KEY_ID ASC_API_KEY_ISSUER_ID]
@@ -57,7 +57,7 @@ missing = required.reject { |k| !get.call(k).to_s.empty? }
 if missing.any?
   fail!(
     "Missing required env vars: #{missing.join(', ')}.\n" \
-    "Set them in .bootstrap.env (or ~/code/.bootstrap.env for cross-fork values).\n" \
+    "Set them in .bootstrap.env, or export from your shell / .envrc.\n" \
     "See docs/BOOTSTRAP.md for the field reference."
   )
 end

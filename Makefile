@@ -51,26 +51,20 @@ ifneq ($(wildcard $(_RUBY_BIN)/ruby),)
 else
   _BUNDLE := bundle
 endif
-# Auto-load shared cross-fork config from $HOME/code/.bootstrap.env if present.
-# Forkers shipping multiple apps from this template keep cross-fork values
-# (APP_REVIEW_* contact info, FASTLANE_TEAM_ID, ASC_API_KEY_*, GH_ORG, demo
-# creds) once in `~/code/.bootstrap.env` — gitignored, lives outside any
-# clone. Per-fork values (APP_NAME, BUNDLE_ID, DISPLAY_NAME, GH_APP_REPO,
-# ICON_1024_PATH) stay in each clone's in-repo `.bootstrap.env` and always
-# win — bin/lib/bootstrap.rb's Config.parse reads the in-repo file LAST.
+# Per-fork configuration lives in each clone's in-repo `.bootstrap.env` (gitignored,
+# `.bootstrap.env.example` is the schema). Ruby drivers under bin/ read it directly
+# via Bootstrap::Config.load!; fastlane lanes read it via `_fork_config` helper
+# in fastlane/Fastfile.
 #
-# `set -a; . $(_PARENT_ENV); set +a;` is POSIX-portable (sh/dash/bash) and
-# turns every assignment in the dotenv into an exported env var for the
-# subprocess that follows. Targets that don't touch Apple/GH/review creds
-# (bootstrap, format, check*, generate, icons, init, setup-github,
-# phase-checklist, milestone-checklist) skip the load — no point burning
-# a fork+exec per invocation.
-#
-# Wildcard evaluated at Make parse time. The `true;` else-branch is a
-# zero-cost no-op when the file is absent (typical for forkers who keep
-# everything in the in-repo .bootstrap.env).
-_PARENT_ENV := $(HOME)/code/.bootstrap.env
-_LOAD_PARENT_ENV := $(if $(wildcard $(_PARENT_ENV)),set -a; . $(_PARENT_ENV); set +a;,true;)
+# To share values across multiple forks on the same machine (cross-fork ASC API
+# key, team ID, App Review contact info), use any of:
+#   - direnv .envrc per fork directory
+#   - shell profile exports (~/.zshrc, ~/.bashrc)
+#   - 1Password CLI / pass / etc. piped into the shell
+#   - per-invocation: APP_REVIEW_FIRST_NAME="Foo" make submit
+# The template deliberately does NOT auto-source any file outside the fork —
+# baking a specific filesystem layout into the template was confusing forkers
+# and silently leaking per-fork keys (BUNDLE_ID etc.) across fork boundaries.
 
 .PHONY: all go bootstrap check check-ios check-macos check-sim build generate icons screenshots release-dryrun setup-github phase-checklist milestone-checklist help init doctor bootstrap-fork ship verify submit mint-local-certs clean-revoked-certs revoke-orphan-certs format format-check _check-bundle
 
@@ -151,10 +145,10 @@ icons:
 	  app/macOS/Resources/AppIcon.icns
 
 screenshots: _check-bundle
-	@$(_LOAD_PARENT_ENV) ci/take-screenshots.sh
+	@ci/take-screenshots.sh
 
 release-dryrun: _check-bundle
-	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec fastlane release tag:v0.0.0 skip_upload:true skip_tag:true
+	@$(_BUNDLE) exec fastlane release tag:v0.0.0 skip_upload:true skip_tag:true
 
 setup-github:
 	bin/setup-github.sh
@@ -163,31 +157,31 @@ init:
 	@bin/init-bootstrap-env.sh
 
 doctor: _check-bundle
-	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/doctor.rb
+	@$(_BUNDLE) exec ruby bin/doctor.rb
 
 bootstrap-fork: _check-bundle
-	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/bootstrap-fork.rb
+	@$(_BUNDLE) exec ruby bin/bootstrap-fork.rb
 
 ship: _check-bundle
-	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/ship.rb
+	@$(_BUNDLE) exec ruby bin/ship.rb
 
 verify: _check-bundle
-	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/verify-testflight.rb
+	@$(_BUNDLE) exec ruby bin/verify-testflight.rb
 
 submit: _check-bundle
-	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/submit.rb
+	@$(_BUNDLE) exec ruby bin/submit.rb
 
 adopt: _check-bundle ## Pull metadata + screenshots from a live ASC app (existing-app forks)
-	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/adopt.rb
+	@$(_BUNDLE) exec ruby bin/adopt.rb
 
 mint-local-certs: _check-bundle
-	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/mint-local-certs.rb
+	@$(_BUNDLE) exec ruby bin/mint-local-certs.rb
 
 clean-revoked-certs: _check-bundle
-	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/clean-revoked-certs.rb $(if $(YES),--yes,) $(if $(DRY_RUN),--dry-run,)
+	@$(_BUNDLE) exec ruby bin/clean-revoked-certs.rb $(if $(YES),--yes,) $(if $(DRY_RUN),--dry-run,)
 
 revoke-orphan-certs: _check-bundle
-	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/revoke-orphan-certs.rb $(if $(YES),--yes,) $(if $(DRY_RUN),--dry-run,)
+	@$(_BUNDLE) exec ruby bin/revoke-orphan-certs.rb $(if $(YES),--yes,) $(if $(DRY_RUN),--dry-run,)
 
 # Guard for bundle-using targets above. Fails fast with an actionable hint
 # when ruby gems aren't installed yet (typical on a fresh fork before

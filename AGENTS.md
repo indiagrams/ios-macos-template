@@ -131,10 +131,9 @@ The single source of truth for fork-specific identity + config:
 | Many more | `docs/BOOTSTRAP.md` and `.bootstrap.env.example` |
 
 Reading order in code:
-1. Workflow env (`vars.*` / `secrets.*`)
-2. `~/code/.bootstrap.env` (cross-fork user-level)
-3. `.bootstrap.env` (per-fork)
-4. Fail-loud placeholders (`HelloApp`, `com.example.helloapp`, `+10000000000`, `example.com`)
+1. Workflow env (`vars.*` / `secrets.*` from CI; shell exports / `.envrc` for local)
+2. `.bootstrap.env` (per-fork)
+3. Fail-loud placeholders (`HelloApp`, `com.example.helloapp`, `+10000000000`, `example.com`)
 
 ## Commit + PR conventions
 

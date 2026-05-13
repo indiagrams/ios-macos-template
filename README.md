@@ -18,6 +18,8 @@
 </p>
 
 > **First time shipping an iOS or Mac app?** Start with **[docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)** — every prerequisite, every Apple-side click, 30–60 minutes to your first TestFlight build.
+>
+> **Using AI coding agents (Claude Code, Cursor, Codex, etc.) to build the app?** Start them with **[AGENTS.md](AGENTS.md)** — fork-extensibility invariants, file-ownership map, antipatterns to avoid. Vendor-neutral [agents.md](https://agents.md/) format; one file, every major agent.
 
 ---
 
@@ -247,6 +249,7 @@ If you fork this template and your build breaks unexpectedly, [check the smokete
 
 ## Going deeper
 
+- **[AGENTS.md](AGENTS.md)** — context file for AI coding agents (Claude Code, Cursor, Codex, Aider, Gemini CLI, Devin, etc.). Critical invariants, file-ownership map, antipatterns, doc index. Read by agents before they touch the tree. [`agents.md`](https://agents.md/) format, vendor-neutral.
 - **[docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)** — first-time shipper walkthrough. Apple Developer enrollment, ASC API key, the full `.bootstrap.env` configuration, your first `make all`. **Start here if you've never shipped before.**
 - **[docs/BOOTSTRAP.md](docs/BOOTSTRAP.md)** — every field of `.bootstrap.env` explained; CI-mode setup; manual fallback if you want to drive the bootstrap by hand.
 - **[docs/APPLE-PREREQS.md](docs/APPLE-PREREQS.md)** — Apple-side setup details, especially the ASC App record.

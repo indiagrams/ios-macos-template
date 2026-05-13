@@ -177,6 +177,9 @@ verify: _check-bundle
 submit: _check-bundle
 	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/submit.rb
 
+adopt: _check-bundle ## Pull metadata + screenshots from a live ASC app (existing-app forks)
+	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/adopt.rb
+
 mint-local-certs: _check-bundle
 	@$(_LOAD_PARENT_ENV) $(_BUNDLE) exec ruby bin/mint-local-certs.rb
 

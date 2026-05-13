@@ -46,12 +46,12 @@ make verify
 
 | | `ci` (default) | `local` |
 |---|---|---|
-| **Setup includes** | 5 GH Secrets, branch protection, ASC App verify | Login keychain identities check, branch protection, ASC App verify |
+| **Setup includes** | 5 GH Secrets + 2 GH Variables, branch protection, ASC App verify | Login keychain identities check, branch protection, ASC App verify |
 | **`make ship` does** | Triggers `.github/workflows/release.yml` on the app repo | Runs `bundle exec fastlane release tag:v<MARKETING>+<BUILD>` on this machine (marketing version read from project file; build number resolved from ASC) |
 | **Signing material lives** | Minted fresh on the GitHub Actions runner per release run, then revoked at the end of the run (net cert delta = 0). Nothing is persisted between runs. | In your login keychain (Apple Distribution + Apple Development + 3rd Party Mac Developer Installer for macOS) |
 | **Who can release** | Anyone with push to the app repo + a working `gh auth login` (the ASC API key is already in GH Secrets) | Only this laptop |
 | **Best for** | Teams, weekly TestFlight cron, repeatable builds | Solo devs, fast iteration, no shared CI |
-| **Cost to bootstrap** | ~5 min (5 secrets + branch protection + ASC App verify) | ~3 min (just verify keychain has the certs) |
+| **Cost to bootstrap** | ~5 min (5 secrets + 2 variables + branch protection + ASC App verify) | ~3 min (just verify keychain has the certs) |
 
 Both modes drive the same `fastlane/Fastfile` release lane. The lane is
 sigh-based in both modes — the only difference is *where the signing certs
@@ -62,9 +62,12 @@ in v1.6+.
 
 You can switch modes later by editing `RELEASE_MODE` and re-running
 `make bootstrap-fork`. Going `local → ci`: bootstrap sets the 5 GH Secrets
-and configures branch protection. Going `ci → local`: bootstrap leaves the
-GH Secrets in place (they're inert if `release.yml` is never triggered)
-and CI just stops being invoked.
+(`KEYCHAIN_PASSWORD`, `ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`,
+`ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`) + the 2 GH Variables
+(`APP_NAME`, `BUNDLE_ID`) and configures branch protection. Going
+`ci → local`: bootstrap leaves the GH Secrets + Variables in place
+(they're inert if `release.yml` is never triggered) and CI just stops
+being invoked.
 
 > **Note for private repos on the free GitHub plan:** GitHub gates branch
 > protection on private repos behind paid plans (Pro / Team / Enterprise).
@@ -146,7 +149,7 @@ Mode key: ⚪ both, 🅒 ci-only, 🅛 local-only, 🍎 macOS-only.
 | 7 | `MakeIcons` | 🍎 | `make icons` — regenerates the macOS `.icns` from the 1024 PNG. Runs only when `PLATFORMS` includes `macos`. |
 | 8 | `InitialPush` | ⚪ | First commit (rename + icons) pushed to `origin/main` |
 | 9 | `BranchProtection` | ⚪ | `bin/setup-github.sh` (required checks: swiftlint + swiftformat + xcodegen iOS device/sim + macOS + tuist parity, squash-only, linear history) |
-| 10 | `GHSecrets` | 🅒 | Generates `KEYCHAIN_PASSWORD` if absent, encodes the `.p8`, sets the 5 GH Secrets (`KEYCHAIN_PASSWORD`, `ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`) on the app repo |
+| 10 | `GHSecrets` | 🅒 | Generates `KEYCHAIN_PASSWORD` if absent, encodes the `.p8`, sets the 5 GH Secrets (`KEYCHAIN_PASSWORD`, `ASC_API_KEY_ID`, `ASC_API_KEY_ISSUER_ID`, `ASC_API_KEY_P8_BASE64`, `FASTLANE_TEAM_ID`) AND the 2 GH Variables (`APP_NAME`, `BUNDLE_ID`) on the app repo. The Variables are non-sensitive identity strings read by `release.yml` + `pr.yml` at workflow-level `env:` blocks via `${{ vars.APP_NAME }}` / `${{ vars.BUNDLE_ID }}`. Without them, `release.yml` fails fast at the "Compute release tag" step with `vars.BUNDLE_ID is not set on this repo` and `pr.yml` silently falls back to the literal `'HelloApp'` scheme name which won't match a renamed fork's xcodeproj. |
 | 11 | `RegisterAppId` | ⚪ | `fastlane register_app_id` (idempotent — Spaceship `BundleId.create` rescues `ALREADY_EXISTS`) |
 | 12 | `VerifyAscApp` | ⚪ | Probes for the App record. **Fails loud with web-UI instructions if missing** — Apple disallows `POST /apps`, so this is the one human-gated step inside the pipeline |
 | 13 | `LocalKeychainCerts` | 🅛 | Auto-mints any missing local-mode cert types (Apple Distribution, Apple Development, and — when shipping macOS — 3rd Party Mac Developer Installer) via `fastlane cert` into `login.keychain-db`. New in v1.4 — replaces the v1.3 hard-blocker requiring manual remediation. |

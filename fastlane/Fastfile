@@ -1496,12 +1496,16 @@ lane :adopt_existing_app do |options|
   # bump simultaneously, or their version string might be a custom format
   # (3.4.2-rc1 etc.) the template's auto-substitution would mangle.
   begin
-    versions = Spaceship::ConnectAPI::AppStoreVersion.all(
-      app_id: app.id,
-      sort:   "-createdDate",
-      limit:  5
-    )
-    if versions.any?
+    # Use the instance method on the already-resolved App object. The
+    # `Spaceship::ConnectAPI::AppStoreVersion.all(app_id: …)` class-method
+    # form doesn't exist in spaceship 2.233.x; tracked at fastlane/fastlane
+    # in passing across multiple issue threads (no clean canonical reference).
+    # `get_app_store_versions` returns up to 10 most-recent versions across
+    # all states (live, ready-for-sale, prepare-for-submission, in-review,
+    # etc.); take the first 5 to mirror the prior limit semantics.
+    versions = app.get_app_store_versions
+    versions = versions.first(5) if versions.is_a?(Array)
+    if versions && !versions.empty?
       latest = versions.first
       UI.header("Marketing version sync")
       UI.message("  Latest ASC version: #{latest.version_string} (state: #{latest.app_store_state})")

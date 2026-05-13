@@ -305,7 +305,7 @@ If you see `✗` (red) marks instead, doctor will tell you exactly what's missin
 > - Wrong Team ID → copy from Step 3 again
 > - "ASC App record not found" → see the callout above; this is the manual ASC step.
 
-When every step is `✓` or `⚠`, you're ready. (The pipeline runs 17 steps total; one of `Set 5 GH Secrets on app repo` (CI-only) or `Local keychain has signing identities` (local-only) swaps in based on your `RELEASE_MODE`, so the per-mode total is 17. With `PLATFORMS=ios` the macOS-only icon-regen step drops out, leaving 16.)
+When every step is `✓` or `⚠`, you're ready. (The pipeline runs 18 steps total; one of `Set 5 GH Secrets on app repo` (CI-only) or `Local keychain has signing identities` (local-only) swaps in based on your `RELEASE_MODE`, so the per-mode total is 18. With `PLATFORMS=ios` the macOS-only icon-regen step drops out, leaving 17.)
 
 ---
 

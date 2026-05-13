@@ -65,6 +65,19 @@ You can switch modes later by editing `RELEASE_MODE` and re-running
 and configures branch protection. Going `ci → local`: bootstrap leaves the
 GH Secrets in place (they're inert if `release.yml` is never triggered)
 and CI just stops being invoked.
+
+> **Note for private repos on the free GitHub plan:** GitHub gates branch
+> protection on private repos behind paid plans (Pro / Team / Enterprise).
+> Public repos get it for free. If your repo is private + free, `bin/setup-github.sh`
+> applies the squash-only merge / auto-merge / auto-delete head branches
+> settings (which DO work on free plans) and emits a clear advisory with
+> three options (make repo public, upgrade to Pro, or accept no protection).
+> `make bootstrap-fork` continues to the remaining steps; `make doctor`
+> surfaces this as a ⚠ advisory rather than ✗ pending. The template ships
+> fine without branch protection — the trade-off is that anyone with write
+> access can push directly to main without a PR or CI gate. Fine for solo
+> work; teams typically want one of the three resolutions surfaced in the
+> doctor output.
 ## Platforms
 
 `.bootstrap.env` has a `PLATFORMS` field that gates which targets get built, signed, and uploaded. Three valid values:

@@ -181,13 +181,62 @@ JSON
 )
 
 # `--input -` reads JSON body from stdin. PUT replaces existing protection.
-echo "$PROTECTION_JSON" | gh api -X PUT "repos/$REPO/branches/main/protection" \
+# Capture stderr separately so we can detect the "Upgrade to GitHub Pro"
+# response on free private repos (HTTP 403 — branch protection requires
+# a paid plan for private repos; public repos get it free). That case is
+# a plan-tier limitation, NOT a configuration bug: bootstrap-fork should
+# continue without it. Other failures (no main branch, auth issues, etc.)
+# still hard-fail with the original error message.
+PUT_STDERR=$(mktemp -t gh-protection-stderr)
+trap 'rm -f "$PUT_STDERR"' EXIT
+if ! echo "$PROTECTION_JSON" | gh api -X PUT "repos/$REPO/branches/main/protection" \
   -H "Accept: application/vnd.github+json" \
-  --input - --silent || {
-  # If the branch doesn't exist yet (fresh repo with no commits on main),
-  # PUT returns 404. Make this error clearer.
-  fail "could not apply protection — does '$REPO' have a 'main' branch yet? Push at least one commit first."
-}
+  --input - --silent 2>"$PUT_STDERR"; then
+  put_err=$(<"$PUT_STDERR")
+  if printf '%s' "$put_err" | grep -q "Upgrade to GitHub Pro"; then
+    # Plan-tier limitation. Emit a clear advisory with three actionable
+    # paths and exit 0 — bootstrap-fork already applied the squash-only
+    # merge / auto-delete / auto-merge settings in step 1, which DO work
+    # on free private repos. The only thing missing is branch protection.
+    printf '    ⚠ branch protection unavailable on free + private repos\n' >&2
+    cat >&2 <<EOF
+
+      GitHub gates branch protection on PRIVATE repos behind paid plans.
+      Your repo '$REPO' is private and on the free plan, so the PUT
+      returned HTTP 403. Repo settings (squash-only merge, auto-delete head
+      branches, auto-merge) WERE applied successfully — only the
+      protection rules were skipped.
+
+      Three options:
+
+        A) Make the repo public (free, protection works immediately):
+             gh repo edit $REPO --visibility public --accept-visibility-change-consequences
+
+        B) Upgrade to GitHub Pro (\$4/mo for private repos + protection):
+             https://github.com/settings/billing/plans
+
+        C) Accept no protection — fine for solo work. Trade-off: anyone
+           with write access can push directly to main without a PR or CI
+           gate. \`make doctor\` will continue to surface this as ⚠ advisory.
+
+      For (C), no further action needed — \`make bootstrap-fork\` continues
+      to the remaining steps.
+
+EOF
+    # Don't fail bootstrap-fork — squash + auto-delete + auto-merge were
+    # applied and the rest of the pipeline (mint certs, etc.) doesn't
+    # depend on branch protection. The :warn surfaces via `make doctor`
+    # until the user picks A or B.
+    step "Done (with advisory)"
+    ok "$REPO settings applied (squash-only, auto-merge, auto-delete head branches)."
+    printf '    ⚠ branch protection on main: SKIPPED — see advisory above.\n' >&2
+    exit 0
+  fi
+  # Other failures: 404 (no main branch), 401 (gh auth), etc. Surface the
+  # original error so the user can fix the underlying issue.
+  printf '%s\n' "$put_err" >&2
+  fail "could not apply protection — see error above. Common causes: '$REPO' has no 'main' branch yet (push a commit first); your gh token lacks admin:repo scope."
+fi
 ok "main: PR-required, ${#CHECKS[@]} CI checks ($(IFS=,; echo "${CHECKS[*]}"), strict), enforce on admins, linear history"
 
 step "Done"

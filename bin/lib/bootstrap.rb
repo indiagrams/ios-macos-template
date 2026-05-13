@@ -433,21 +433,57 @@ module Bootstrap
     end
   end
 
+  # Surfaced when the GitHub repo is private AND the owning account is on
+  # the free plan. GitHub gates branch protection (and required status
+  # checks, required reviews, enforce-admins, linear-history, etc.) behind
+  # paid plans for private repos. Public repos get all of it for free.
+  # Three actionable resolutions; user picks one based on their constraints.
+  # Wrapped to ~80 cols for terminal readability.
+  def self.branch_protection_free_private_msg(repo_slug)
+    <<~MSG.chomp
+      GitHub branch protection unavailable: this repo is PRIVATE on the free plan.
+        GitHub gates branch protection on private repos behind paid plans.
+        Three options:
+          A) Make the repo public (free, branch protection works immediately):
+               gh repo edit #{repo_slug} --visibility public --accept-visibility-change-consequences
+          B) Upgrade to GitHub Pro ($4/mo gives private repos branch protection):
+               https://github.com/settings/billing/plans
+          C) Accept no protection (template ships fine; you lose the
+             "no direct pushes to main" + "CI must pass before merge" gate).
+             Fine for solo work; teams want A or B.
+    MSG
+  end
+
   class BranchProtection < Step
     def name; "GitHub branch protection on main"; end
 
     def check
-      # Probe for the protection's enforce_admins value. Two reasons to
-      # re-run setup-github.sh (return :pending):
-      #   1. No protection at all (HTTP 404) — first-time fork, hasn't run yet.
+      # Probe for the protection's enforce_admins value. Three reasons to
+      # treat the result specially:
+      #   1. No protection at all (HTTP 404) — first-time fork, hasn't run yet
+      #      → return :pending so do_it can run setup-github.sh.
       #   2. Protection exists but enforce_admins doesn't match the current
-      #      RELEASE_MODE. Lets a forker switch ci ↔ local later by editing
-      #      .bootstrap.env + re-running `make bootstrap-fork`; without this
-      #      drift detection, BranchProtection would stay :done and the
-      #      protection config would silently mismatch the mode.
+      #      RELEASE_MODE → return :pending so do_it re-applies. Lets a forker
+      #      switch ci ↔ local later by editing .bootstrap.env + re-running
+      #      `make bootstrap-fork`; without this drift detection,
+      #      BranchProtection would stay :done and the protection config would
+      #      silently mismatch the mode.
+      #   3. HTTP 403 + "Upgrade to GitHub Pro" — repo is PRIVATE and the
+      #      account is on the free plan, which doesn't include branch
+      #      protection. The PUT in setup-github.sh would 403 here, so we
+      #      preempt with a :warn and DON'T try (saving the user the confusing
+      #      mid-bootstrap-fork failure). The :warn surfaces three actionable
+      #      paths: make repo public (free), upgrade to Pro ($4/mo), or accept
+      #      the trade-off (no main-branch gate). Detection: GET also returns
+      #      403 + the same Upgrade-to-GitHub-Pro message body — `gh api` puts
+      #      the JSON response in stdout even on non-zero exit, so we can
+      #      match the message without capturing stderr separately.
       out, ok = Sh.run("gh", "api",
                        "repos/#{config.repo_slug}/branches/main/protection",
                        "--jq", ".enforce_admins.enabled")
+      if !ok && out.include?("Upgrade to GitHub Pro")
+        return [:warn, Bootstrap.branch_protection_free_private_msg(config.repo_slug)]
+      end
       return :pending unless ok
       current = out.strip == "true"
       desired = config.ci_mode?

@@ -535,8 +535,8 @@ end
 #
 # Resolution order for each field:
 #   1. ASC_<NAME> env var (privacy_url, support_url, marketing_url, copyright,
-#      primary_category, secondary_category). Org-shared via
-#      `~/code/.bootstrap.env` auto-sourced by the Makefile.
+#      primary_category, secondary_category). Set these env vars via your
+#      shell profile / .envrc / CI env block when org-shared.
 #   2. fastlane/metadata/<primary_locale>/<name>.txt (file fallback).
 #
 # Called by BOTH `do_upload_metadata` (make ship) and `do_submit_for_review`
@@ -581,8 +581,8 @@ end
 # `platform:` should be :ios or :osx (deliver's spelling).
 def do_upload_metadata(platform:)
   metadata_dir    = File.join(__dir__, "metadata")
-  # Primary App Store locale. `ASC_PRIMARY_LOCALE` env var (set in shared
-  # `~/code/.bootstrap.env`) overrides en-US for orgs whose primary market
+  # Primary App Store locale. `ASC_PRIMARY_LOCALE` env var (set via your shell
+  # profile / .envrc) overrides en-US for orgs whose primary market
   # isn't English. The .txt files are expected at
   # `fastlane/metadata/<locale>/*.txt` — same path shape, different subdir
   # name. Doctor's `ScanMetadata` still scans en-US/ specifically (most
@@ -595,8 +595,8 @@ def do_upload_metadata(platform:)
 
   # App Review information. Each field's resolution order:
   #   1. APP_REVIEW_* env var (recommended — keeps PII out of the tracked
-  #      template tree). Suggested home for these exports: the shared
-  #      `~/code/.bootstrap.env` auto-sourced by the Makefile.
+  #      template tree). Set via your shell profile / .envrc / CI env block
+  #      when these are stable across the team.
   #   2. fastlane/metadata/review_information/<name>.txt (file fallback).
   #
   # The template ships `TODO`-prefixed placeholders in every .txt file and

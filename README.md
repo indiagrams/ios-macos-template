@@ -33,7 +33,7 @@ Once `.bootstrap.env` is filled in (see [Getting Started](docs/GETTING-STARTED.m
 | 2 | `make bootstrap` | One-time dev-env setup: `brew bundle`, `bundle install`, `xcodegen`/`tuist generate`, lefthook pre-push hook. Survives a fresh host without pre-installed brew Ruby (auto re-execs after `ruby@3.3` lands on disk so `_BUNDLE` resolves to the brew shim, not stock `/usr/bin/bundle` on Ruby 2.6). |
 | 3 | `make all` | `doctor → bootstrap-fork → ship → verify`. Builds + signs + uploads to TestFlight, then polls App Store Connect until both binaries process. Env-first metadata propagation through both ship and submit paths — no placeholders in flight. |
 | 4 | `make screenshots` | Captures App Store screenshots (iOS + macOS) into `fastlane/screenshots/en-US/`. Survives a quarantined Xcode (auto strip + ad-hoc re-sign on the UI-test runner bundle before launch) without you needing to know what quarantine even is. |
-| 5 | `make submit` | Stages (default) or auto-submits the latest TestFlight build for App Store review. 9/9 precheck green; reads your real URLs + phone from `~/code/.bootstrap.env` or `.bootstrap.env`, not the tracked `+10000000000` / `example.com` fail-loud placeholders. |
+| 5 | `make submit` | Stages (default) or auto-submits the latest TestFlight build for App Store review. 9/9 precheck green; reads your real URLs + phone from `.bootstrap.env` or shell env, not the tracked `+10000000000` / `example.com` fail-loud placeholders. |
 
 Returning forkers running their second-or-later ship typically use just `make ship` (subset of `make all`) plus `make submit` when they want to push the build past TestFlight.
 
@@ -72,7 +72,7 @@ The five-command journey hides:
 ### App Store Connect integration
 - **Bundle ID auto-registered** in the Apple Developer Portal (`make doctor` step 11).
 - **ASC App record verification** with an actionable pointer for the one mandatory manual step — Apple's API forbids `POST /apps`, so the doctor surfaces it instead of failing opaque.
-- **Env-first metadata pipeline**: URLs, copyright, App Review contact info, demo credentials, TestFlight beta description, primary locale, categories — all read from `~/code/.bootstrap.env` (cross-fork) or `.bootstrap.env` (per-fork) before falling back to tracked `.txt` files in `fastlane/metadata/`.
+- **Env-first metadata pipeline**: URLs, copyright, App Review contact info, demo credentials, TestFlight beta description, primary locale, categories — all read from shell env / `.envrc` (cross-fork) or `.bootstrap.env` (per-fork) before falling back to tracked `.txt` files in `fastlane/metadata/`.
 - **Fail-loud placeholders**: `+10000000000` phone and `example.com` URLs in the tracked metadata fail ASC's validators on purpose, so missing config breaks at submit time, not after App Review rejection.
 - **`make submit` passes full env-first metadata** through both ship and submit paths. Closes a `deliver` gem fallback that previously re-loaded URLs from disk after a clean upload (silent-overwrite bug).
 - **App Privacy form publish-state checked** in `make doctor` (resilient to Apple's 2026 ASC API rename). `ASC_APP_PRIVACY_ACK=true` suppresses the warning once you've filled the form in the ASC web UI.

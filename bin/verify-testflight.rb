@@ -76,14 +76,33 @@ require_relative "lib/version_resolver"
 expected_version = nil
 expected_build = nil
 latest_tag = nil
-begin
-  raw = `git tag --sort=-creatordate --list 'v*' 2>/dev/null`.strip
-  unless raw.empty?
-    latest_tag = raw.lines.first.strip
-    expected_version, expected_build = Bootstrap::Version.parse_tag(latest_tag)
+
+# `RELEASE_TAG` env override takes precedence over the git-tag lookup.
+# Required by the smoketest's canary (canary-local-mode.yml) which uploads
+# under an ephemeral CalVer tag (`v0.YYYY.WW-canary-N-gen`) that is
+# deliberately NEVER pushed (`skip_tag:true` in the canary lane). The
+# unpushed canary tag would never appear in `git tag --list 'v*'`; without
+# the env override, this script falls through to "latest local tag" which
+# on forks recently cut from upstream is the upstream release tag (e.g.
+# `v1.7.0`), causing a tag mismatch — verify polls ASC for `1.7.0 (*)`
+# while the canary uploaded `0.2026.20 (2102)`. Surfaced 2026-05-16 by
+# the first Saturday cron after v1.7.0 was cut on the smoketest.
+# Real-shipper use (`make verify` after `make ship`) still works via the
+# git-tag fallback since `make ship` always pushes its tag.
+override = ENV["RELEASE_TAG"].to_s.strip
+if !override.empty?
+  latest_tag = override
+  expected_version, expected_build = Bootstrap::Version.parse_tag(latest_tag)
+else
+  begin
+    raw = `git tag --sort=-creatordate --list 'v*' 2>/dev/null`.strip
+    unless raw.empty?
+      latest_tag = raw.lines.first.strip
+      expected_version, expected_build = Bootstrap::Version.parse_tag(latest_tag)
+    end
+  rescue StandardError
+    # leave nil; fallback engages below
   end
-rescue StandardError
-  # leave nil; fallback engages below
 end
 
 # ─── Fetch builds (filtered by version when known) ────────────────────────────

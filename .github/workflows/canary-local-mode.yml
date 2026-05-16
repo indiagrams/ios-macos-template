@@ -557,7 +557,14 @@ jobs:
         # Confirms ASC accepted the upload. Doesn't wait for full processing
         # (5-15 min); just checks at least one build exists for the bundle.
         # Real local-mode users run `make verify` which calls the same script.
+        # `RELEASE_TAG` env override is REQUIRED here because the canary's
+        # tag is local-only (never pushed via `skip_tag:true` in the release
+        # lane); without it, verify-testflight.rb's git-tag fallback picks
+        # up the most-recent PUSHED tag (e.g. `v1.7.0` on a fork freshly cut
+        # from upstream) and polls ASC for the wrong marketing version.
         if: ${{ !inputs.dry_run }}
+        env:
+          RELEASE_TAG: ${{ steps.ver.outputs.tag }}
         run: bundle exec ruby bin/verify-testflight.rb
 
 

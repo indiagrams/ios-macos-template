@@ -47,10 +47,17 @@ final class AppStoreScreenshotTests: XCTestCase {
     }
 
     private func launchAndCapture(appearance: XCUIDevice.Appearance, label: String) {
-        // Set simulator appearance BEFORE launch so the app boots in the
-        // target mode. iOS 15+; macOS has no XCUIDevice.appearance — see
-        // MacOSUITests for the per-platform handling.
-        XCUIDevice.shared.appearance = appearance
+        // Use launch argument to communicate the target color scheme to the
+        // app, rather than `XCUIDevice.shared.appearance = appearance` (which
+        // has a known cold-simulator timeout flake on GHA macOS runners —
+        // the setter waits for springboard confirmation, and on freshly-booted
+        // simulators that handshake can timeout, failing the test with
+        // "Failed to set appearance mode: Timed out while setting appearance
+        // mode to Light"). HelloAppMain reads `-UITestColorScheme` at App
+        // init and applies `.preferredColorScheme(...)` to its WindowGroup,
+        // bypassing the system appearance API entirely.
+        let scheme = (appearance == .dark) ? "dark" : "light"
+        app.launchArguments.append(contentsOf: ["-UITestColorScheme", scheme])
         app.launch()
 
         // Wait for the title text by accessibility identifier (set in
